@@ -1,4 +1,4 @@
-# Planner
+# Weftday
 
 All your Google calendars and your tasks in one place. Schedule tasks as time blocks next to your meetings.
 
@@ -8,7 +8,7 @@ All your Google calendars and your tasks in one place. Schedule tasks as time bl
 
 - It is a plain web page with no server. Everything runs in your browser and talks to Google Calendar directly.
 - Your tasks, settings and sign-in keys are stored in your own browser. Nothing is stored in this repository.
-- Tasks can also be saved in a "My Planner" calendar in your own Google account, which keeps your devices in step and lets your phone remind you.
+- Tasks can also be saved in a "Weftday" calendar in your own Google account, which keeps your devices in step and lets your phone remind you.
 
 ## Setting up a device
 

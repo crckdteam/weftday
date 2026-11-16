@@ -1,6 +1,6 @@
 {
-  "name": "Planner",
-  "short_name": "Planner",
+  "name": "Weftday",
+  "short_name": "Weftday",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#f6f6f4",

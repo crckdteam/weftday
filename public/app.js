@@ -8,7 +8,7 @@ import {
 } from './util.js';
 
 const HOUR = 52, PXM = HOUR / 60, SNAP = 15;
-const INBOX_DATE = '2000-01-01'; // inbox tasks are parked on this day in the "My Planner" calendar
+const INBOX_DATE = '2000-01-01'; // inbox tasks are parked on this day in the "Weftday" calendar
 const VIEWS = ['day', 'week', 'month', 'list'];
 const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
 const $ = (s, r = document) => r.querySelector(s);
@@ -1345,11 +1345,11 @@ async function onConnected(a) {
   render();
   if (state.settings.plannerCalendarId) return;
   dialog(`<div class="dbody"><h3>Save your tasks to this account?</h3>
-    <p class="note">Your tasks can be saved in a calendar called “My Planner” inside <b>${esc(a.email)}</b>. That keeps your devices in step and lets your phone remind you even when this computer is off.</p>
+    <p class="note">Your tasks can be saved in a calendar called “Weftday” inside <b>${esc(a.email)}</b>. That keeps your devices in step and lets your phone remind you even when this computer is off.</p>
     <div class="actions"><span class="sp"></span><button class="btn ghost" data-x="close">Not this account</button><button class="btn primary" data-x="yes">Yes, use this account</button></div></div>`, {
     async yes(btn) {
       btn.disabled = true;
-      try { await setPlanner(a); closeDialog(); toast('Tasks will be saved to “My Planner”'); render(); }
+      try { await setPlanner(a); closeDialog(); toast('Tasks will be saved to “Weftday”'); render(); }
       catch (err) { btn.disabled = false; toast(err.message, true); }
     },
   });
@@ -1412,17 +1412,17 @@ function openSettings(msg) {
     <label>Client ID<input name="clientId" value="${esc(s.clientId)}" placeholder="…apps.googleusercontent.com" autocomplete="off" spellcheck="false"></label>
     <label>Client secret<input name="clientSecret" type="password" value="${esc(s.clientSecret)}" autocomplete="off"></label>
     <details><summary>How to get these (one time, about 10 minutes)</summary><ol>
-      <li>Open <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">console.cloud.google.com</a> and create a project called “Planner”.</li>
+      <li>Open <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">console.cloud.google.com</a> and create a project called “Weftday”.</li>
       <li>Go to <b>APIs &amp; Services → Library</b>, find <b>Google Calendar API</b> and press Enable.</li>
       <li>Go to <b>Google Auth Platform</b> (OAuth consent screen). Choose <b>External</b>, give it a name and your email.</li>
       <li>Under <b>Audience</b>, press <b>Publish app</b>. This stops Google signing you out every 7 days. Only you can use it.</li>
       <li>Under <b>Clients</b>, create a client of type <b>Web application</b>. Add <code>${esc(location.origin)}</code> under “Authorised JavaScript origins” and <code>${esc(G.redirectUri())}</code> under “Authorised redirect URIs”.</li>
       <li>Copy the Client ID and Client secret into the boxes above and press Save.</li>
-      <li>When you connect an account, Google shows a “not verified” warning. Choose <b>Advanced → Go to Planner</b>. That is expected for a private app.</li>
+      <li>When you connect an account, Google shows a “not verified” warning. Choose <b>Advanced → Go to Weftday</b>. That is expected for a private app.</li>
     </ol></details>
     <div class="rowline"><span class="note">Phone, tablet or another computer</span><button type="button" class="btn" data-x="device">Set up another device</button></div>
     <h4>Where tasks are saved</h4>
-    <label>Save tasks to a “My Planner” calendar in<select name="planner">${opts([['', 'This device only'], ...state.accounts.map(a => [a.id, a.email])], s.plannerAccountId)}</select></label>
+    <label>Save tasks to a “Weftday” calendar in<select name="planner">${opts([['', 'This device only'], ...state.accounts.map(a => [a.id, a.email])], s.plannerAccountId)}</select></label>
     <h4>Your day</h4>
     <div class="row two">
       <label>Working day starts<select name="dayStart">${opts(hours, s.dayStart)}</select></label>
@@ -1591,7 +1591,7 @@ async function boot() {
   }
   // Finished tasks always belong to a day, so the inbox only ever holds things still to do.
   for (const t of state.tasks) if (t.done && !t.date) { t.date = ymd(new Date(t.created || Date.now())); touch(t); }
-  for (const t of state.tasks) if (!t.gEventId) t.dirty = true; // anything not yet in "My Planner" (such as older inbox tasks) gets sent
+  for (const t of state.tasks) if (!t.gEventId) t.dirty = true; // anything not yet in "Weftday" (such as older inbox tasks) gets sent
   topUpSeries();
   save();
   render();

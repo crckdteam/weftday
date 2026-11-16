@@ -156,16 +156,16 @@ export async function refreshCalendars(acct) {
   save();
 }
 
-// Finds or creates the "My Planner" calendar that holds your task blocks.
+// Finds or creates the "Weftday" calendar that holds your task blocks.
 export async function ensurePlannerCalendar(acct) {
   await refreshCalendars(acct);
-  let cal = acct.calendars.find(c => c.summary === 'My Planner' && c.accessRole === 'owner');
+  let cal = acct.calendars.find(c => c.summary === 'Weftday' && c.accessRole === 'owner');
   if (!cal) {
     const made = await api(acct, '/calendars', {
       method: 'POST',
-      body: { summary: 'My Planner', timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+      body: { summary: 'Weftday', timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
     });
-    cal = { id: made.id, summary: 'My Planner', primary: false, accessRole: 'owner', enabled: true };
+    cal = { id: made.id, summary: 'Weftday', primary: false, accessRole: 'owner', enabled: true };
     acct.calendars.push(cal);
     save();
   }

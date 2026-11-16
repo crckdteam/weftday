@@ -77,4 +77,4 @@ http.createServer(async (req, res) => {
   } catch (err) {
     res.writeHead(500, { 'content-type': 'text/plain' }).end(String(err));
   }
-}).listen(port, '127.0.0.1', () => console.log(`Planner with pretend Google at http://localhost:${port}`));
+}).listen(port, '127.0.0.1', () => console.log(`Weftday with pretend Google at http://localhost:${port}`));
