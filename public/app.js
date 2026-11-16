@@ -1387,7 +1387,9 @@ function openDeviceSetup() {
     <div class="qr">${qrSvg(link)}</div>
     <p class="note">On an iPhone, open the link in Safari, then use Share → Add to Home Screen to get an app icon.</p>
     <p class="note warn">This square contains your keys. Only show it to your own devices and people you trust.</p>
-    <div class="actions"><button class="btn" data-x="copy">Copy the link instead</button><span class="sp"></span><button class="btn primary" data-x="close">Done</button></div></div>`, {
+    <div class="actions"><button class="btn" data-x="copy">Copy the link instead</button>
+      ${isLocal ? `<a class="btn" href="${esc(link)}" target="_blank" rel="noopener">Open on this computer</a>` : ''}
+      <span class="sp"></span><button class="btn primary" data-x="close">Done</button></div></div>`, {
     copy() { navigator.clipboard.writeText(link).then(() => toast('Link copied'), () => toast('Could not copy the link', true)); },
   });
 }
