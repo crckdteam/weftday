@@ -8,12 +8,15 @@ const base = () => ({
   settings: {
     clientId: '', clientSecret: '', plannerAccountId: '', plannerCalendarId: '', reminder: 10, view: '',
     theme: 'auto', dayStart: 9 * 60, dayEnd: 18 * 60, morning: 8 * 60, // minutes after midnight; morning -1 = off
+    shareAccounts: false, // keep the account list the same on all devices (see vault.js)
   },
   accounts: [],     // connected Google accounts
   tasks: [],        // your tasks and time blocks
   tombstones: [],   // Google event ids waiting to be deleted
   notified: {},     // reminders already shown
   lastBrief: '',    // the day the morning summary was last shown
+  goneAccounts: [], // accounts removed here, so other devices drop them too
+  sharedSeen: false, // the shared account list has been found in Google at least once
 });
 
 function load() {

@@ -1,7 +1,7 @@
 // Keeps a copy of the app's own files so it still opens without a connection.
 // Always asks the network for the newest copy first, so updates show up straight away.
-const CACHE = 'planner-shell-v6';
-const FILES = ['./', 'index.html', 'styles.css', 'app.js', 'google.js', 'store.js', 'util.js', 'qr.js', 'config.js', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'manifest.webmanifest'];
+const CACHE = 'planner-shell-v8';
+const FILES = ['./', 'index.html', 'styles.css', 'app.js', 'google.js', 'store.js', 'util.js', 'qr.js', 'vault.js', 'config.js', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'manifest.webmanifest'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));
@@ -14,8 +14,10 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
+  // Page loads are re-requested by address (a page-load request cannot be given new options); everything
+  // else keeps its own headers.
   e.respondWith(
-    fetch(e.request.url, { cache: 'no-cache' })
+    fetch(e.request.mode === 'navigate' ? e.request.url : e.request, { cache: 'no-cache' })
       .then(res => {
         if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); }
         return res;

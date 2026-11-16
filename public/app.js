@@ -1,5 +1,6 @@
 import { state, save, DEMO, loadEventCache, saveEventCache } from './store.js';
 import * as G from './google.js';
+import * as V from './vault.js';
 import { qrSvg } from './qr.js';
 import { PUBLIC_URL } from './config.js';
 import {
@@ -593,11 +594,17 @@ function doAct(btn) {
   }
   if (act === 'reconnect' && a) return G.startConnect(a.email).catch(err => toast(err.message, true));
   if (act === 'rm-acct' && a) {
-    if (!confirm(`Remove ${a.email} from this app?\n\nNothing is deleted from Google. The app just stops showing this account.`)) return;
+    const everywhere = V.sharingReady() && a.id !== state.settings.plannerAccountId;
+    if (!confirm(`Remove ${a.email} from this app${everywhere ? ' on all your devices' : ''}?\n\nNothing is deleted from Google. The app just stops showing this account.`)) return;
+    if (everywhere) V.forgetAccount(a.id);
     state.accounts.splice(state.accounts.indexOf(a), 1);
-    if (state.settings.plannerAccountId === a.id) { state.settings.plannerAccountId = ''; state.settings.plannerCalendarId = ''; }
+    if (state.settings.plannerAccountId === a.id) { // the home account: this device simply leaves
+      Object.assign(state.settings, { plannerAccountId: '', plannerCalendarId: '', shareAccounts: false });
+      state.sharedSeen = false;
+    }
     for (const [k, ev] of events) if (ev.accountId === a.id) events.delete(k);
     save(); render();
+    if (everywhere) shareSync();
   }
 }
 
@@ -1310,7 +1317,7 @@ async function pullPlanner(from, to) {
     ]);
     const seen = new Set();
     for (const e of [...lists.flat(), ...inbox]) {
-      if (e.status === 'cancelled' || !e.start) continue;
+      if (e.status === 'cancelled' || !e.start || V.isShared(e)) continue;
       seen.add(e.id);
       mergeRemote(e);
     }
@@ -1341,9 +1348,11 @@ function connect() {
 }
 
 async function onConnected(a) {
+  a.t = Date.now(); // when this sign-in was made; the newest one wins across devices
+  save();
   toast(`Connected ${a.email}`);
   render();
-  if (state.settings.plannerCalendarId) return;
+  if (state.settings.plannerCalendarId) { shareSync(); return; }
   dialog(`<div class="dbody"><h3>Save your tasks to this account?</h3>
     <p class="note">Your tasks can be saved in a calendar called “Weftday” inside <b>${esc(a.email)}</b>. That keeps your devices in step and lets your phone remind you even when this computer is off.</p>
     <div class="actions"><span class="sp"></span><button class="btn ghost" data-x="close">Not this account</button><button class="btn primary" data-x="yes">Yes, use this account</button></div></div>`, {
@@ -1359,11 +1368,13 @@ async function onConnected(a) {
 // A link (shown as a camera-readable square) that opens the planner on another device with the
 // Google keys already filled in. The keys ride in the part after "#", which is never sent to any server.
 const isLocal = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
-function setupLink() {
-  const { clientId, clientSecret } = state.settings;
-  const data = btoa(JSON.stringify({ i: clientId, s: clientSecret })).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+function setupLink(mine) {
+  const { clientId, clientSecret } = state.settings, d = { i: clientId, s: clientSecret };
+  if (mine) { const h = plannerAccount(); d.e = h.id; d.r = h.refreshToken; } // your own device also gets your home account
+  const data = btoa(JSON.stringify(d)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   return `${isLocal ? PUBLIC_URL : G.redirectUri()}#setup=${data}`;
 }
+let homeFromLink = '';
 function importSetup() {
   const m = location.hash.match(/^#setup=([\w-]+)$/);
   if (!m) return false;
@@ -1374,24 +1385,78 @@ function importSetup() {
     const s = state.settings;
     if (s.clientId && s.clientId !== d.i && !confirm('Replace the Google keys saved on this device with the ones from this link?')) return false;
     s.clientId = d.i; s.clientSecret = d.s;
+    if (typeof d.e === 'string' && typeof d.r === 'string' && d.e && d.r) {
+      let a = acct(d.e);
+      if (!a) { a = { id: d.e, email: d.e, color: G.COLORS[state.accounts.length % G.COLORS.length], calendars: [] }; state.accounts.push(a); }
+      Object.assign(a, { refreshToken: d.r, accessToken: null, expiresAt: 0, needsReconnect: false, t: a.t || Date.now() });
+      homeFromLink = d.e;
+    }
     save();
     return true;
   } catch { toast('That setup link is not valid.', true); return false; }
 }
-function openDeviceSetup() {
+// A setup link from one of your own devices carries your home account. Use it to bring in the rest.
+async function adoptHome(id) {
+  setStatus('Bringing in your accounts…');
+  try {
+    await setPlanner(acct(id));
+    state.settings.shareAccounts = true;
+    state.sharedSeen = false;
+    save();
+    await shareSync();
+    render();
+    toast('Your accounts are set up on this device.');
+  } catch (err) {
+    console.warn(err);
+    toast('Could not bring in your accounts. Press “+ Connect Google account” instead.', true);
+  }
+}
+function openDeviceSetup(mine = true) {
   if (DEMO) return toast('This is sample data. Open the app without “?demo” first.');
   if (!state.settings.clientId) return openSettings('Add your Google keys first, then you can set up your phone.');
-  const link = setupLink();
-  dialog(`<div class="dbody"><h3>Use it on your phone</h3>
-    <p class="note">Point your phone’s camera at this square and tap the link that appears. The planner opens with your Google keys already filled in. Then press “+ Connect Google account” there.</p>
-    <div class="qr">${qrSvg(link)}</div>
+  const canMine = V.sharingReady();
+  mine = mine && canMine;
+  const link = setupLink(mine);
+  let square = '';
+  try { square = qrSvg(link); } catch { /* too long for a square: the link can still be copied */ }
+  dialog(`<div class="dbody"><h3>Set up another device</h3>
+    ${canMine ? `<div class="seg"><button type="button" data-x="mine" class="${mine ? 'on' : ''}">My own device</button><button type="button" data-x="other" class="${mine ? '' : 'on'}">Someone else’s</button></div>` : ''}
+    <p class="note">${mine
+      ? 'Point your phone’s camera at this square and tap the link that appears. The planner opens with all your accounts already connected.'
+      : 'Point the phone’s camera at this square and tap the link that appears. The planner opens with the Google keys already filled in. Then press “+ Connect Google account” there.'}</p>
+    ${square ? `<div class="qr">${square}</div>` : '<p class="note warn">This link is too long to show as a square. Use “Copy the link instead”.</p>'}
     <p class="note">On an iPhone, open the link in Safari, then use Share → Add to Home Screen to get an app icon.</p>
-    <p class="note warn">This square contains your keys. Only show it to your own devices and people you trust.</p>
+    <p class="note warn">${mine
+      ? 'This square signs a device in to your Google calendars. Never show it to anyone else.'
+      : 'This square contains your keys. Only show it to people you trust.'}</p>
+    ${canMine ? '' : '<p class="note">Tip: switch on “Keep my accounts the same on all my devices” in Settings, and your own devices will need no Google login.</p>'}
     <div class="actions"><button class="btn" data-x="copy">Copy the link instead</button>
       ${isLocal ? `<a class="btn" href="${esc(link)}" target="_blank" rel="noopener">Open on this computer</a>` : ''}
       <span class="sp"></span><button class="btn primary" data-x="close">Done</button></div></div>`, {
     copy() { navigator.clipboard.writeText(link).then(() => toast('Link copied'), () => toast('Could not copy the link', true)); },
+    mine: () => openDeviceSetup(true),
+    other: () => openDeviceSetup(false),
   });
+}
+
+// ---------------------------------------------------------------- same accounts on every device
+// When switched on in Settings, the list of connected accounts is kept in step through the home account
+// (the one that holds the "Weftday" calendar). Returns true when this device's list changed.
+async function shareSync() {
+  if (DEMO || !V.sharingReady()) return false;
+  try {
+    const r = await sync(() => V.syncAccounts());
+    if (!r) return false;
+    if (r.off) { toast('Keeping accounts the same was switched off on another device.'); return false; }
+    if (!r.added.length && !r.removed.length) return false;
+    for (const [k, ev] of events) if (!acct(ev.accountId)) events.delete(k);
+    await Promise.all(r.added.map(id => G.refreshCalendars(acct(id)).catch(err => console.warn(id, err))));
+    render();
+    const n = r.added.length, m = r.removed.length;
+    toast(n ? (n === 1 ? `Added ${r.added[0]} from your other device` : `Added ${n} accounts from your other devices`)
+      : (m === 1 ? `${r.removed[0]} was removed on another device` : `${m} accounts were removed on another device`));
+    return true;
+  } catch (err) { console.warn('Could not update the shared account list', err); return false; }
 }
 
 // ---------------------------------------------------------------- settings
@@ -1423,6 +1488,8 @@ function openSettings(msg) {
     <div class="rowline"><span class="note">Phone, tablet or another computer</span><button type="button" class="btn" data-x="device">Set up another device</button></div>
     <h4>Where tasks are saved</h4>
     <label>Save tasks to a “Weftday” calendar in<select name="planner">${opts([['', 'This device only'], ...state.accounts.map(a => [a.id, a.email])], s.plannerAccountId)}</select></label>
+    <label class="check"><input type="checkbox" name="share"${s.shareAccounts ? ' checked' : ''}>Keep my accounts the same on all my devices</label>
+    <p class="note">Saves the sign-ins for your accounts, locked, inside the account chosen above. A new device then needs no Google login, and accounts you add or remove follow you everywhere. Keep that account safe.</p>
     <h4>Your day</h4>
     <div class="row two">
       <label>Working day starts<select name="dayStart">${opts(hours, s.dayStart)}</select></label>
@@ -1448,15 +1515,21 @@ function openSettings(msg) {
       s.dayStart = +fd.get('dayStart'); s.dayEnd = +fd.get('dayEnd');
       s.morning = +fd.get('morning');
       s.theme = fd.get('theme');
-      const want = fd.get('planner');
+      const want = fd.get('planner'), share = fd.get('share') === 'on';
       save();
       applyTheme();
+      if (share && !want) return toast('To keep your accounts the same everywhere, first choose an account to save tasks in.', true);
+      if (share && !s.clientSecret) return toast('To keep your accounts the same everywhere, add the Client secret first.', true);
+      const wasSharing = s.shareAccounts, moving = want !== s.plannerAccountId;
+      $('button.primary', form).disabled = true;
       try {
-        if (!want && s.plannerAccountId) { s.plannerAccountId = ''; s.plannerCalendarId = ''; save(); }
-        else if (want && want !== s.plannerAccountId) {
-          $('button.primary', form).disabled = true;
-          await setPlanner(acct(want));
-        }
+        if (wasSharing && (!share || moving)) await sync(() => V.clearShared()); // switching off, or leaving the old home account
+        if (!share) s.shareAccounts = false;
+        if (!want && s.plannerAccountId) { s.plannerAccountId = ''; s.plannerCalendarId = ''; }
+        else if (want && moving) await setPlanner(acct(want));
+        if (share) { if (!wasSharing || moving) state.sharedSeen = false; s.shareAccounts = true; }
+        save();
+        if (share) await shareSync();
         closeDialog(); render(); toast('Settings saved');
       } catch (err) { $('button.primary', form).disabled = false; toast(err.message, true); }
     },
@@ -1595,7 +1668,8 @@ async function boot() {
   topUpSeries();
   save();
   render();
-  if (gotKeys) toast('Keys added. Now press “+ Connect Google account”.');
+  if (homeFromLink) await adoptHome(homeFromLink);
+  else if (gotKeys) toast('Keys added. Now press “+ Connect Google account”.');
   try {
     const a = await G.finishConnect();
     if (a) await onConnected(a);
@@ -1604,12 +1678,14 @@ async function boot() {
     await Promise.all(state.accounts.filter(a => !a.needsReconnect).map(a => G.refreshCalendars(a).catch(err => console.warn(a.email, err))));
     renderSide();
     scheduleFlush();
+    await shareSync();
   }
   await refresh();
   tick();
   setInterval(tick, 30000);
-  setInterval(() => { if (!document.hidden) refresh(); }, 5 * 60000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) { tick(); refresh(); } });
+  const catchUp = () => shareSync().then(refresh);
+  setInterval(() => { if (!document.hidden) catchUp(); }, 5 * 60000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { tick(); catchUp(); } });
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 boot();

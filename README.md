@@ -9,11 +9,14 @@ All your Google calendars and your tasks in one place. Schedule tasks as time bl
 - It is a plain web page with no server. Everything runs in your browser and talks to Google Calendar directly.
 - Your tasks, settings and sign-in keys are stored in your own browser. Nothing is stored in this repository.
 - Tasks can also be saved in a "Weftday" calendar in your own Google account, which keeps your devices in step and lets your phone remind you.
+- Optionally, the list of connected accounts is kept (encrypted) in that same calendar, so all your devices show the same accounts and a new device needs no Google login. See `public/vault.js`.
 
 ## Setting up a device
 
 1. On a device that is already set up, open **Settings → Set up another device** and scan the square with the new device's camera (or copy the link).
-2. On the new device, press **+ Connect Google account**.
+2. If "Keep my accounts the same on all my devices" is switched on, the new device opens with every account already connected. Otherwise, press **+ Connect Google account** there.
+
+The square has two versions: "My own device" (signs the device in to your accounts, never share it) and "Someone else's" (only the app keys).
 
 Setting up from scratch needs a Google Cloud "OAuth client" (Client ID and secret). The steps are inside the app under **Settings → How to get these**.
 

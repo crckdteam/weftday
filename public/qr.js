@@ -1,12 +1,14 @@
 // Draws a QR code (the square a phone camera can read) with no outside libraries.
-// Byte mode, lowest error correction, sizes 1 to 13 (up to about 420 characters).
+// Byte mode, lowest error correction, sizes 1 to 20 (up to about 850 characters).
 
 // Per size: [error-correction bytes per block, blocks in group 1, data bytes each, blocks in group 2, data bytes each]
 const BLOCKS = [null, [7, 1, 19, 0, 0], [10, 1, 34, 0, 0], [15, 1, 55, 0, 0], [20, 1, 80, 0, 0], [26, 1, 108, 0, 0],
   [18, 2, 68, 0, 0], [20, 2, 78, 0, 0], [24, 2, 97, 0, 0], [30, 2, 116, 0, 0], [18, 2, 68, 2, 69], [20, 4, 81, 0, 0],
-  [24, 2, 92, 2, 93], [26, 4, 107, 0, 0]];
+  [24, 2, 92, 2, 93], [26, 4, 107, 0, 0], [30, 3, 115, 1, 116], [22, 5, 87, 1, 88], [24, 5, 98, 1, 99],
+  [28, 1, 107, 5, 108], [30, 5, 120, 1, 121], [28, 3, 113, 4, 114], [28, 3, 107, 5, 108]];
 const ALIGN = [null, [], [6, 18], [6, 22], [6, 26], [6, 30], [6, 34], [6, 22, 38], [6, 24, 42], [6, 26, 46], [6, 28, 50],
-  [6, 30, 54], [6, 32, 58], [6, 34, 62]];
+  [6, 30, 54], [6, 32, 58], [6, 34, 62], [6, 26, 46, 66], [6, 26, 48, 70], [6, 26, 50, 74], [6, 30, 54, 78],
+  [6, 30, 56, 82], [6, 30, 58, 86], [6, 34, 62, 90]];
 
 const EXP = new Uint8Array(512), LOG = new Uint8Array(256);
 for (let i = 0, x = 1; i < 255; i++) { EXP[i] = x; LOG[x] = i; x <<= 1; if (x & 256) x ^= 0x11d; }
@@ -40,8 +42,9 @@ export function qrMatrix(text) {
   const bytes = [...new TextEncoder().encode(text)];
   let ver = 1;
   const room = v => { const [, b1, d1, b2, d2] = BLOCKS[v]; return b1 * d1 + b2 * d2; };
-  while (ver <= 13 && bytes.length > room(ver) - (ver < 10 ? 2 : 3)) ver++;
-  if (ver > 13) throw new Error('Too long for a QR code');
+  const MAX = BLOCKS.length - 1;
+  while (ver <= MAX && bytes.length > room(ver) - (ver < 10 ? 2 : 3)) ver++;
+  if (ver > MAX) throw new Error('Too long for a QR code');
   const [ecLen, b1, d1, b2, d2] = BLOCKS[ver], dataLen = room(ver);
 
   // data bytes: mode, length, text, padding

@@ -1,0 +1,149 @@
+// Keeps the list of connected Google accounts the same on all of your devices (optional).
+// The list, with each account's sign-in, is locked with a key made from your Client secret and
+// kept in one hidden entry of the "Weftday" calendar in your home account. No server is involved:
+// each device reads and writes that entry in your own Google account.
+import { state, save } from './store.js';
+import * as G from './google.js';
+
+const DAY = '2000-01-05', NEXT_DAY = '2000-01-06'; // the hidden entry sits on this day, far from real plans
+const FROM = new Date(Date.UTC(2000, 0, 4)), TO = new Date(Date.UTC(2000, 0, 7));
+const KEEP_GONE = 180 * 86400000; // remember removed accounts for six months
+const CHUNK = 900;                // Google limits how long one stored value can be
+
+const home = () => state.accounts.find(a => a.id === state.settings.plannerAccountId);
+const eventsPath = () => `/calendars/${G.enc(state.settings.plannerCalendarId)}/events`;
+export const isShared = e => !!e.extendedProperties?.private?.plannerVault;
+export const sharingReady = () => !!state.settings.shareAccounts && !!state.settings.clientSecret
+  && !!state.settings.plannerCalendarId && !!home() && !home().needsReconnect;
+
+// ---- locking
+const toB64 = bytes => { let s = ''; for (const b of bytes) s += String.fromCharCode(b); return btoa(s); };
+const fromB64 = text => Uint8Array.from(atob(text), c => c.charCodeAt(0));
+async function lockKey() {
+  const raw = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('weftday accounts v1:' + state.settings.clientSecret));
+  return crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt']);
+}
+async function lock(obj) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = new TextEncoder().encode(JSON.stringify(obj));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await lockKey(), data));
+  const all = new Uint8Array(12 + ct.length);
+  all.set(iv); all.set(ct, 12);
+  return toB64(all);
+}
+async function unlock(text) {
+  const all = fromB64(text);
+  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: all.slice(0, 12) }, await lockKey(), all.slice(12));
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+
+// ---- the hidden calendar entry
+function entry(text) {
+  const priv = { plannerVault: '1', n: String(Math.ceil(text.length / CHUNK)) };
+  for (let i = 0; i * CHUNK < text.length; i++) priv['c' + i] = text.slice(i * CHUNK, (i + 1) * CHUNK);
+  return {
+    summary: 'Weftday: your connected accounts (please keep)',
+    description: 'Weftday uses this entry to keep your accounts the same on all your devices. Deleting it turns that off.',
+    start: { date: DAY }, end: { date: NEXT_DAY }, transparency: 'transparent',
+    reminders: { useDefault: false, overrides: [] },
+    extendedProperties: { private: priv },
+  };
+}
+async function findEntries() {
+  const items = await G.listEvents(home(), state.settings.plannerCalendarId, FROM, TO);
+  return items.filter(e => e.status !== 'cancelled' && isShared(e)).sort((a, b) => (a.updated < b.updated ? 1 : -1));
+}
+
+// ---- merging this device's list with the shared one
+const byE = (a, b) => (a.e < b.e ? -1 : a.e > b.e ? 1 : 0);
+const tidy = r => ({
+  v: 1,
+  accounts: (r.accounts || []).filter(x => x && x.e && x.r).map(({ e, r: tok, t }) => ({ e, r: tok, t: t || 0 })).sort(byE),
+  gone: (r.gone || []).filter(g => g && g.e).map(({ e, t }) => ({ e, t: t || 0 })).sort(byE),
+});
+const mine = () => tidy({
+  accounts: state.accounts.filter(a => a.refreshToken).map(a => ({ e: a.id, r: a.refreshToken, t: a.t })),
+  gone: state.goneAccounts || [],
+});
+
+function merge(remote) {
+  const now = Date.now(), added = [], removed = [], homeId = state.settings.plannerAccountId;
+  for (const a of state.accounts) if (!a.t) a.t = now;
+  const gone = new Map();
+  for (const g of [...remote.gone, ...(state.goneAccounts || [])]) {
+    if (g && g.e && now - g.t < KEEP_GONE) gone.set(g.e, Math.max(g.t, gone.get(g.e) || 0));
+  }
+  const theirs = new Map(remote.accounts.map(x => [x.e, x]));
+
+  // removed on another device after it was last connected anywhere
+  for (const a of [...state.accounts]) {
+    const lastConnected = Math.max(a.t, theirs.get(a.id)?.t || 0);
+    if (a.id !== homeId && gone.get(a.id) > lastConnected) {
+      state.accounts.splice(state.accounts.indexOf(a), 1);
+      removed.push(a.email);
+    }
+  }
+  for (const [e, x] of theirs) {
+    const a = state.accounts.find(o => o.id === e);
+    if (a) { // same account on both: take the other device's sign-in if it is newer, or if ours has stopped working
+      if (x.r !== a.refreshToken && (x.t > a.t || a.needsReconnect)) {
+        Object.assign(a, { refreshToken: x.r, accessToken: null, expiresAt: 0, needsReconnect: false });
+      }
+      if (x.t > a.t) a.t = x.t;
+    } else if (!(gone.get(e) > x.t)) { // connected on another device: add it here
+      state.accounts.push({
+        id: e, email: e, color: G.COLORS[state.accounts.length % G.COLORS.length], calendars: [],
+        refreshToken: x.r, accessToken: null, expiresAt: 0, needsReconnect: false, t: x.t,
+      });
+      added.push(e);
+    }
+  }
+  for (const a of state.accounts) if (gone.has(a.id) && gone.get(a.id) <= a.t) gone.delete(a.id); // connected again since
+  state.goneAccounts = [...gone].map(([e, t]) => ({ e, t }));
+  save();
+  return { added, removed };
+}
+
+// Brings this device and the shared list into step. Returns what changed on this device.
+export async function syncAccounts() {
+  if (!sharingReady()) return null;
+  const found = await findEntries(), ev = found[0];
+  let remote = null;
+  if (ev) {
+    const p = ev.extendedProperties.private;
+    let text = '';
+    for (let i = 0; i < +p.n; i++) text += p['c' + i] || '';
+    try { remote = tidy(await unlock(text)); } catch { remote = null; } // locked with other keys: start again from this device
+  } else if (state.sharedSeen) { // the entry is gone: sharing was turned off on another device
+    state.settings.shareAccounts = false;
+    state.sharedSeen = false;
+    save();
+    return { off: true, added: [], removed: [] };
+  }
+  const result = merge(remote || tidy({}));
+  const next = mine();
+  if (!remote || JSON.stringify(remote) !== JSON.stringify(next)) {
+    const body = entry(await lock(next));
+    if (ev) await G.api(home(), `${eventsPath()}/${G.enc(ev.id)}`, { method: 'PUT', body });
+    else await G.api(home(), eventsPath(), { method: 'POST', body });
+  }
+  for (const extra of found.slice(1)) await G.api(home(), `${eventsPath()}/${G.enc(extra.id)}`, { method: 'DELETE' }).catch(() => {});
+  state.sharedSeen = true;
+  save();
+  return result;
+}
+
+// Call when an account is removed here, so your other devices drop it too.
+export function forgetAccount(id) {
+  if (!sharingReady() || id === state.settings.plannerAccountId) return;
+  state.goneAccounts = (state.goneAccounts || []).filter(g => g.e !== id).concat({ e: id, t: Date.now() });
+  save();
+}
+
+// Removes the shared list from Google (used when sharing is switched off, or the home account changes).
+export async function clearShared() {
+  if (!state.settings.plannerCalendarId || !home() || home().needsReconnect) return;
+  for (const e of await findEntries()) await G.api(home(), `${eventsPath()}/${G.enc(e.id)}`, { method: 'DELETE' }).catch(() => {});
+  state.sharedSeen = false;
+  save();
+}
