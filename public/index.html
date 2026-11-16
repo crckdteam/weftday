@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Planner</title>
+  <meta name="theme-color" content="#f6f6f3" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#161615" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Planner">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <aside id="side">
+      <div class="brand">
+        <img src="icon.svg" alt="" width="22" height="22">
+        <span>Planner</span>
+        <span id="demoTag" hidden>Sample data</span>
+        <button id="closeSide" class="icon only-mobile" aria-label="Close menu">✕</button>
+      </div>
+      <form id="quick" autocomplete="off">
+        <input id="quickInput" placeholder="Add a task…  gym tomorrow 7am 1h" enterkeyhint="done" aria-label="Add a task">
+        <div id="quickHint" hidden></div>
+      </form>
+      <div id="sideBody"></div>
+      <div class="sideFoot">
+        <button id="connect" class="btn">+ Connect Google account</button>
+        <div class="footrow">
+          <button id="settingsBtn" class="btn ghost">Settings</button>
+          <button id="helpBtn" class="btn ghost no-mobile">Shortcuts</button>
+        </div>
+      </div>
+    </aside>
+
+    <main>
+      <header id="bar">
+        <button id="menu" class="icon only-mobile" aria-label="Open menu">☰</button>
+        <button id="todayBtn" class="btn">Today</button>
+        <button id="prev" class="icon" aria-label="Previous">‹</button>
+        <button id="next" class="icon" aria-label="Next">›</button>
+        <h1 id="title"></h1>
+        <span id="status"></span>
+        <button id="searchBtn" class="icon" aria-label="Search" title="Search ( / )">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg>
+        </button>
+        <div class="seg" id="viewSeg">
+          <button data-view="day">Day</button>
+          <button data-view="week">Week</button>
+          <button data-view="month">Month</button>
+          <button data-view="list">List</button>
+        </div>
+        <button id="newEvent" class="btn primary">+ Event</button>
+      </header>
+      <div id="grid">
+        <div id="gridHead"></div>
+        <div id="gridBody"></div>
+      </div>
+      <div id="month" hidden></div>
+      <div id="list" hidden></div>
+      <button id="fab" class="only-mobile" aria-label="New task">+</button>
+    </main>
+  </div>
+
+  <dialog id="dlg"></dialog>
+  <div id="toast" role="status"></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
