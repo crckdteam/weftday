@@ -1,4 +1,4 @@
-import { state, save, DEMO, loadEventCache, saveEventCache } from './store.js';
+import { state, save, isStale, DEMO, loadEventCache, saveEventCache } from './store.js';
 import * as G from './google.js';
 import * as V from './vault.js';
 import * as N from './notes.js';
@@ -77,24 +77,31 @@ function setStatus(text, isErr) {
 let dlgOpenedAt = 0, closeTimer = 0;
 let noteCommit = null; // saves the notes box of the meeting that is open, if any
 let aiJob = null;      // lets a running "Tidy my notes" be stopped when its box goes away
+// Starts a piece of AI work, stopping the one before it so nothing is left running unseen.
+function newJob() { aiJob?.abort(); return (aiJob = new AbortController()); }
 function saveOpenNote() { aiJob?.abort(); aiJob = null; const f = noteCommit; noteCommit = null; if (f) f(); }
 function dialog(html, handlers = {}, cls = '') {
   saveOpenNote();
   clearTimeout(closeTimer); // a box that was fading out is taken over by the new one
+  const showing = el.toast.classList.contains('show');
   document.body.append(el.toast);
   el.dlg.className = cls;
   el.dlg.innerHTML = html;
+  if (showing) el.dlg.append(el.toast); // a message on screen stays in front of the new box
   dlgOpenedAt = Date.now();
   if (!el.dlg.open) el.dlg.showModal();
   el.dlg.onclick = e => {
+    if (el.dlg.classList.contains('closing')) return; // fading out: a second click must not run anything twice
     if (e.target === el.dlg) { if (Date.now() - dlgOpenedAt > 250) closeDialog(); return; }
+    const onToast = e.target.closest('#toast [data-act]'); // a message shown inside the box, with its button
+    if (onToast) return doAct(onToast);
     const x = e.target.closest('[data-x]');
     if (!x) return;
     if (x.dataset.x === 'close') return closeDialog();
     handlers[x.dataset.x]?.(x, e);
   };
   const f = $('form', el.dlg);
-  if (f) f.onsubmit = e => { e.preventDefault(); handlers.submit?.(new FormData(f), f); };
+  if (f) f.onsubmit = e => { e.preventDefault(); if (!el.dlg.classList.contains('closing')) handlers.submit?.(new FormData(f), f); };
 }
 // Boxes fade out briefly instead of vanishing.
 function closeDialog() {
@@ -201,9 +208,14 @@ function topUpSeries() {
     if (!cur || t.date > cur.date) last.set(t.seriesId, t);
   }
   let added = 0;
+  const until = (state.seriesUntil ||= {}), yesterday = ymd(addDays(new Date(), -1));
   for (const t of last.values()) {
     if (!t.repeat || t.repeat === 'none') continue;
-    for (const ds of seriesDates(t, t.date, horizon)) {
+    // Start after the last day already written out, so a day you deleted does not come back, and
+    // never before today, so a repeat set on an old task does not fill the past.
+    const after = [t.date, until[t.seriesId] || '', yesterday].sort().pop();
+    until[t.seriesId] = horizon;
+    for (const ds of seriesDates(t, after, horizon)) {
       const id = `${t.seriesId}x${ds.replace(/-/g, '')}`;
       if (getTask(id)) continue;
       state.tasks.push(newTask({
@@ -223,6 +235,8 @@ function endSeries(seriesId, fromDate, keep) {
 }
 
 // Everything on each of the given (consecutive) days: calendar events plus tasks.
+// Minutes after midnight on the clock, which is what counts on a day when the clocks change.
+const clockMinutes = ms => { const d = new Date(ms); return d.getHours() * 60 + d.getMinutes(); };
 function collect(dates) {
   const out = new Map(dates.map(d => [ymd(d), { timed: [], allday: [] }]));
   const bounds = dates.map(d => [ymd(d), d.getTime(), addDays(d, 1).getTime()]);
@@ -233,7 +247,7 @@ function collect(dates) {
       if (ev.e <= t0 || ev.s >= t1) continue;
       const b = out.get(ds);
       if (ev.allDay) b.allday.push({ kind: 'ev', ev });
-      else b.timed.push({ kind: 'ev', ev, s: Math.max(0, Math.round((ev.s - t0) / 60000)), e: Math.min(1440, Math.round((ev.e - t0) / 60000)) });
+      else b.timed.push({ kind: 'ev', ev, s: ev.s <= t0 ? 0 : clockMinutes(ev.s), e: ev.e >= t1 ? 1440 : clockMinutes(ev.e) });
     }
   }
   for (const t of state.tasks) {
@@ -245,19 +259,19 @@ function collect(dates) {
   return out;
 }
 const dayItems = d => collect([d]).get(ymd(d));
-const busyOf = d => dayItems(d).timed
-  .filter(i => !(i.kind === 'task' && i.t.done) && !(i.kind === 'ev' && i.ev.selfStatus === 'declined'))
+const busyOf = (d, except) => dayItems(d).timed
+  .filter(i => !(i.kind === 'task' && (i.t.done || i.t === except)) && !(i.kind === 'ev' && i.ev.selfStatus === 'declined'))
   .map(i => [i.s, i.e]).sort((a, b) => a[0] - b[0]);
 const nowMinutes = () => { const n = new Date(); return n.getHours() * 60 + n.getMinutes(); };
 
 // First gap that fits. "strict" keeps inside working hours and returns null when the day is full.
-function nextFreeSlot(d, duration, strict) {
+function nextFreeSlot(d, duration, strict, except) { // except: a task whose own slot counts as free
   const { dayStart, dayEnd } = state.settings;
   const isToday = ymd(d) === todayYmd();
   const first = isToday ? Math.max(Math.ceil((nowMinutes() + 1) / SNAP) * SNAP, dayStart) : dayStart;
   const limit = strict ? dayEnd : 1440;
   let s = first;
-  for (const [bs, be] of busyOf(d)) {
+  for (const [bs, be] of busyOf(d, except)) {
     if (be <= s) continue;
     if (bs >= s + duration) break;
     s = Math.ceil(be / SNAP) * SNAP;
@@ -422,7 +436,7 @@ function renderSide() {
   const carried = state.tasks.filter(t => t.date && t.date < today && !t.done).sort((a, b) => a.date.localeCompare(b.date));
   const inbox = state.tasks.filter(t => !t.date && !t.done).sort((a, b) => (b.priority === 'high') - (a.priority === 'high') || b.created - a.created);
   const tagOf = t => t.tag ? ` · #${esc(t.tag)}` : '';
-  let h = todayCardHtml() + `<div class="tools"><button data-act="today">Today</button><button data-act="people">People</button><button data-act="free">Free times</button></div>`
+  let h = todayCardHtml() + `<div class="tools"><button data-act="open-today" title="Each of today’s meetings: who is in it, last time, what is open">${toolIcon('prepare')}<span>Prepare</span></button><button data-act="people" title="Everyone you meet, and their companies">${toolIcon('people')}<span>People</span></button><button data-act="free" title="A text with the times you are free, to paste into an email">${toolIcon('free')}<span>Free times</span></button></div>`
     + `<div id="upnext">${upNextHtml()}</div>`;
   if (carried.length) {
     h += `<div class="sec"><h4><span>Carried over</span><span>${carried.length}</span></h4>${carried.map(t =>
@@ -640,7 +654,7 @@ function doAct(btn) {
   if (act === 'undo') return undo();
   if (act === 'reload') return location.reload();
   if (act === 'plan') return openPlan();
-  if (act === 'today') return openToday();
+  if (act === 'open-today') return openToday(); // not 'today': that one is "do this task today" on a task
   if (act === 'people') return openPeople();
   if (act === 'free') return openFreeTimes();
   if (act === 'toast-go') { el.toast.className = ''; return toastGo?.(); }
@@ -750,12 +764,13 @@ function startCreateDrag(e) {
     box.style.cssText = `top:${s * PXM}px;height:${(en - s) * PXM - 1}px;left:1px;width:calc(100% - 3px)`;
     box.innerHTML = `<div class="bt"><div class="t">New task</div><div class="m">${fmtRange(s, en)}</div></div>`;
   }
-  function up() {
+  function up(ev) {
     removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', up);
     if (!box) return;
     box.remove();
     dragging = false;
     suppressClick = Date.now() + 350;
+    if (ev?.type === 'pointercancel') return; // the drag was interrupted: nothing is made
     openTask(newTask({ date: col.dataset.date, start: s, duration: en - s }), true);
   }
   addEventListener('pointermove', move); addEventListener('pointerup', up); addEventListener('pointercancel', up);
@@ -783,7 +798,7 @@ function onSidePointerDown(e) {
     over?.classList.remove('dropover'); over = null;
     if (view === 'month') {
       over = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.mcell') || null;
-      if (over) { over.classList.add('dropover'); target = { date: over.dataset.date, start: null }; }
+      if (over) { over.classList.add('dropover'); target = { date: over.dataset.date, start: t.start }; }
       return;
     }
     const col = colAt(ev.clientX, ev.clientY);
@@ -797,13 +812,13 @@ function onSidePointerDown(e) {
     drop.innerHTML = `<div class="bt"><div class="t">${esc(t.title)}</div><div class="m">${fmtRange(m, m + t.duration)}</div></div>`;
     col.append(drop);
   }
-  function up() {
+  function up(ev) {
     removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', up);
     if (!ghost) return;
     ghost.remove(); drop?.remove(); over?.classList.remove('dropover');
     dragging = false;
     suppressClick = Date.now() + 350;
-    if (!target) return;
+    if (!target || ev?.type === 'pointercancel') return; // interrupted drags move nothing
     mark();
     t.date = target.date; t.start = target.start; touch(t); commit();
     toast(`Scheduled ${relDay(t.date)}${t.start != null ? ', ' + fmtTime(t.start) : ''}`, { undo: true });
@@ -878,6 +893,11 @@ function bind() {
   addEventListener('offline', () => setStatus('Offline. Changes are kept and sent later.', true));
   addEventListener('online', () => { setStatus(''); scheduleFlush(); refresh(); });
   el.dlg.addEventListener('close', () => { saveOpenNote(); returnTo = null; document.body.append(el.toast); });
+  addEventListener('weftday-save-failed', () => setStatus('This browser is out of storage space. New changes are not being kept.', true));
+  el.dlg.addEventListener('submit', e => { // any form in a box: never let the browser reload the page
+    e.preventDefault();
+    if (e.target.id === 'hintRow') $('[data-x=retry]', el.dlg)?.click();
+  });
   el.dlg.addEventListener('cancel', e => { if (!calm()) { e.preventDefault(); closeDialog(); } }); // Escape fades out too
 }
 
@@ -928,7 +948,7 @@ function openTask(t, isNew = false) {
       if (v === 'free') {
         const d = f.date.value ? fromYmd(f.date.value) : today;
         f.date.value = ymd(d);
-        f.start.value = hhmm(nextFreeSlot(d, +f.duration.value));
+        f.start.value = hhmm(nextFreeSlot(d, +f.duration.value, false, t));
         return;
       }
       f.date.value = ymd(v === 'today' ? today : v === 'tomorrow' ? addDays(today, 1) : addDays(startOfWeek(today), 7));
@@ -941,6 +961,7 @@ function openTask(t, isNew = false) {
       const start = parseHhmm(fd.get('start'));
       let date = fd.get('date') || null;
       if (start != null && !date) date = todayYmd();
+      if (!date && fd.get('repeat') !== 'none') date = todayYmd(); // a repeating task has to start on some day
       Object.assign(t, {
         title, date, start: date ? start : null, duration: +fd.get('duration'),
         priority: fd.get('priority'), tag: fd.get('tag').trim().replace(/^#/, ''), notes: fd.get('notes'),
@@ -1176,8 +1197,13 @@ async function meetingsWith(email) {
       const cal = a.calendars.find(c => c.primary);
       if (!cal) return;
       try {
-        const j = await G.api(a, `/calendars/${G.enc(cal.id)}/events`, { params });
-        for (const e of j.items || []) {
+        const items = [];
+        for (let pageToken, page = 0; page < 6; page++) { // people you meet daily fill more than one page
+          const j = await G.api(a, `/calendars/${G.enc(cal.id)}/events`, { params: { ...params, pageToken } });
+          items.push(...(j.items || []));
+          if (!(pageToken = j.nextPageToken)) break;
+        }
+        for (const e of items) {
           if (e.status === 'cancelled' || !e.start) continue;
           learnNames(e);
           if (!(e.attendees || []).some(p => (p.email || '').toLowerCase() === email)) continue;
@@ -1358,13 +1384,15 @@ function openPerson(guest, from) {
     async facts() {
       if (!factsKey()) return openFactsHelp(guest, from);
       const card = $('#factsBox', el.dlg), before = card.innerHTML;
-      const job = aiJob = new AbortController();
+      const job = newJob();
       card.innerHTML = FACTS_LOADING;
       try {
         const answer = await getFacts(p, from?.title, job.signal, hint);
         if (job.signal.aborted || !card.isConnected) return;
         ({ raw, day } = F.split(F.mergeInto('', answer, dayLabel(new Date()))));
-        if (!commitAbout(true)) { N.set(key, F.join(box.value, raw, day), { title: p.name, when: Date.now(), people: [p.email] }); scheduleFlush(); }
+        lastOwn = box.value;
+        N.set(key, F.join(box.value.trim() ? box.value : '', raw, day).slice(0, N.MAX_LENGTH), { title: p.name, when: Date.now(), people: [p.email] });
+        scheduleFlush();
         const searched = answer.queries;
         openPerson(guest, from); // draw the page again, now with the facts
         if (searched.length) {
@@ -1384,21 +1412,26 @@ function openPerson(guest, from) {
   // Your own words save by themselves; the facts found on the web ride along in the same note.
   const box = $('[name=about]', el.dlg), saved = $('#aboutState', el.dlg);
   let timer = 0;
+  let lastOwn = box.value; // only what you changed in the box is saved, never an old copy over newer text
   const commitAbout = quiet => {
     clearTimeout(timer);
-    if (!N.set(key, F.join(box.value.trim() ? box.value : '', raw, day).slice(0, N.MAX_LENGTH), { title: p.name, when: Date.now(), people: [p.email] })) return false;
+    if (box.value === lastOwn) return false;
+    lastOwn = box.value;
+    const now = F.split(N.get(key)?.text || ''); // facts may have arrived since this page was opened
+    const text = F.join(box.value.trim() ? box.value : '', now.raw, now.day);
+    if (text.length > N.MAX_LENGTH) toast('This is too long to keep in full. Shorten your notes a little.', true);
+    if (!N.set(key, text.slice(0, N.MAX_LENGTH), { title: p.name, when: Date.now(), people: [p.email] })) return false;
     scheduleFlush();
     if (quiet !== true && saved.isConnected) saved.textContent = plannerReady() ? 'Saved' : 'Saved on this device';
     return true;
   };
-  $('#hintRow', el.dlg)?.addEventListener('submit', e => { e.preventDefault(); $('[data-x=retry]', el.dlg).click(); });
   box.addEventListener('input', () => { saved.textContent = ''; clearTimeout(timer); timer = setTimeout(commitAbout, 600); });
   box.addEventListener('change', commitAbout);
   noteCommit = commitAbout;
 
+  const box2 = $('#metList', el.dlg);
   meetingsWith(p.email).then(list => {
-    const box2 = $('#metList', el.dlg);
-    if (!box2) return;
+    if (!box2?.isConnected) return; // another page was opened meanwhile
     const now = Date.now(), past = list.filter(m => m.s < now).reverse(), next = list.filter(m => m.s >= now);
     const row = m => `<div><i>${esc(dayLabel(new Date(m.s)))}</i> ${esc(m.title || '')}${N.has(m.nk) ? ' ✎' : ''}</div>`;
     box2.innerHTML = !list.length ? '<div class="note">No meetings with them in the past year.</div>'
@@ -1460,7 +1493,7 @@ function openBrief(ev) {
     // Looks up the people who have no profile yet, one after another, then shows the brief again.
     async fill(btn) {
       if (!factsKey()) return openFactsHelp(missing[0].guest, ev);
-      const job = aiJob = new AbortController();
+      const job = newJob();
       btn.disabled = true;
       try {
         for (let i = 0; i < missing.length; i++) {
@@ -1552,10 +1585,10 @@ function openEvent(ev, writeNotes) { // writeNotes: put the cursor in the notes 
       if (summary) lines.push(summary, '');
       if (agreed.length) lines.push('What we agreed:', ...agreed.map(x => `- ${x}`), '');
       if (next.length) lines.push('Next steps:', ...next.map(x => `- ${x}`), '');
-      if (!summary && !agreed.length && !next.length) lines.push(AI.originalOf(text).trim().slice(0, 1200), '');
+      if (!summary && !agreed.length && !next.length) lines.push([...AI.originalOf(text).trim()].slice(0, 1200).join(''), '');
       lines.push('Best regards,');
       window.open(`https://mail.google.com/mail/?authuser=${G.enc(a?.email || '')}&view=cm&fs=1&to=${G.enc(to.map(w => w.email).join(','))}`
-        + `&su=${G.enc(`Follow-up: ${ev.title}`)}&body=${G.enc(lines.join('\n').slice(0, 1800))}`, '_blank', 'noopener');
+        + `&su=${G.enc(`Follow-up: ${ev.title}`)}&body=${G.enc([...lines.join('\n')].slice(0, 1800).join(''))}`, '_blank', 'noopener');
       toast('A draft opened in Gmail. Read it before you send.');
     },
     // Looks the person up on the web, saves what it finds about them, then shows their page.
@@ -1563,7 +1596,7 @@ function openEvent(ev, writeNotes) { // writeNotes: put the cursor in the notes 
       const guest = guests.find(g => (g.email || '').toLowerCase() === btn.dataset.email), who = person(guest);
       if (hasFacts(who.email)) return openPerson(guest, ev);
       if (!factsKey()) return openFactsHelp(guest, ev);
-      const job = aiJob = new AbortController();
+      const job = newJob();
       btn.disabled = true;
       btn.textContent = 'Searching the web… about 20 seconds';
       try {
@@ -1591,7 +1624,13 @@ function openEvent(ev, writeNotes) { // writeNotes: put the cursor in the notes 
     async tidy(btn) {
       const rough = AI.originalOf(box.value).trim();
       if (rough.length < 15) return toast('Write a few notes first, then press Tidy.');
-      const job = aiJob = new AbortController(), label = btn.textContent;
+      // Tidying a second time: keep what you put above the summary and any points you added by hand.
+      const markAt = box.value.indexOf(AI.ORIGINAL_MARK), tidied = markAt < 0 ? '' : box.value.slice(0, markAt);
+      const head = tidied ? tidied.split(/^Summary$/m)[0].trim() : '';
+      const kept = { actions: tidied ? AI.actionsIn(tidied) : [], decisions: tidied ? AI.decisionsIn(tidied) : [] };
+      const words = x => new Set(x.toLowerCase().match(/[a-z0-9]{4,}/g) || []);
+      const alike = (a, b) => { const wa = words(a), wb = words(b); let n = 0; for (const w of wa) if (wb.has(w)) n++; return n >= Math.max(1, Math.min(wa.size, wb.size) * 0.6); };
+      const job = newJob(), label = btn.textContent;
       btn.disabled = box.readOnly = true;
       btn.textContent = 'Tidying…';
       saved.textContent = 'This can take a minute or two. It runs on your computer.';
@@ -1600,7 +1639,8 @@ function openEvent(ev, writeNotes) { // writeNotes: put the cursor in the notes 
           { signal: job.signal, onProgress: part => { if (part < 1) saved.textContent = `Getting the AI ready… ${Math.round(part * 100)}%`; } });
         if (job.signal.aborted || !box.isConnected) return;
         beforeTidy = box.value;
-        box.value = AI.layout(result, rough);
+        for (const part of ['actions', 'decisions']) for (const x of kept[part]) if (!result[part].some(y => alike(x, y))) result[part].push(x);
+        box.value = `${head ? `${head}\n\n` : ''}${AI.layout(result, rough)}`;
         commitNote();
         saved.textContent = 'Tidied';
         $('[data-x=untidy]', el.dlg).hidden = false;
@@ -1623,8 +1663,8 @@ function openEvent(ev, writeNotes) { // writeNotes: put the cursor in the notes 
     },
     // Each action point becomes a task in the inbox.
     mktasks() {
-      const have = new Set(state.tasks.filter(t => !t.done).map(t => t.title.toLowerCase()));
-      const fresh = AI.actionsIn(box.value).filter(a => !have.has(a.toLowerCase()));
+      const have = new Set(state.tasks.map(t => t.title.toLowerCase())); // finished ones too: they are not made again
+      const fresh = AI.actionsIn(box.value).filter(a => !have.has(a.slice(0, 200).toLowerCase()));
       if (!fresh.length) return toast('These action points are already in your tasks.');
       commitNote();
       mark();
@@ -1663,8 +1703,12 @@ function openEvent(ev, writeNotes) { // writeNotes: put the cursor in the notes 
     $('[data-x=followup]', el.dlg).hidden = !box.value.trim() || ev.s > Date.now() || !outsiders(ev).length;
   };
   showTaskButton();
+  let lastNote = box.value; // only what you changed in the box is saved, never an old copy over newer text
   const commitNote = () => {
     clearTimeout(timer);
+    if (box.value === lastNote) return;
+    lastNote = box.value;
+    if (box.value.length > N.MAX_LENGTH) toast('These notes are too long to keep in full. The end will be cut off: shorten them a little.', true);
     if (!N.set(key, box.value.trim() ? box.value : '', about)) return;
     scheduleFlush();
     if (saved.isConnected) saved.textContent = plannerReady() ? 'Saved' : 'Saved on this device';
@@ -1720,11 +1764,11 @@ function openEventForm(ev) {
       <button class="btn primary">${ev ? 'Save' : 'Add event'}</button></div></form>`, {
     async submit(fd, form) {
       const date = fd.get('date'), st = fd.get('start'), en = fd.get('end');
-      if (parseHhmm(en) <= parseHhmm(st)) return toast('The end time must be after the start time.', true);
-      const body = {
-        summary: fd.get('title').trim(), location: fd.get('location').trim(),
-        start: { dateTime: `${date}T${st}:00`, timeZone: TZ }, end: { dateTime: `${date}T${en}:00`, timeZone: TZ },
-      };
+      if (parseHhmm(en) === parseHhmm(st)) return toast('The end time must be different from the start time.', true);
+      const endDate = parseHhmm(en) < parseHhmm(st) ? ymd(addDays(fromYmd(date), 1)) : date; // ends after midnight
+      const body = { summary: fd.get('title').trim(), location: fd.get('location').trim() };
+      const sameTimes = ev && date === ymd(s) && st === hhmm(s.getHours() * 60 + s.getMinutes()) && en === hhmm(e.getHours() * 60 + e.getMinutes());
+      if (!sameTimes) Object.assign(body, { start: { dateTime: `${date}T${st}:00`, timeZone: TZ }, end: { dateTime: `${endDate}T${en}:00`, timeZone: TZ } });
       const btn = $('button.primary', form);
       btn.disabled = true;
       try {
@@ -1778,7 +1822,7 @@ function normalize(e, a, c) {
     canEdit: calWritable && (!!e.organizer?.self || !(e.attendees || []).length),
     nk: N.keyFor(e),
     files: (e.attachments || []).filter(f => /^https:\/\//.test(f.fileUrl || '')).slice(0, 6).map(f => ({ label: f.title || 'Attached file', url: f.fileUrl })),
-    links: [...(mail ? [{ label: 'Open the email', url: `${mail}&authuser=${G.enc(a.email)}` }] : []), ...noteLinks(`${e.description || ''} ${e.location || ''}`)],
+    links: [...(mail ? [{ label: 'Open in Gmail ↗', url: `${mail}&authuser=${G.enc(a.email)}` }] : []), ...noteLinks(`${e.description || ''} ${e.location || ''}`)],
   };
 }
 
@@ -1836,7 +1880,7 @@ async function lookUpWith(who, meeting, signal, hint) {
   const freeLately = s.aiFreeSince && Date.now() - s.aiFreeSince < 3 * 86400000;
   const answer = await F.personFacts(who, meeting, keys, signal, !freeLately, hint);
   const wasFree = !!s.aiFreeSince;
-  if (answer.how !== 'search' && !freeLately) s.aiFreeSince = Date.now();
+  if (answer.how !== 'search' && !freeLately && answer.noSearch) s.aiFreeSince = Date.now(); // only when Google said so for certain: skip its search for a few days
   if (answer.how === 'search') s.aiFreeSince = 0;
   if (wasFree !== !!s.aiFreeSince || answer.how !== 'search') save();
   return { ...answer, hint };
@@ -1878,8 +1922,9 @@ async function autoFacts() {
         ready++;
       } catch (err) {
         console.warn('Could not get facts for', who.email, err.message);
-        if (!['slow', 'busy'].includes(err.kind)) { autoPausedUntil = Date.now() + 3600000; break; } // a problem with the key: stop for an hour
-        tried[who.email] = Date.now() - 6 * 86400000; // the AI was busy: try this person again tomorrow
+        if (['key', 'credit', 'billing', 'model', 'nosearch', 'offline'].includes(err.kind)) { autoPausedUntil = Date.now() + 3600000; break; } // the key or the connection: stop for an hour
+        tried[who.email] = ['slow', 'busy'].includes(err.kind) ? Date.now() - 6 * 86400000 // the AI was busy: try this person again tomorrow
+          : Date.now(); // this person could not be found: leave them for a week and carry on with the others
       }
       save();
       await new Promise(r => setTimeout(r, 3000));
@@ -1891,8 +1936,9 @@ async function autoFacts() {
   }
 }
 
-let refreshSeq = 0;
+let refreshSeq = 0, refreshedAt = 0;
 async function refresh() {
+  refreshedAt = Date.now();
   const [from, to] = range(), today = startOfDay(new Date());
   const ranges = [[from, to]];
   if (today < from || today >= to) ranges.push([today, addDays(today, 2)]); // keep today fresh for reminders
@@ -1945,7 +1991,7 @@ function taskToEvent(t) {
     description: t.notes || '',
     extendedProperties: { private: {
       plannerTask: '1', taskId: t.id, done: t.done ? '1' : '0', priority: t.priority,
-      tag: t.tag || '', repeat: t.repeat || 'none', seriesId: t.seriesId || '', duration: String(t.duration),
+      tag: t.tag || '', repeat: t.repeat || 'none', seriesId: t.seriesId || '', duration: String(t.duration), reminder: t.reminder == null ? '' : String(t.reminder),
     } },
     reminders: { useDefault: false, overrides: (rem >= 0 && !t.done && t.date && t.start != null) ? [{ method: 'popup', minutes: rem }] : [] },
   };
@@ -1983,13 +2029,14 @@ function applyEvent(t, e) {
   t.notes = e.description || '';
   if (p.plannerTask) {
     t.priority = p.priority || 'normal'; t.tag = p.tag || '';
-    t.repeat = p.repeat || 'none'; t.seriesId = p.seriesId || null;
+    t.repeat = p.repeat || 'none'; t.seriesId = SAFE_ID.test(p.seriesId || '') ? p.seriesId : null;
+    if (p.reminder !== undefined) t.reminder = p.reminder === '' ? null : +p.reminder;
   }
   t.gEventId = e.id; t.remoteUpdated = e.updated; t.dirty = false;
 }
 
 async function flush() {
-  if (!plannerReady()) return;
+  if (!plannerReady() || isStale()) return; // a copy left in the background writes nothing
   const a = plannerAccount(), base = `/calendars/${G.enc(state.settings.plannerCalendarId)}/events`;
   const gone = err => err.status === 404 || err.status === 410;
   try {
@@ -2032,16 +2079,30 @@ function scheduleFlush() {
   flushTimer = setTimeout(() => sync(flush), 700);
 }
 
+const SAFE_ID = /^[\w-]{1,80}$/; // ids read back from Google are only trusted in this shape
 function mergeRemote(e) {
-  const p = e.extendedProperties?.private || {};
-  let t = state.tasks.find(t => t.gEventId === e.id) || (p.taskId ? state.tasks.find(t => t.id === p.taskId && !t.gEventId) : null);
+  const p = e.extendedProperties?.private || {}, taskId = SAFE_ID.test(p.taskId || '') ? p.taskId : '';
+  let t = state.tasks.find(t => t.gEventId === e.id) || (taskId ? state.tasks.find(t => t.id === taskId && !t.gEventId) : null);
+  const twin = !t && taskId ? state.tasks.find(t => t.id === taskId && t.gEventId) : null;
+  if (twin) {
+    // Two devices each wrote this task to Google (a repeating task made on both before they met).
+    // Both keep the entry with the smaller id and remove the other, so they end up agreeing.
+    if (state.tombstones.includes(e.id)) return;
+    if (e.id < twin.gEventId) {
+      state.tombstones.push(twin.gEventId);
+      if (twin.dirty) { twin.gEventId = e.id; twin.remoteUpdated = null; } else applyEvent(twin, e);
+      undoSnap = null;
+    } else state.tombstones.push(e.id);
+    return;
+  }
   if (t) {
-    if (!t.dirty && e.updated !== t.remoteUpdated && (!t.remoteUpdated || e.updated > t.remoteUpdated)) applyEvent(t, e);
+    if (!t.dirty && e.updated !== t.remoteUpdated && (!t.remoteUpdated || e.updated > t.remoteUpdated)) { applyEvent(t, e); undoSnap = null; }
     else if (!t.gEventId) t.gEventId = e.id;
   } else if (!state.tombstones.includes(e.id)) {
-    t = newTask({ id: p.taskId && !getTask(p.taskId) ? p.taskId : uid() });
+    t = newTask({ id: taskId && !getTask(taskId) ? taskId : uid() });
     applyEvent(t, e);
     state.tasks.push(t);
+    undoSnap = null; // what another device changed must not be wiped by an Undo of something older
   }
 }
 
@@ -2065,20 +2126,25 @@ async function pullPlanner(from, to) {
     const spans = ranges.map(([f, t]) => [ymd(f), ymd(t)]);
     for (const t of [...state.tasks]) {
       if (!t.gEventId || t.dirty || seen.has(t.gEventId)) continue;
-      if (!t.date || spans.some(([f, u]) => t.date >= f && t.date < u)) state.tasks.splice(state.tasks.indexOf(t), 1); // deleted or moved elsewhere
+      if (!t.date || spans.some(([f, u]) => t.date >= f && t.date < u)) { state.tasks.splice(state.tasks.indexOf(t), 1); undoSnap = null; } // deleted or moved elsewhere
     }
     save();
+    if (state.tombstones.length) scheduleFlush(); // a doubled entry found above is taken out of Google
   } catch (err) { console.warn('Reading planner calendar failed', err); }
 }
 
 async function setPlanner(a) {
   const id = await G.ensurePlannerCalendar(a);
-  const changed = state.settings.plannerCalendarId && state.settings.plannerCalendarId !== id;
-  state.settings.plannerAccountId = a.id;
-  state.settings.plannerCalendarId = id;
-  if (changed) { state.tombstones = []; for (const t of state.tasks) { t.gEventId = null; t.remoteUpdated = null; } N.forgetRemote(); }
-  for (const t of state.tasks) if (!t.gEventId) t.dirty = true;
-  save();
+  await sync(() => { // not while tasks are being saved to the old place
+    const changed = state.settings.plannerCalendarId && state.settings.plannerCalendarId !== id;
+    state.settings.plannerAccountId = a.id;
+    state.settings.plannerCalendarId = id;
+    if (changed) { state.tombstones = []; for (const t of state.tasks) { t.gEventId = null; t.remoteUpdated = null; } N.forgetRemote(); }
+    for (const t of state.tasks) if (!t.gEventId) t.dirty = true;
+    save();
+  });
+  const [from, to] = range();
+  await sync(() => pullPlanner(from, to)); // what is already there is matched up before anything is written
   scheduleFlush();
 }
 
@@ -2116,17 +2182,25 @@ function setupLink(mine) {
   return `${isLocal ? PUBLIC_URL : G.redirectUri()}#setup=${data}`;
 }
 let homeFromLink = '';
-function importSetup() {
-  const m = location.hash.match(/^#setup=([\w-]+)$/);
-  if (!m) return false;
-  history.replaceState(null, '', location.pathname + location.search);
+// text: a setup link pasted into Settings; without it, the link this page was opened with.
+function importSetup(text) {
+  const m = text ? text.match(/#setup=([\w-]+)\s*$/) : location.hash.match(/^#setup=([\w-]+)$/);
+  if (!m) { if (text) toast('That setup link is not valid.', true); return false; }
+  if (!text) history.replaceState(null, '', location.pathname + location.search);
   try {
     const d = JSON.parse(atob(m[1].replace(/-/g, '+').replace(/_/g, '/')));
     if (typeof d.i !== 'string' || typeof d.s !== 'string' || !/^[\w.-]+\.apps\.googleusercontent\.com$/.test(d.i)) throw new Error('bad link');
-    const s = state.settings;
+    const s = state.settings, own = typeof d.e === 'string' && typeof d.r === 'string' && d.e && d.r;
+    // A link that carries an account makes that account this device's home: tasks, notes and the list
+    // of accounts are then kept there. That is only right for a link from one of your own devices, so
+    // it is never done without a clear yes.
+    if (own) {
+      const has = s.plannerAccountId && s.plannerAccountId !== d.e ? `\n\nThis device now keeps its tasks in ${s.plannerAccountId}. They would move to the new account.` : '';
+      if (!confirm(`Set this device up with the Google account ${d.e}?\n\nYour tasks, notes and connected accounts on this device will be kept in that account. Only continue if this link came from one of your own devices.${has}`)) return false;
+    }
     if (s.clientId && s.clientId !== d.i && !confirm('Replace the Google keys saved on this device with the ones from this link?')) return false;
     s.clientId = d.i; s.clientSecret = d.s;
-    if (typeof d.e === 'string' && typeof d.r === 'string' && d.e && d.r) {
+    if (own) {
       let a = acct(d.e);
       if (!a) { a = { id: d.e, email: d.e, color: G.COLORS[state.accounts.length % G.COLORS.length], calendars: [] }; state.accounts.push(a); }
       Object.assign(a, { refreshToken: d.r, accessToken: null, expiresAt: 0, needsReconnect: false, t: a.t || Date.now() });
@@ -2302,6 +2376,39 @@ async function shareSync() {
 }
 
 // ---------------------------------------------------------------- settings
+// The three shortcuts under the Today card.
+const TOOL_ICONS = {
+  prepare: '<path d="M11 3.5l1.9 5.1L18 10.5l-5.1 1.9L11 17.5l-1.9-5.1L4 10.5l5.1-1.9z"/><path d="M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/>',
+  people: '<circle cx="9" cy="8" r="3.3"/><path d="M2.8 19.2c.7-3.1 3-4.9 6.2-4.9s5.5 1.8 6.2 4.9"/><circle cx="17.2" cy="9" r="2.5"/><path d="M17 14.3c2.2.3 3.7 1.7 4.3 4"/>',
+  free: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.3V12l3.2 2"/>',
+};
+const toolIcon = name => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${TOOL_ICONS[name]}</svg>`;
+
+// The side panel can be made wider or narrower by dragging its edge (on a computer). Double-click puts it back.
+const SIDE = { min: 260, max: 520, normal: 304 };
+function applySide() {
+  const w = clamp(+state.settings.sideWidth || SIDE.normal, SIDE.min, SIDE.max);
+  if (w === SIDE.normal) $('#app').style.removeProperty('--side'); else $('#app').style.setProperty('--side', `${w}px`);
+}
+function bindSideGrip() {
+  const grip = $('#sideGrip');
+  grip.addEventListener('pointerdown', e => {
+    if (e.button > 0) return;
+    e.preventDefault();
+    grip.setPointerCapture(e.pointerId);
+    document.body.classList.add('sizing');
+    const move = ev => { state.settings.sideWidth = clamp(Math.round(ev.clientX), SIDE.min, SIDE.max); applySide(); };
+    const up = () => {
+      grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', up); grip.removeEventListener('pointercancel', up);
+      document.body.classList.remove('sizing');
+      save();
+      updateNowLine();
+    };
+    grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', up); grip.addEventListener('pointercancel', up);
+  });
+  grip.addEventListener('dblclick', () => { state.settings.sideWidth = SIDE.normal; applySide(); save(); });
+}
+
 function applyTheme() {
   const t = state.settings.theme;
   if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
@@ -2465,6 +2572,13 @@ function openSettings(msg, pane) {
               <input id="clientSecretBox" name="clientSecret" type="password" value="${esc(s.clientSecret)}" autocomplete="off">
             </div>
           </div>
+          <h4>Set up from another device</h4>
+          <div class="sgroup"><div class="sfield">
+            <label for="setupLinkBox"><b>Setup link</b></label>
+            <span class="hint">On your other device: Settings → Accounts → Set up a device → Copy link. Paste it here. Useful when Weftday is installed on a phone’s home screen.</span>
+            <input id="setupLinkBox" name="setupLink" placeholder="https://…#setup=…" autocomplete="off" spellcheck="false">
+            <div><button type="button" class="btn" data-x="uselink">Use this link</button></div>
+          </div></div>
           <details><summary>How to get these (one time, about 10 minutes)</summary><ol>
             <li>Open <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">console.cloud.google.com</a> and create a project called “Weftday”.</li>
             <li>Go to <b>APIs &amp; Services → Library</b>, find <b>Google Calendar API</b> and press Enable.</li>
@@ -2481,28 +2595,8 @@ function openSettings(msg, pane) {
     </div></form>`, {
     async submit(fd, form) {
       const stop = (where, text) => { show(where); toast(text, true); };
-      if (+fd.get('dayEnd') <= +fd.get('dayStart')) return stop('general', 'Your working day must end after it starts.');
-      s.clientId = fd.get('clientId').trim();
-      s.clientSecret = fd.get('clientSecret').trim();
-      s.reminder = +fd.get('reminder');
-      s.dayStart = +fd.get('dayStart'); s.dayEnd = +fd.get('dayEnd');
-      s.morning = +fd.get('morning');
-      s.theme = fd.get('theme') || 'auto';
-      s.pictures = fd.get('pictures') === 'on';
-      s.aiApp = fd.get('aiApp');
-      keep();
-      const keysBefore = keysNow();
-      if (s.aiKey !== keys.google) s.aiFreeSince = 0; // a new key may have Google's own search
-      const { google, claude, ...otherKeys } = keys, { tavily, ...otherFinders } = findKeys;
-      const filled = map => Object.fromEntries(Object.entries(map).filter(([, v]) => v));
-      s.aiKey = google; s.claudeKey = claude; s.aiKeys = filled(otherKeys); s.aiModels = filled(models);
-      s.searchKey = tavily; s.searchKeys = filled(otherFinders);
-      s.aiProvider = provider; s.searchProvider = finder;
-      if (keysNow() !== keysBefore) s.keysAt = Date.now(); // the newest set of keys wins on your other devices
-      s.aiAuto = fd.get('aiAuto') === 'on';
+      if (!stash(fd)) return stop('general', 'Your working day must end after it starts.');
       const want = fd.get('planner'), share = fd.get('share') === 'on';
-      save();
-      applyTheme();
       if (share && !want) return stop('accounts', 'To keep your accounts the same everywhere, first choose an account to save tasks in.');
       if (share && !s.clientSecret) return stop('advanced', 'To keep your accounts the same everywhere, add the Client secret first.');
       const wasSharing = s.shareAccounts, moving = want !== s.plannerAccountId;
@@ -2520,9 +2614,16 @@ function openSettings(msg, pane) {
     },
     pane: x => show(x.dataset.pane),
     async notif() { await Notification.requestPermission(); showPerm(); },
-    device: () => openDeviceSetup(),
-    connect: () => connect(),
-    teams: () => openTeams(),
+    // These lead to another box, so what was typed here is kept first.
+    device: () => { stash(); openDeviceSetup(); },
+    connect: () => { stash(); connect(); },
+    teams: () => { stash(); openTeams(); },
+    uselink() {
+      stash();
+      if (!importSetup($('[name=setupLink]', el.dlg).value.trim())) return;
+      closeDialog();
+      if (homeFromLink) adoptHome(homeFromLink).then(refresh); else { render(); toast('Keys added. Now press “+ Connect Google account”.'); }
+    },
     backup() {
       const blob = new Blob([JSON.stringify({ exported: new Date().toISOString(), tasks: state.tasks }, null, 2)], { type: 'application/json' });
       const link = document.createElement('a');
@@ -2533,6 +2634,44 @@ function openSettings(msg, pane) {
     },
   }, 'settings');
 
+  // Saves everything in the form that needs no waiting (all but the home account and the sharing switch).
+  // Returns false when the working day is not valid.
+  const opened = { at: s.keysAt, keys: { ...keys }, models: { ...models }, findKeys: { ...findKeys }, provider, finder };
+  function stash(fd = new FormData($('form', el.dlg))) {
+    if (+fd.get('dayEnd') <= +fd.get('dayStart')) return false;
+    s.clientId = fd.get('clientId').trim();
+    s.clientSecret = fd.get('clientSecret').trim();
+    s.reminder = +fd.get('reminder');
+    s.dayStart = +fd.get('dayStart'); s.dayEnd = +fd.get('dayEnd');
+    s.morning = +fd.get('morning');
+    s.theme = fd.get('theme') || 'auto';
+    s.pictures = fd.get('pictures') === 'on';
+    s.aiApp = fd.get('aiApp');
+    s.aiAuto = fd.get('aiAuto') === 'on';
+    keep();
+    if (s.keysAt !== opened.at) {
+      // Newer keys arrived from another device while this box was open: only what you changed here
+      // is kept from the form, the rest is taken as it is now.
+      const fresh = { keys: { ...(s.aiKeys || {}), google: s.aiKey || '', claude: s.claudeKey || '' }, models: { ...(s.aiModels || {}) }, findKeys: { ...(s.searchKeys || {}), tavily: s.searchKey || '' } };
+      for (const [name, mine] of [['keys', keys], ['models', models], ['findKeys', findKeys]]) {
+        for (const k of new Set([...Object.keys(mine), ...Object.keys(fresh[name])])) if ((mine[k] || '') === (opened[name][k] || '')) mine[k] = fresh[name][k] || '';
+      }
+      if (provider === opened.provider) provider = S.aiService(s.aiProvider).id;
+      if (finder === opened.finder) finder = S.searchService(s.searchProvider).id;
+    }
+    const keysBefore = keysNow();
+    if (s.aiKey !== keys.google) s.aiFreeSince = 0; // a new key may have Google's own search
+    const { google, claude, ...otherKeys } = keys, { tavily, ...otherFinders } = findKeys;
+    const filled = map => Object.fromEntries(Object.entries(map).filter(([, v]) => v));
+    s.aiKey = google; s.claudeKey = claude; s.aiKeys = filled(otherKeys); s.aiModels = filled(models);
+    s.searchKey = tavily; s.searchKeys = filled(otherFinders);
+    s.aiProvider = provider; s.searchProvider = finder;
+    if (keysNow() !== keysBefore) s.keysAt = Date.now(); // the newest set of keys wins on your other devices
+    Object.assign(opened, { at: s.keysAt, keys: { ...keys }, models: { ...models }, findKeys: { ...findKeys }, provider, finder });
+    save();
+    applyTheme();
+    return true;
+  }
   function show(name) {
     settingsPane = name;
     for (const p of $$('.spane', el.dlg)) p.hidden = p.dataset.pane !== name;
@@ -2605,14 +2744,19 @@ function openSettings(msg, pane) {
 
 // ---------------------------------------------------------------- reminders
 // ev is the meeting the reminder is for, if it has guests from outside: its brief is one press away.
+// Shows a system notification. Phones only allow these through the app's background helper (sw.js).
+function systemNote(title, body, onPress) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  try {
+    const note = new Notification(title, { body, icon: 'icon-192.png' });
+    note.onclick = () => { window.focus(); note.close(); onPress?.(); };
+  } catch {
+    navigator.serviceWorker?.ready.then(reg => reg.showNotification(title, { body, icon: 'icon-192.png' })).catch(() => {});
+  }
+}
 function notify(title, body, ev) {
   toast(`${title} · ${body}`, ev ? { go: ['Brief me', () => openBrief(ev)] } : {});
-  if ('Notification' in window && Notification.permission === 'granted') {
-    try {
-      const note = new Notification(title, { body: ev ? `${body}. Press to see your brief.` : body, icon: 'icon-192.png' });
-      if (ev) note.onclick = () => { window.focus(); note.close(); openBrief(ev); };
-    } catch { /* not supported here */ }
-  }
+  systemNote(title, ev ? `${body}. Press to see your brief.` : body, ev ? () => openBrief(ev) : null);
 }
 // A little after a meeting with outside guests ends, asks once how it went, if you kept no notes.
 function askHowItWent(now, today) {
@@ -2640,13 +2784,12 @@ function morningBrief(now, today) {
   const d = startOfDay(now);
   const meets = dayItems(d).timed.filter(i => i.kind === 'ev' && i.ev.selfStatus !== 'declined').length;
   const todo = state.tasks.filter(t => t.date === today && !t.done).length;
-  if ('Notification' in window && Notification.permission === 'granted') {
-    try { new Notification('Your day', { body: `${meets} meeting${meets === 1 ? '' : 's'} and ${todo} task${todo === 1 ? '' : 's'} today`, icon: 'icon-192.png' }); } catch { /* not supported here */ }
-  }
+  systemNote('Your day', `${meets} meeting${meets === 1 ? '' : 's'} and ${todo} task${todo === 1 ? '' : 's'} today`);
   if (meets) openToday(); else openPlan();
 }
 
 function tick() {
+  if (isStale()) return; // another open copy of Weftday has taken over; this one reloads when you return to it
   const now = new Date(), today = ymd(now), nowM = nowMinutes();
   if (today !== renderedDay) { topUpSeries(); save(); render(); scheduleFlush(); } else { updateNowLine(); renderUpNext(); }
   const due = [];
@@ -2662,17 +2805,21 @@ function tick() {
     const mins = Math.round((ev.s - now.getTime()) / 60000);
     if (mins <= rem && mins >= 0) {
       const s = new Date(ev.s);
-      due.push({ key: `${today}:e:${ev.key}:${ev.s}`, title: ev.title, body: when(mins, fmtTime(s.getHours() * 60 + s.getMinutes())), ev: outsiders(ev).length ? ev : null });
+      due.push({ key: `e:${noteKey(ev)}:${ev.s}`, title: ev.title, body: when(mins, fmtTime(s.getHours() * 60 + s.getMinutes())), ev: outsiders(ev).length ? ev : null });
     }
   }
   let changed = false;
-  for (const k of Object.keys(state.notified)) if (!k.startsWith(today)) { delete state.notified[k]; changed = true; }
+  for (const k of Object.keys(state.notified)) { // forget yesterday's; a meeting's own mark is kept until a day after it started
+    const old = k.startsWith('e:') ? +k.slice(k.lastIndexOf(':') + 1) < now.getTime() - 86400000 : !k.startsWith(today);
+    if (old) { delete state.notified[k]; changed = true; }
+  }
   for (const d of due) {
     if (state.notified[d.key]) continue;
     state.notified[d.key] = 1; changed = true;
     notify(d.title, d.body, d.ev);
   }
   if (changed) save();
+  if (!DEMO && Date.now() - refreshedAt > 12 * 60000 && navigator.onLine !== false) refresh(); // also in a background tab, so reminders know about new meetings
   askHowItWent(now, today);
   morningBrief(now, today);
 }
@@ -2737,16 +2884,17 @@ function openToday() {
     ${cards || '<div class="fempty"><b>No meetings today</b><span>A clear day. Plan your tasks instead.</span></div>'}
     ${tasks.length ? `<h4>Tasks for today</h4><div class="todo2">${tasks.slice(0, 8).map(t => `<div>• ${esc(t.title)}${t.start != null ? ` <em>· ${fmtTime(t.start)}</em>` : ''}</div>`).join('')}${tasks.length > 8 ? `<div class="note">and ${tasks.length - 8} more</div>` : ''}</div>` : ''}
     <div class="actions"><button type="button" class="btn" data-x="plan">Plan my day</button><span class="sp"></span><button type="button" class="btn primary" data-x="close">Close</button></div></div>`, {
-    open: x => openEvent(events.get(x.dataset.ev)),
-    brief: x => openBrief(events.get(x.dataset.ev)),
+    open: x => (events.get(x.dataset.ev) ? openEvent(events.get(x.dataset.ev)) : openToday()), // gone meanwhile: show the day afresh
+    brief: x => (events.get(x.dataset.ev) ? openBrief(events.get(x.dataset.ev)) : openToday()),
     person(x) {
       const ev = events.get(x.dataset.ev);
+      if (!ev) return openToday();
       openPerson((ev.att || []).find(g => (g.email || '').toLowerCase() === x.dataset.email), ev);
     },
     plan: () => openPlan(),
     // Looks up everyone in today's meetings who has no profile yet, then shows the day again.
     async fill(btn) {
-      const job = aiJob = new AbortController(), list = [...missing.values()].slice(0, 8);
+      const job = newJob(), list = [...missing.values()].slice(0, 8);
       btn.disabled = true;
       try {
         for (let n = 0; n < list.length; n++) {
@@ -2832,9 +2980,10 @@ function openCompany(domain, back) {
   });
   showPictures();
   // meetings with the people you know there, newest first (the first few people are enough to find them)
+  const meetBox = $('#firmMeets', el.dlg);
   Promise.all(emails.slice(0, 6).map(e => meetingsWith(e).catch(() => []))).then(lists => {
-    const box = $('#firmMeets', el.dlg);
-    if (!box) return;
+    const box = meetBox;
+    if (!box?.isConnected) return; // another page was opened meanwhile
     const all = [...new Map(lists.flat().map(m => [m.nk, m])).values()].sort((a, b) => b.s - a.s);
     const now = Date.now(), next = all.filter(m => m.s >= now).reverse(), past = all.filter(m => m.s < now);
     const row = m => `<div><i>${esc(dayLabel(new Date(m.s)))}</i> ${esc(m.title || '')}${N.has(m.nk) ? ' ✎' : ''}</div>`;
@@ -2899,19 +3048,23 @@ async function loadDays(from, to) {
     for (let ws = startOfWeek(from); ws < to; ws = addDays(ws, 7)) for (const ev of demoEvents(ws)) events.set(ev.key, ev);
     return;
   }
-  const jobs = [];
+  const jobs = [], f0 = from.getTime(), t0 = to.getTime();
+  let failed = 0;
   for (const a of state.accounts.filter(a => !a.needsReconnect)) for (const c of a.calendars) {
     if (!c.enabled || isPlannerCal(a, c)) continue;
     jobs.push(G.listEvents(a, c.id, from, to).then(items => {
+      for (const [k, ev] of events) if (ev.accountId === a.id && ev.calendarId === c.id && ev.e > f0 && ev.s < t0) events.delete(k); // gone from Google since
       for (const e of items) {
         if (e.status === 'cancelled' || !e.start || e.eventType === 'workingLocation') continue;
         const ev = normalize(e, a, c);
         events.set(ev.key, ev);
       }
-    }));
+    }).catch(err => { failed++; console.warn(a.email, c.summary, err); }));
   }
   await Promise.all(jobs);
+  if (jobs.length && failed === jobs.length) throw new Error('offline');
   if (plannerReady()) await sync(() => pullPlanner(from, to)).catch(() => {});
+  return failed;
 }
 // The gaps in a working day that are at least minLen minutes long, on the half hour: [[start, end]].
 function freeSlots(d, minLen) {
@@ -2929,7 +3082,7 @@ function freeSlots(d, minLen) {
 }
 // A short text with the times you are free across all your calendars, ready to paste into an email.
 function openFreeTimes() {
-  let days = 5, length = 30;
+  let days = 5, length = 30, skipped = 0;
   const zone = new Date().toLocaleTimeString('en-GB', { timeZoneName: 'short' }).split(' ').pop();
   const seg = (name, list, cur) => `<div class="seg">${list.map(([v, l]) => `<button type="button" data-x="${name}" data-v="${v}" class="${v === cur ? 'on' : ''}">${l}</button>`).join('')}</div>`;
   dialog(`<div class="dbody">
@@ -2957,14 +3110,15 @@ function openFreeTimes() {
     $('#ftLen', el.dlg).innerHTML = seg('len', [[30, '30 min'], [45, '45 min'], [60, '1 hour']], length);
     const list = workDays(), box = $('#ftText', el.dlg);
     if (load) {
-      try { await loadDays(list[0], addDays(list[list.length - 1], 1)); }
+      try { skipped = await loadDays(list[0], addDays(list[list.length - 1], 1)) || 0; }
       catch { if (box.isConnected) { box.value = 'Your calendars could not be read. Check your connection and try again.'; } return; }
       if (!box.isConnected) return;
     }
     const lines = workDays().map(d => [d, freeSlots(d, length)]).filter(([, slots]) => slots.length)
       .map(([d, slots]) => `• ${dayLabel(d)}: ${slots.map(([s, e]) => (s === 0 && e === 1440 ? 'all day' : `${fmtTime(s)} – ${e === 1440 ? 'midnight' : fmtTime(e)}`)).join(', ')}`);
     box.value = lines.length ? `Here are some times that work for me (${zone}):\n${lines.join('\n')}` : 'No free time in your working hours on these days.';
-    $('#ftNote', el.dlg).textContent = `${state.accounts.length || 'Sample'} calendar account${state.accounts.length === 1 ? '' : 's'} checked`;
+    const live = state.accounts.filter(a => !a.needsReconnect).length, out = state.accounts.length - live;
+    $('#ftNote', el.dlg).textContent = DEMO ? 'Sample data' : `${live} account${live === 1 ? '' : 's'} checked${out ? `, ${out} signed out and not counted` : ''}${skipped ? `, ${skipped} calendar${skipped === 1 ? '' : 's'} could not be read` : ''}`;
   }
   paint(true);
 }
@@ -3027,7 +3181,9 @@ function seedDemo() {
 // ---------------------------------------------------------------- start
 async function boot() {
   applyTheme();
+  applySide();
   bind();
+  bindSideGrip();
   const gotKeys = importSetup();
   if (DEMO) seedDemo();
   else {

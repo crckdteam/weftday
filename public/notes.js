@@ -76,18 +76,21 @@ function entry(key, n) {
   };
 }
 
-// Sends changed notes to Google.
+// Sends changed notes to Google. You may keep typing while a note is on its way: what was sent is
+// matched up afterwards with the note as it is by then, never with an older copy of it.
 export async function push() {
   const notes = all();
-  for (const [key, n] of Object.entries(notes)) {
-    if (!n.dirty) continue;
+  for (const key of Object.keys(notes)) {
+    const n = notes[key];
+    if (!n?.dirty) continue;
     const t = n.t;
     if (!n.text) { // cleared: remove it from Google too
       if (n.gEventId) {
         try { await G.api(home(), `${path()}/${G.enc(n.gEventId)}`, { method: 'DELETE' }); }
         catch (err) { if (!gone(err)) throw err; }
       }
-      if (notes[key] === n && n.t === t) delete notes[key];
+      if (notes[key]?.t === t) delete notes[key];
+      else if (notes[key]) { notes[key].gEventId = null; notes[key].remoteUpdated = null; } // written again meanwhile: goes out as a new entry
       save();
       continue;
     }
@@ -98,9 +101,14 @@ export async function push() {
       catch (err) { if (!gone(err)) throw err; }
     }
     if (!res) res = await G.api(home(), path(), { method: 'POST', body });
-    n.gEventId = res.id;
-    n.remoteUpdated = res.updated;
-    if (n.t === t) n.dirty = false; // typed again meanwhile: goes out on the next round
+    const cur = notes[key]; // the note as it is now
+    if (!cur) { // cleared while it was being sent, before it had an entry: take the new entry away again
+      await G.api(home(), `${path()}/${G.enc(res.id)}`, { method: 'DELETE' }).catch(() => {});
+      continue;
+    }
+    cur.gEventId = res.id;
+    cur.remoteUpdated = res.updated;
+    if (cur.t === t) cur.dirty = false; // typed again meanwhile: goes out on the next round
     save();
   }
 }
@@ -114,6 +122,9 @@ export async function pull() {
   for (const e of items) {
     const key = e.extendedProperties.private.key, cur = newest.get(key);
     if (!cur || e.updated > cur.updated) newest.set(key, e);
+  }
+  for (const e of items) { // an older second entry for the same note (left by an interrupted save) is taken away
+    if (newest.get(e.extendedProperties.private.key) !== e) G.api(home(), `${path()}/${G.enc(e.id)}`, { method: 'DELETE' }).catch(() => {});
   }
   const live = new Set(items.map(e => e.id));
   let changed = false;

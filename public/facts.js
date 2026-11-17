@@ -79,9 +79,20 @@ async function wikiSummary(who, signal) {
 }
 
 // Strips any markdown the model slipped in, so the labels can be read back.
-export const tidyText = text => text.replace(/\*\*/g, '').replace(/^#+\s*/gm, '').replace(/^\s*[*•]\s+/gm, '- ')
-  .replace(/^- (?=(role|location|background|education|expertise|recent|ideas|linkedin|company|team size|funding|key people|clients|sources)\s*:)/gim, '') // a label written as a list item
-  .replace(/\n{3,}/g, '\n\n').trim();
+const LABEL_WORDS = '(role|location|background|education|expertise|recent|ideas|linkedin|company|team size|funding|key people|clients|sources)';
+export function tidyText(text) {
+  const lines = text.replace(/\*\*/g, '').replace(/^#+\s*/gm, '').split('\n');
+  // Some models write every label as a list item ("- Role: …"). Those are turned back into labels.
+  // When labels are written plainly, a list item that happens to start with a label word
+  // ("- Funding: raised $20M") is left alone: it belongs to the list it is in.
+  const asBullet = new RegExp(`^(\\s*)[-*•]\\s+${LABEL_WORDS}\\s*:`, 'i');
+  const first = lines.find(l => l.trim()) || '', bulleted = asBullet.test(first) && first.search(/\S/) < 2;
+  return lines.map(line => {
+    const m = asBullet.exec(line);
+    if (m && bulleted && m[1].length < 2) return line.replace(/^\s*[-*•]\s+/, '');
+    return line.replace(/^\s*[*•]\s+/, '- ');
+  }).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
 
 // Google's reply is a list of steps. The answer text and its sources are picked out wherever they sit,
 // leaving out the model's private reasoning and the raw pages it read.
@@ -102,14 +113,14 @@ function readAnswer(data) {
 
 function problem(status, error) {
   const message = String(error?.message || '').slice(0, 200);
-  let text, kind = '';
-  if (/API key not valid/i.test(message) || error?.status === 'UNAUTHENTICATED') text = 'Google did not accept that AI key. Check it in Settings.';
-  else if (status === 429 && /quota|billing|plan/i.test(message)) { kind = 'billing'; text = 'Google says this key has used up what it is allowed for now. Try again later.'; }
-  else if (status === 429) text = 'Google says this key has reached its limit for now. Try again later.';
+  let text, kind = '', sure = false; // sure: Google said outright that this key has no web search
+  if (/API key not valid/i.test(message) || error?.status === 'UNAUTHENTICATED') { kind = 'key'; text = 'Google did not accept that AI key. Check it in Settings.'; }
+  else if (status === 429 && /quota|billing|plan/i.test(message)) { kind = 'billing'; sure = /limit:\s*0\b|free[_ -]?tier/i.test(message); text = 'Google says this key has used up what it is allowed for now. Try again later.'; }
+  else if (status === 429) { kind = 'credit'; text = 'Google says this key has reached its limit for now. Try again later.'; }
   else if (status === 503 || /high demand|overloaded/i.test(message)) { kind = 'busy'; text = 'Google’s AI is very busy right now. Please try again in a minute.'; }
   else if (status === 404) { kind = 'busy'; text = 'Google’s AI could not answer. Please try again.'; } // a model that was withdrawn: try the next
   else text = message ? `Google’s AI could not answer: ${message}` : 'Google’s AI could not answer. Please try again.';
-  return Object.assign(new Error(text.trim()), { status, kind });
+  return Object.assign(new Error(text.trim()), { status, kind, sure });
 }
 
 const TIME_LIMIT = 45000; // a lookup that takes longer than this is given up on
@@ -129,7 +140,7 @@ async function ask(model, input, tool, key, signal) { // tool: 'google_search', 
   } catch (err) {
     if (signal?.aborted) throw new DOMException('Stopped', 'AbortError');
     if (stop.signal.aborted) throw Object.assign(new Error('Google’s AI took too long. Please try again.'), { kind: 'slow' });
-    throw new Error('Could not reach Google’s AI. Check your connection and try again.');
+    throw Object.assign(new Error('Could not reach Google’s AI. Check your connection and try again.'), { kind: 'offline' });
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener('abort', giveUp);
@@ -161,11 +172,12 @@ export async function personFacts(who, meeting, keys, signal, trySearch = true, 
   const write = input => (google
     ? firstThatAnswers(READ_MODELS, m => ask(m, input, '', keys.google, signal))
     : chat(svc, keys.key, keys.model, input, signal).then(a => ({ ...a, text: tidyText(a.text) })));
+  let noSearch = false; // Google said for certain that this key has no web search of its own
   if (google && trySearch) {
     try {
       const found = await firstThatAnswers(SEARCH_MODELS, m => ask(m, searchQuestion(who, meeting, hint), 'google_search', keys.google, signal));
       return { ...found, how: 'search' };
-    } catch (err) { if (err.kind !== 'billing') throw err; } // no web search on this key: use a free way
+    } catch (err) { if (err.kind !== 'billing') throw err; noSearch = !!err.sure; } // no web search on this key (or not right now): use a free way
   }
   if (!google && svc.ownSearch) { // an AI that searches the web by itself
     try {
@@ -182,14 +194,14 @@ export async function personFacts(who, meeting, keys, signal, trySearch = true, 
     if (!pages.length) throw new Error('The search found nothing about this person. Try “Not them?” with a hint.');
     const digest = pages.map((r, i) => `[${i + 1}] ${r.title}\n${r.url}\n${r.content}`).join('\n\n');
     const answer = await write(resultsQuestion(who, meeting, hint, digest));
-    return { ...answer, queries, how: 'results' };
+    return { ...answer, queries, how: 'results', noSearch };
   }
   if (!google) throw Object.assign(new Error(`${svc.name} cannot search the web by itself. Add a free search key in Settings → AI.`), { kind: 'needsSearch' });
   if (!who.company) throw Object.assign(new Error('To look up a person without a company website, add a free search key in Settings → AI.'), { kind: 'needsSearch' });
   const wiki = await wikiSummary(who, signal);
   const answer = await firstThatAnswers(READ_MODELS, m => ask(m, websiteQuestion(who, meeting, wiki), 'url_context', keys.google, signal));
   if (/COULD NOT READ/.test(answer.text)) throw new Error('The company’s website could not be read. Add a free search key in Settings → AI to look them up another way.');
-  return { text: `${answer.text}\nCoverage: company website only`, sources: [], queries: [], how: 'website' };
+  return { text: `${answer.text}\nCoverage: company website only`, sources: [], queries: [], how: 'website', noSearch };
 }
 
 // Puts the facts at the end of what you already wrote about the person, replacing an older set of facts.
@@ -218,9 +230,11 @@ export function rankPhotos(images, who) {
     let path = url.toLowerCase();
     try { path = decodeURIComponent(path); } catch { /* keep as is */ }
     const text = `${img.title || ''} ${img.description || ''}`.toLowerCase();
-    const named = last ? text.includes(`${first} ${last}`) || (text.includes(first) && text.includes(last)) : !!first && text.includes(first) && (!!firm && text.includes(firm));
-    const inPath = last ? path.includes(last) && path.includes(first) : !!first && path.includes(first) && (!!who.domain && path.includes(who.domain.split('.')[0]));
-    let score = (named ? 5 : 0) + (inPath ? 4 : 0) + (last && path.includes(last) ? 1 : 0);
+    // whole words only: "ann" must not match "Joanne", nor "stan" + "ford" match "stanford"
+    const has = (where, word) => !!word && new RegExp(`(^|[^a-z])${word.replace(/[^a-z0-9]/g, '.')}([^a-z]|$)`).test(where);
+    const named = last ? has(text, first) && has(text, last) : has(text, first) && (!!firm && text.includes(firm));
+    const inPath = last ? has(path, first) && has(path, last) : has(path, first) && (!!who.domain && path.includes(who.domain.split('.')[0]));
+    let score = (named ? 5 : 0) + (inPath ? 4 : 0) + (last && has(path, last) ? 1 : 0);
     if (/portrait|headshot|smil|profile (photo|picture)/.test(text)) score += 1;
     if (/\b(two|three|four|five|several|group|team|crowd|panel|audience)\b/.test(text)) score -= 3;
     if (/logo|icon|banner|chart|graph|screenshot|diagram|infographic|illustration|cartoon|building|skyline|product|book cover|poster/.test(text) || /logo|icon|sprite|banner|placeholder|default[-_]?(avatar|profile)/.test(path)) score -= 6;
@@ -254,11 +268,15 @@ const LABELS = {
   recent: 'recent', ideas: 'ideas', linkedin: 'linkedin', sources: 'sources', hint: 'hint', coverage: 'coverage',
   photo: 'photo', photos: 'photos',
 };
+const SINGLE = new Set(['role', 'location', 'education', 'company', 'teamSize', 'linkedin', 'hint', 'coverage']); // one line each
 const TAG_LISTS = ['expertise', 'clients']; // shown as small tags, so a comma-separated line is split up
 const asLink = text => {
-  const found = /(https?:\/\/)?((?:[\w-]+\.)+[a-z]{2,}(?:\/[^\s,;)]*)?)/i.exec(text);
+  // a written-out address wins over a word that merely looks like one ("Acme.io raises…: https://…")
+  const found = /https?:\/\/((?:[\w-]+\.)+[a-z]{2,}(?:\/[^\s,;]*)?)/i.exec(text) || /()((?:[\w-]+\.)+[a-z]{2,}(?:\/[^\s,;]*)?)/i.exec(text);
   if (!found) return null;
-  const url = `https://${found[2].replace(/[.,;]+$/, '')}`;
+  let rest = (found[2] || found[1]).replace(/[.,;]+$/, '');
+  if (rest.endsWith(')') && !rest.includes('(')) rest = rest.slice(0, -1); // a closing bracket of the sentence, not of the address
+  const url = `https://${rest}`;
   try { return { url, host: new URL(url).hostname.replace(/^www\./, '') }; } catch { return null; }
 };
 // { role, location, education, company, teamSize, linkedin,
@@ -282,14 +300,19 @@ export function parse(raw) {
     if (!line || /^(none|n\/a|not found|unknown|not available|no information( available| found)?)\.?$/i.test(line)) continue;
     if (section === 'sources') {
       const link = asLink(line);
-      if (link && !out.sources.some(x => x.host === link.host)) out.sources.push(link); // one tag per site
+      if (!link) { section = 'other'; out.other.push(line); continue; } // a closing remark after the list
+      if (!out.sources.some(x => x.host === link.host)) out.sources.push(link); // one tag per site
     } else if (section === 'linkedin') {
       const link = asLink(line);
-      if (link && /linkedin\.com$/.test(link.host)) out.linkedin = link.url;
+      if (link && /linkedin\.com$/.test(link.host)) out.linkedin = link.url; else out.other.push(line);
+      section = 'other';
     } else if (TAG_LISTS.includes(section)) {
       for (const tag of line.split(/[,;]| and (?=[A-Z])/)) { const t = tag.trim().replace(/\.$/, ''); if (t && out[section].length < 10) out[section].push(t); }
     } else if (Array.isArray(out[section])) out[section].push(line);
-    else out[section] = out[section] ? `${out[section]} ${line}` : line;
+    else {
+      out[section] = out[section] ? `${out[section]} ${line}` : line;
+      if (SINGLE.has(section)) section = 'other'; // what follows without a label is a remark of its own
+    }
   }
   out.role = out.role.replace(/\.$/, '');
   return out;

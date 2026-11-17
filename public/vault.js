@@ -71,6 +71,30 @@ const mine = () => tidy({
   gone: state.goneAccounts || [],
 });
 
+// Brings this device's AI and search keys into step with the shared set.
+// Normally the set that changed last wins outright, so removing a key somewhere removes it everywhere.
+// The first time a device joins (or when two sets carry the same stamp) nothing is thrown away:
+// each side's blanks are filled from the other.
+const LOCAL_ONLY = ['ollama']; // a service on one computer is not chosen for your other devices
+function mergeKeys(theirs) {
+  if (!theirs) return;
+  const s = state.settings, mineAt = s.keysAt || 0, v = { ...theirs.v };
+  if (LOCAL_ONLY.includes(v.aiProvider)) delete v.aiProvider;
+  if (state.sharedSeen && theirs.t !== mineAt) {
+    if (theirs.t > mineAt) Object.assign(s, v, { keysAt: theirs.t, aiFreeSince: 0 });
+    return;
+  }
+  const newer = theirs.t > mineAt ? v : pickKeys(s), older = theirs.t > mineAt ? pickKeys(s) : v, out = {};
+  for (const k of KEY_FIELDS) {
+    const a = newer[k], b = older[k];
+    out[k] = a && typeof a === 'object' ? { ...(b && typeof b === 'object' ? b : {}), ...a } : a || b || (k.endsWith('Provider') ? undefined : '');
+    if (out[k] === undefined) delete out[k];
+  }
+  const same = x => JSON.stringify(KEY_FIELDS.map(k => x[k] ?? null));
+  if (same(out) === same(pickKeys(s))) { if (same(out) === same(v) && theirs.t > mineAt) s.keysAt = theirs.t; return; }
+  Object.assign(s, out, { keysAt: same(out) === same(v) ? theirs.t : Date.now(), aiFreeSince: 0 });
+}
+
 function merge(remote) {
   const now = Date.now(), added = [], removed = [], homeId = state.settings.plannerAccountId;
   for (const a of state.accounts) if (!a.t) a.t = now;
@@ -79,8 +103,7 @@ function merge(remote) {
     if (g && g.e && now - g.t < KEEP_GONE) gone.set(g.e, Math.max(g.t, gone.get(g.e) || 0));
   }
   const theirs = new Map(remote.accounts.map(x => [x.e, x]));
-  // keys changed on another device more recently than here: take them
-  if (remote.keys && remote.keys.t > (state.settings.keysAt || 0)) Object.assign(state.settings, remote.keys.v, { keysAt: remote.keys.t, aiFreeSince: 0 });
+  mergeKeys(remote.keys);
 
   // removed on another device after it was last connected anywhere
   for (const a of [...state.accounts]) {
@@ -142,7 +165,7 @@ export async function syncAccounts() {
 
 // Call when an account is removed here, so your other devices drop it too.
 export function forgetAccount(id) {
-  if (!sharingReady() || id === state.settings.plannerAccountId) return;
+  if (!state.settings.shareAccounts || id === state.settings.plannerAccountId) return; // also while the home account is signed out
   state.goneAccounts = (state.goneAccounts || []).filter(g => g.e !== id).concat({ e: id, t: Date.now() });
   save();
 }

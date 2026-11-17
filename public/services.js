@@ -129,10 +129,10 @@ export async function webSearch(kind, query, key, signal) {
     data = await res.json().catch(() => null);
   } catch (err) {
     if (signal?.aborted) throw new DOMException('Stopped', 'AbortError');
-    throw new Error(`Could not reach ${svc.name}. Check the search key in Settings and your connection.`);
+    throw Object.assign(new Error(`Could not reach ${svc.name}. Check the search key in Settings and your connection.`), { kind: 'offline' });
   }
-  if (res.status === 401 || res.status === 403) throw new Error(`${svc.name} did not accept that search key. Check it in Settings.`);
-  if ([402, 429, 432, 433].includes(res.status)) throw new Error(`The ${svc.name} search key has used up its searches for now.`);
+  if (res.status === 401 || res.status === 403) throw Object.assign(new Error(`${svc.name} did not accept that search key. Check it in Settings.`), { kind: 'key' });
+  if ([402, 429, 432, 433].includes(res.status)) throw Object.assign(new Error(`The ${svc.name} search key has used up its searches for now.`), { kind: 'credit' });
   if (!res.ok) throw new Error(`${svc.name} could not answer. Please try again.`);
   return svc.read(data).filter(r => r && r.url).slice(0, 5)
     .map(r => ({ title: String(r.title || ''), url: String(r.url), content: String(r.content || '').replace(/\s+/g, ' ').slice(0, 700) }));
@@ -157,7 +157,7 @@ const working = new Map(); // the model that last answered for each service, whi
 function chatProblem(svc, status, data, model) {
   const said = String(data?.error?.message || (typeof data?.error === 'string' ? data.error : '') || data?.message || '').slice(0, 200);
   let text, kind = '';
-  if (status === 401 || status === 403 || /(incorrect|invalid|wrong) api key|unauthori/i.test(said)) text = `${svc.name} did not accept that key. Check it in Settings.`;
+  if (status === 401 || status === 403 || /(incorrect|invalid|wrong) api key|unauthori/i.test(said)) { kind = 'key'; text = `${svc.name} did not accept that key. Check it in Settings.`; }
   else if (status === 402 || /insufficient|credit|balance|billing|payment/i.test(said)) { kind = 'credit'; text = `${svc.name} says this key has no credit left.`; }
   else if (status === 404 || (status === 400 && /model/i.test(said))) { kind = 'model'; text = `${svc.name} does not have the model “${model}”. Choose another in Settings → AI.`; }
   else if (status === 429) { kind = 'busy'; text = `${svc.name} says this key has reached its limit for now. Try again in a minute.`; }
@@ -165,9 +165,9 @@ function chatProblem(svc, status, data, model) {
   else text = said ? `${svc.name} could not answer: ${said}` : `${svc.name} could not answer. Please try again.`;
   return Object.assign(new Error(text), { status, kind });
 }
-const unreachable = svc => new Error(svc.local
+const unreachable = svc => Object.assign(new Error(svc.local
   ? 'Could not reach Ollama on this computer. Check that it is open and allowed to talk to Weftday (Settings → AI shows how).'
-  : `Could not reach ${svc.name}. Check your connection and try again.`);
+  : `Could not reach ${svc.name}. Check your connection and try again.`), { kind: 'offline' });
 const auth = key => (key ? { authorization: `Bearer ${key}` } : {});
 
 // The models a service offers that can hold a conversation.

@@ -91,6 +91,7 @@ function apply_(calendarId, wanted) {
       privateExtendedProperty: 'weftdayTeams=1', showDeleted: false, singleEvents: false, maxResults: 2500, pageToken: pageToken,
     });
     (page.items || []).forEach(function (e) {
+      if (e.recurringEventId) return; // one occurrence you changed yourself in Google: it belongs to its series
       const key = e.extendedProperties.private.key;
       if (have[key]) attempt('remove a duplicate', function () { Calendar.Events.remove(calendarId, e.id); });
       else have[key] = e;
@@ -132,15 +133,21 @@ function buildEvents(text, defaultZone) {
   const usable = cal.events.filter(function (v) { return v.UID && v.DTSTART; });
   const masters = {}, out = [];
 
-  usable.forEach(function (v) { // ordinary meetings and the main entry of repeating ones
+  // One meeting that cannot be read is left out (and noted in the log); the rest are still copied.
+  const each = function (fn) {
+    usable.forEach(function (v) {
+      try { fn(v); } catch (err) { console.warn('Left out "' + ((v.SUMMARY && v.SUMMARY.value) || v.UID.value) + '": ' + err); }
+    });
+  };
+  each(function (v) { // ordinary meetings and the main entry of repeating ones
     if (v['RECURRENCE-ID'] || cancelled(v)) return;
     const ev = toEvent(v, zone, v.UID.value);
-    const lines = recurrenceLines(v, ev.allDay, zone);
+    const lines = recurrenceLines(v, ev.allDay, toIana(v.DTSTART.params.TZID) || zone);
     if (lines.length) ev.resource.recurrence = lines;
     masters[v.UID.value] = ev;
     out.push(ev);
   });
-  usable.forEach(function (v) { // one occurrence of a repeating meeting that was moved, edited or cancelled
+  each(function (v) { // one occurrence of a repeating meeting that was moved, edited or cancelled
     const rid = v['RECURRENCE-ID'];
     if (!rid) return;
     const master = masters[v.UID.value];
@@ -208,26 +215,47 @@ function addDuration(dateTime, duration) {
 
 function recurrenceLines(v, allDay, zone) {
   const lines = [];
-  (v.all.RRULE || []).forEach(function (r) { lines.push('RRULE:' + fixUntil(r.value.trim(), allDay)); });
+  (v.all.RRULE || []).forEach(function (r) { lines.push('RRULE:' + fixUntil(r.value.trim(), allDay, zone)); });
   ['EXDATE', 'RDATE'].forEach(function (name) {
     (v.all[name] || []).forEach(function (p) { lines.push(dateLine(name, p, allDay, zone)); });
   });
   return lines;
 }
 
+// "20300104T183000Z" -> the calendar day that moment falls on in the given zone ("20300105" in India).
+function dayInZone(stamp, zone) {
+  const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/i.exec(stamp);
+  if (!m) return stamp.slice(0, 8);
+  try {
+    const at = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]));
+    return new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(at).replace(/-/g, '');
+  } catch (err) { return stamp.slice(0, 8); }
+}
+// A clock time in a zone ("20261231", "235959", "America/Los_Angeles") -> the same moment written in UTC.
+function zonedToUtc(day, clock, zone) {
+  const guess = Date.UTC(+day.slice(0, 4), +day.slice(4, 6) - 1, +day.slice(6, 8), +clock.slice(0, 2), +clock.slice(2, 4), +clock.slice(4, 6));
+  try {
+    const parts = {};
+    new Intl.DateTimeFormat('en-US', { timeZone: zone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      .formatToParts(new Date(guess)).forEach(function (p) { parts[p.type] = +p.value; });
+    const shown = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+    return new Date(guess - (shown - guess)).toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
+  } catch (err) { return day + 'T' + clock + 'Z'; }
+}
 // Google wants the "repeat until" date as a plain date for all-day events, and as UTC otherwise.
-function fixUntil(rule, allDay) {
-  return rule.replace(/UNTIL=(\d{8})(T\d{6}Z?)?/i, function (_, day, time) {
-    if (allDay) return 'UNTIL=' + day;
-    if (!time) return 'UNTIL=' + day + 'T235959Z';
-    return 'UNTIL=' + day + (/Z$/i.test(time) ? time : time + 'Z');
+// zone is the zone the meeting's own times are written in.
+function fixUntil(rule, allDay, zone) {
+  return rule.replace(/UNTIL=(\d{8})(?:T(\d{6})(Z?))?/i, function (_, day, clock, utc) {
+    if (allDay) return 'UNTIL=' + (clock && utc ? dayInZone(day + 'T' + clock + 'Z', zone) : day);
+    if (clock && utc) return 'UNTIL=' + day + 'T' + clock + 'Z';
+    return 'UNTIL=' + (zone ? zonedToUtc(day, clock || '235959', zone) : day + 'T' + (clock || '235959') + 'Z');
   });
 }
 
 // One "skip these dates" (or "also these dates") line in the form Google accepts.
 function dateLine(name, prop, allDay, zone) {
   const values = prop.value.split(',').map(function (s) { return s.trim(); }).filter(String);
-  if (allDay || prop.params.VALUE === 'DATE') return name + ';VALUE=DATE:' + values.map(function (s) { return s.slice(0, 8); }).join(',');
+  if (allDay || prop.params.VALUE === 'DATE') return name + ';VALUE=DATE:' + values.map(function (s) { return /Z$/i.test(s) ? dayInZone(s, zone) : s.slice(0, 8); }).join(',');
   if (/Z$/.test(values[0])) return name + ':' + values.join(',');
   return name + ';TZID=' + (toIana(prop.params.TZID) || zone) + ':' + values.join(',');
 }
@@ -303,11 +331,16 @@ const WINDOWS_ZONES = {
   'AUS Central Standard Time': 'Australia/Darwin', 'E. Australia Standard Time': 'Australia/Brisbane',
   'AUS Eastern Standard Time': 'Australia/Sydney', 'Tasmania Standard Time': 'Australia/Hobart',
   'New Zealand Standard Time': 'Pacific/Auckland', 'Fiji Standard Time': 'Pacific/Fiji',
+  'SA Western Standard Time': 'America/La_Paz', 'Morocco Standard Time': 'Africa/Casablanca',
+  'West Pacific Standard Time': 'Pacific/Port_Moresby', 'US Eastern Standard Time': 'America/Indiana/Indianapolis',
+  'Middle East Standard Time': 'Asia/Beirut', 'Central Brazilian Standard Time': 'America/Cuiaba',
 };
+const unknownZones = {};
 function toIana(name) {
   if (!name) return '';
   name = name.trim();
   if (WINDOWS_ZONES[name]) return WINDOWS_ZONES[name];
   if (/^[A-Za-z_]+\/[A-Za-z_\/+-]+$/.test(name)) return name; // already a standard name such as Asia/Kolkata
+  if (!unknownZones[name]) { unknownZones[name] = true; console.warn('Time zone not known: "' + name + '". Those meetings use your own time zone and may be off by some hours.'); }
   return '';
 }

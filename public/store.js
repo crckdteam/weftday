@@ -7,6 +7,7 @@ const KEY = DEMO ? 'planner.demo.v1' : 'planner.v1';
 const base = () => ({
   settings: {
     clientId: '', clientSecret: '', plannerAccountId: '', plannerCalendarId: '', reminder: 10, view: '',
+    sideWidth: 0, // width of the side panel on a computer, if you dragged it; 0 = the usual width
     theme: 'auto', dayStart: 9 * 60, dayEnd: 18 * 60, morning: 8 * 60, // minutes after midnight; morning -1 = off
     shareAccounts: false, // keep the account list the same on all devices (see vault.js)
     pictures: true,       // show people's photos (Gravatar) and company logos (site icons)
@@ -26,6 +27,7 @@ const base = () => ({
   accounts: [],     // connected Google accounts
   tasks: [],        // your tasks and time blocks
   tombstones: [],   // Google event ids waiting to be deleted
+  seriesUntil: {},  // for each repeating task, the last day already written out as real tasks
   notified: {},     // reminders already shown
   lastBrief: '',    // the day the morning summary was last shown
   goneAccounts: [], // accounts removed here, so other devices drop them too
@@ -48,8 +50,20 @@ function load() {
 
 export const state = load();
 
+// Two copies of Weftday open at once (two tabs, or a tab and the installed app) each hold their own
+// copy of everything. The one in the background stops saving as soon as the other one saves, so it
+// can never write old data over new, and it loads afresh when you come back to it.
+let stale = false;
+export const isStale = () => stale;
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+  window.addEventListener('storage', e => { if (e.key === KEY && document.hidden) stale = true; });
+  document.addEventListener('visibilitychange', () => { if (stale && !document.hidden) location.reload(); });
+}
+
 export function save() {
-  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { console.warn('Could not save', e); }
+  if (stale) return;
+  try { localStorage.setItem(KEY, JSON.stringify(state)); }
+  catch (e) { console.warn('Could not save', e); if (typeof window !== 'undefined') window.dispatchEvent(new Event('weftday-save-failed')); }
 }
 
 const EVKEY = KEY + '.events';

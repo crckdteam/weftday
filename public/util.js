@@ -40,12 +40,15 @@ export function parseQuick(text, now = new Date()) {
   const out = { title: '', date: null, start: null, duration: null, tag: '', priority: 'normal', repeat: null };
   const today = startOfDay(now);
   // A day and month with no year means the next time that date comes round.
-  const setDay = (d, m) => {
-    let x = new Date(today.getFullYear(), m, d);
-    if (m < 0 || x.getMonth() !== m) return false;
-    if (x < today) x = new Date(today.getFullYear() + 1, m, d);
-    out.date = ymd(x);
-    return true;
+  const setDay = (d, m, year) => {
+    if (m < 0 || m > 11) return false;
+    for (let y = +year || today.getFullYear(), tries = year ? 1 : 9; tries; y++, tries--) { // 29 Feb: the next year that has one
+      const x = new Date(y, m, d);
+      if (x.getMonth() !== m || (!year && x < today)) continue;
+      out.date = ymd(x);
+      return true;
+    }
+    return false;
   };
   const monthOf = w => MONTHS.indexOf(w.slice(0, 3).toLowerCase());
 
@@ -56,13 +59,13 @@ export function parseQuick(text, now = new Date()) {
   s = s.replace(/\s(every\s*day|daily|every\s+weekday|weekdays|every\s+week|weekly)(?=\s)/i, (_, w) => {
     out.repeat = /weekday/i.test(w) ? 'weekdays' : /week/i.test(w) ? 'weekly' : 'daily'; return ' ';
   });
-  if (!out.repeat) s = s.replace(/\severy(?=\s+(?:mon|tue|wed|thu|fri|sat|sun))/i, () => { out.repeat = 'weekly'; return ''; });
+  if (!out.repeat) s = s.replace(/\severy(?=\s+(?:mon(?:day)?|tue(?:s|sday)?|wed(?:s|nesday)?|thu(?:r|rs|rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)\s)/i, () => { out.repeat = 'weekly'; return ''; });
 
   // length: 1h, 1.5h, 1h30m, 90m, 45min
-  s = s.replace(/\s(?:for\s+)?(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)(?:\s*(\d+)\s*(?:m|min|mins))?(?=\s)/i,
-    (_, h, m) => { out.duration = Math.round(parseFloat(h) * 60) + (m ? +m : 0); return ' '; });
+  s = s.replace(/\s(?:for\s+)?(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)(?:\s*(?:and\s+)?(\d+)\s*(?:m|min|mins|minutes?)?)?(?=\s)/i,
+    (all, h, m) => { const mins = Math.round(parseFloat(h) * 60) + (m ? +m : 0); if (mins > 1440) return all; out.duration = mins; return ' '; }); // longer than a day is not a length
   if (out.duration == null) {
-    s = s.replace(/\s(?:for\s+)?(\d+)\s*(?:m|min|mins|minutes)(?=\s)/i, (_, m) => { out.duration = +m; return ' '; });
+    s = s.replace(/\s(?:for\s+)?(\d+)\s*(?:m|min|mins|minutes)(?=\s)/i, (all, m) => { if (+m > 1440) return all; out.duration = +m; return ' '; });
   }
 
   // time: 7am, 7:30pm, 17:00, noon
@@ -80,14 +83,23 @@ export function parseQuick(text, now = new Date()) {
     out.date = ymd(/^today$/i.test(w) ? today : addDays(today, 1)); return ' ';
   });
   if (!out.date) s = s.replace(/\sin\s+(\d{1,3})\s+days?(?=\s)/i, (_, n) => { out.date = ymd(addDays(today, +n)); return ' '; });
-  if (!out.date) s = s.replace(/\snext\s+week(?=\s)/i, () => { out.date = ymd(addDays(startOfWeek(today), 7)); return ' '; });
-  if (!out.date) s = s.replace(new RegExp(`\\s(?:on\\s+)?${ORD}\\s+${MON}(?=\\s)`, 'i'), (all, d, m) => setDay(+d, monthOf(m)) ? ' ' : all);
-  if (!out.date) s = s.replace(new RegExp(`\\s(?:on\\s+)?${MON}\\s+${ORD}(?=\\s)`, 'i'), (all, m, d) => setDay(+d, monthOf(m)) ? ' ' : all);
-  if (!out.date) s = s.replace(/\s(?:on\s+)?(\d{1,2})\/(\d{1,2})(?=\s)/, (all, d, m) => setDay(+d, +m - 1) ? ' ' : all);
+  const DAY = '(mon(?:day)?|tue(?:s|sday)?|wed(?:nesday)?|thu(?:r|rs|rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)';
+  const dayIndex = w => ({ sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 }[w.slice(0, 3).toLowerCase()]);
+  // "next week tue": that day of next week; plain "next week": its Monday
+  if (!out.date) s = s.replace(new RegExp(`\\snext\\s+week(?:\\s+(?:on\\s+)?${DAY})?(?=\\s)`, 'i'), (_, w) => {
+    out.date = ymd(addDays(startOfWeek(today), 7 + (w ? (dayIndex(w) + 6) % 7 : 0))); return ' ';
+  });
+  if (!out.date) s = s.replace(new RegExp(`\\s(?:on\\s+)?${ORD}\\s+${MON}(?:\\s+(20\\d\\d))?(?=\\s)`, 'i'), (all, d, m, y) => setDay(+d, monthOf(m), y) ? ' ' : all);
+  if (!out.date) s = s.replace(new RegExp(`\\s(?:on\\s+)?${MON}\\s+${ORD}(?:,?\\s+(20\\d\\d))?(?=\\s)`, 'i'), (all, m, d, y) => setDay(+d, monthOf(m), y) ? ' ' : all);
+  // 25/11, but not "24/7" or "1/2 of the deck"
+  if (!out.date) s = s.replace(/\s(?:on\s+)?(\d{1,2})\/(\d{1,2})(?=\s)(?!\s+of\s)/, (all, d, m) => (/24\/7/.test(all) ? all : setDay(+d, +m - 1) ? ' ' : all));
   if (!out.date) {
-    s = s.replace(/\s(?:on\s+|next\s+)?(mon(?:day)?|tue(?:s|sday)?|wed(?:nesday)?|thu(?:r|rs|rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)(?=\s)/i, (_, w) => {
-      const idx = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 }[w.slice(0, 3).toLowerCase()];
-      let diff = (idx - today.getDay() + 7) % 7; if (diff === 0) diff = 7;
+    // "sat" and "sun" are also ordinary words ("sat down", "sun cream"): alone they only count as days
+    // at the end, before a time or number, or after "on" / "next"
+    s = s.replace(new RegExp(`\\s(on\\s+|next\\s+)?${DAY}(?=\\s)`, 'i'), (all, lead, w, at, whole) => {
+      const rest = whole.slice(at + all.length).trim();
+      if (/^(sat|sun)$/i.test(w) && !lead && rest && !/^(\d|at\b|#|!|every\b|for\b|morning|afternoon|evening|night)/i.test(rest)) return all;
+      let diff = (dayIndex(w) - today.getDay() + 7) % 7; if (diff === 0) diff = 7;
       out.date = ymd(addDays(today, diff)); return ' ';
     });
   }
