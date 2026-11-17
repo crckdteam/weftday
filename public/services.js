@@ -83,7 +83,7 @@ export const SEARCH_SERVICES = {
     request: (q, key) => json('https://api.tavily.com/search', { authorization: `Bearer ${key}` }, { query: q, search_depth: 'basic', max_results: 5, include_answer: false }),
     read: d => (d?.results || []).map(r => ({ title: r.title, url: r.url, content: r.content })),
     help: `<li>Open ${link('https://app.tavily.com', 'Tavily')}, a search service made for AI tools, and sign up. It is free and asks for no card.</li>
-      <li>Copy your API key, paste it above and press Save. It gives 1,000 searches a month; one lookup uses four.</li>`,
+      <li>Copy your API key, paste it above and press Save. It gives 1,000 searches a month; one lookup uses five. It also finds a photo of the person.</li>`,
   },
   firecrawl: {
     name: 'Firecrawl', cost: 'free',
@@ -134,6 +134,18 @@ export async function webSearch(kind, query, key, signal) {
   if (!res.ok) throw new Error(`${svc.name} could not answer. Please try again.`);
   return svc.read(data).filter(r => r && r.url).slice(0, 5)
     .map(r => ({ title: String(r.title || ''), url: String(r.url), content: String(r.content || '').replace(/\s+/g, ' ').slice(0, 700) }));
+}
+
+// Pictures the search finds for a name. Only Tavily offers this. Returns [{ url, title, description }].
+export async function photoSearch(query, key, signal) {
+  const res = await fetch('https://api.tavily.com/search', {
+    method: 'POST', signal,
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
+    body: JSON.stringify({ query, search_depth: 'basic', max_results: 5, include_answer: false, include_images: true, include_image_descriptions: true }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return [];
+  return (data?.images || []).map(i => (typeof i === 'string' ? { url: i } : { url: String(i?.url || ''), title: String(i?.title || ''), description: String(i?.description || '') }));
 }
 
 // ---- AI services that share the common chat format

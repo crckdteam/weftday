@@ -1219,21 +1219,71 @@ function aboutLine(email) {
 const initials = name => name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('') || '?';
 
 // Pictures (can be switched off in Settings). A company's logo is its website icon, fetched through
-// Google's site-icon service. A person's photo comes from Gravatar, if they have set one up there; it
-// is looked up by a scrambled form of their email address. LinkedIn does not let other apps fetch
-// profile photos, so those cannot be shown. Without a photo the coloured initials stay.
+// Google's site-icon service. A person's photo is the one they set up on Gravatar, looked up by a
+// scrambled form of their email address; failing that, a picture found on the web by "Get facts"
+// (see findPhotos). LinkedIn does not let other apps fetch profile photos, so those are never used.
+// Without a photo the coloured initials stay.
 const logoHtml = domain => (state.settings.pictures !== false && domain && !FREE_MAIL.has(domain)
   ? `<img class="logo" alt="" loading="lazy" src="https://www.google.com/s2/favicons?domain=${G.enc(domain)}&sz=128">` : '');
-const avatarHtml = (who, small) => `<div class="avatar${small ? ' sm' : ''}" data-photo="${esc(who.email)}" style="--tc:${tagColor(who.email)}">${esc(initials(who.name))}</div>`;
+const savedFacts = email => { const raw = F.split(N.get(N.aboutKey(email))?.text || '').raw; return raw ? F.parse(raw) : null; };
+const avatarHtml = (who, small) => `<div class="avatar${small ? ' sm' : ''}" data-photo="${esc(who.email)}" data-web="${esc(savedFacts(who.email)?.photo || '')}" style="--tc:${tagColor(who.email)}">${esc(initials(who.name))}</div>`;
+// Loads a picture without telling its website which page asked for it. Resolves to the image, or null.
+const loadPicture = (src, wait = 8000) => new Promise(done => {
+  const img = new Image(), timer = setTimeout(() => done(null), wait);
+  img.referrerPolicy = 'no-referrer'; img.alt = '';
+  img.onload = () => { clearTimeout(timer); done(img); };
+  img.onerror = () => { clearTimeout(timer); done(null); };
+  img.src = src;
+});
 async function showPictures() {
   for (const logo of el.dlg.querySelectorAll('img.logo')) logo.addEventListener('error', () => logo.remove());
   if (state.settings.pictures === false) return;
-  for (const spot of el.dlg.querySelectorAll('.avatar[data-photo]')) {
+  for (const spot of el.dlg.querySelectorAll('.avatar[data-photo]')) (async () => {
     const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(spot.dataset.photo.trim().toLowerCase())));
-    const photo = new Image();
-    photo.onload = () => { if (spot.isConnected) { spot.style.backgroundImage = `url("${photo.src}")`; spot.classList.add('photo'); } };
-    photo.src = `https://gravatar.com/avatar/${[...bytes].map(b => b.toString(16).padStart(2, '0')).join('')}?s=160&d=404`;
-  }
+    const img = await loadPicture(`https://gravatar.com/avatar/${[...bytes].map(b => b.toString(16).padStart(2, '0')).join('')}?s=160&d=404`)
+      || (spot.dataset.web && await loadPicture(spot.dataset.web));
+    if (img && spot.isConnected) { spot.textContent = ''; spot.append(img); spot.classList.add('photo'); }
+  })();
+}
+// Looks for pictures of the person on the web, with your Tavily search key. Returns the ones that
+// really load and look like a portrait, most likely first: [{ url, sure }].
+async function findPhotos(who, hint, signal) {
+  const key = searchKeyOf('tavily');
+  if (state.settings.pictures === false || !key || !(who.fullName || who.company)) return [];
+  try {
+    const query = `${who.fullName ? `"${who.name}"` : who.name}${who.company ? ` ${who.company}` : ''}${hint ? ` ${hint}` : ''}`;
+    const ranked = F.rankPhotos(await S.photoSearch(query, key, signal), who);
+    const loaded = await Promise.all(ranked.map(p => loadPicture(p.url, 6000)));
+    const portrait = img => img && img.naturalWidth >= 90 && img.naturalHeight >= 90 && img.naturalWidth / img.naturalHeight < 2.4 && img.naturalHeight / img.naturalWidth < 2.4;
+    return ranked.filter((p, i) => portrait(loaded[i]));
+  } catch { return []; }
+}
+// The lines about photos that go into the saved facts. A photo you already have for the same person
+// (picked by you or found before) is kept; otherwise the best new one is used if it is sure.
+async function photoLines(found, old, hint) {
+  const same = old && (old.hint || '') === (hint || '');
+  const all = [...new Set([...found.map(p => p.url), ...(same ? old.photos : [])])].slice(0, 6);
+  const keep = same && old.photoSet && (!old.photo || !!(await loadPicture(old.photo, 6000))); // "no photo", or one that still loads
+  const shown = keep ? (old.photo || 'none') : found.find(p => p.sure)?.url || '';
+  return `${shown ? `\nPhoto: ${shown}` : ''}${all.length ? `\nPhotos:\n${all.map(u => `- ${u}`).join('\n')}` : ''}`;
+}
+// Lets you pick which of the pictures found on the web is the person, or none.
+function openPhotoPick(guest, from) {
+  const p = person(guest), key = N.aboutKey(p.email), f = savedFacts(p.email);
+  if (!f) return openPerson(guest, from);
+  dialog(`<div class="dbody"><h3>Photo of ${esc(p.name.split(' ')[0])}</h3>
+    <p class="note">${f.photos.length ? 'These pictures were found on the web for this name. Pick the one that is them.' : 'No pictures were found on the web for this name. Press Refresh on their profile to look again.'}</p>
+    <div class="pgrid">${f.photos.map(u => `<button type="button" class="pcell${u === f.photo ? ' on' : ''}" data-x="pick" data-url="${esc(u)}"><img src="${esc(u)}" alt="" referrerpolicy="no-referrer" loading="lazy"></button>`).join('')}
+      <button type="button" class="pcell none${f.photo ? '' : ' on'}" data-x="pick" data-url="">No photo</button></div>
+    <div class="actions"><button type="button" class="btn" data-x="back">Back</button></div></div>`, {
+    back: () => openPerson(guest, from),
+    pick(x) {
+      N.set(key, F.setPhoto(N.get(key)?.text || '', x.dataset.url), { title: p.name, when: Date.now(), people: [p.email] });
+      scheduleFlush();
+      openPerson(guest, from);
+    },
+  });
+  for (const img of el.dlg.querySelectorAll('.pcell img')) img.addEventListener('error', () => img.closest('.pcell').remove());
 }
 
 // The facts found on the web, laid out as a card: first the person, then their company.
@@ -1249,7 +1299,7 @@ function factsHtml(f, day, who) {
     ${f.sources.length ? `<div class="chips2">${f.sources.map(x => `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.host)}</a>`).join('')}</div>` : ''}
     ${f.coverage ? '<div class="note">This comes from the company’s own website, so it says little about the person. Add a free search key in Settings → AI for more.</div>' : ''}
     <div class="ffoot"><span>From the web${day ? ` · ${esc(day)}` : ''}${f.hint ? `, using your hint “${esc(f.hint)}”` : ''}. Check before relying on it.</span>
-      <span class="flinks"><button type="button" class="linkbtn" data-x="notthem">Not them?</button><button type="button" class="linkbtn" data-x="facts">Refresh</button></span></div>
+      <span class="flinks">${f.photos.length || f.photo ? '<button type="button" class="linkbtn" data-x="photo">Change photo</button>' : ''}<button type="button" class="linkbtn" data-x="notthem">Not them?</button><button type="button" class="linkbtn" data-x="facts">Refresh</button></span></div>
     <form class="hintrow" id="hintRow" hidden><input name="hint" maxlength="120" placeholder="A hint: their job, city, or LinkedIn address" autocomplete="off" value="${esc(f.hint || '')}"><button class="btn" data-x="retry" type="button">Look again</button></form>`;
 }
 const FACTS_LOADING = `<div class="note">Reading the web about them and their company. This takes up to half a minute…</div>
@@ -1292,6 +1342,7 @@ function openPerson(guest, from) {
     ${notes.length ? `<h4>Your notes from meetings with them</h4><div class="past">${notes.slice(0, 8).map(n => `<div><b>${esc(n.title || 'Meeting')}</b>${n.when ? ` <i>· ${esc(dayLabel(new Date(n.when)))}</i>` : ''}<div class="desc">${esc(AI.gistOf(n.text, 400))}</div></div>`).join('')}</div>` : ''}
     <div class="actions">${from ? '<button type="button" class="btn" data-x="back">Back to the meeting</button>' : ''}<span class="sp"></span><button type="button" class="btn primary" data-x="close">Close</button></div></div>`, {
     back: () => openEvent(from),
+    photo: () => { commitAbout(true); openPhotoPick(guest, from); },
     // "Not them?": shows a box for a hint, then looks again with it.
     notthem() {
       const row = $('#hintRow', el.dlg);
@@ -1315,7 +1366,7 @@ function openPerson(guest, from) {
         if (searched.length) {
           const line = $('#searched', el.dlg);
           line.hidden = false;
-          line.innerHTML = `Google searched for: ${searched.map(q => `<a href="https://www.google.com/search?q=${G.enc(q)}" target="_blank" rel="noopener">${esc(q)}</a>`).join(' · ')}`;
+          line.innerHTML = `Searched for: ${searched.map(q => `<a href="https://www.google.com/search?q=${G.enc(q)}" target="_blank" rel="noopener">${esc(q)}</a>`).join(' · ')}`;
         }
       } catch (err) {
         if (err.name !== 'AbortError' && card.isConnected) { card.innerHTML = before; toast(err.message, true); }
@@ -1731,6 +1782,11 @@ const searchKeyOf = id => { const s = state.settings; return (id === 'tavily' ? 
 // Whether "Get facts" can run: the chosen AI service has its key (one on your own computer needs none).
 const factsKey = () => { const svc = S.aiService(state.settings.aiProvider); return svc.noKey ? 'none needed' : aiKeyOf(svc.id); };
 async function getFacts(who, meeting, signal, hint = '') {
+  const photos = findPhotos(who, hint, signal); // runs alongside the lookup
+  const answer = await lookUp(who, meeting, signal, hint);
+  return { ...answer, text: answer.text + await photoLines(await photos, savedFacts(who.email), hint) };
+}
+async function lookUp(who, meeting, signal, hint) {
   const s = state.settings, svc = S.aiService(s.aiProvider);
   if (svc.kind === 'claude') { // Claude with its own web search
     const C = await import('./claude.js');
@@ -2280,7 +2336,7 @@ function openSettings(msg, pane) {
           <div class="sgroup">
             ${row('Theme', '', `<div class="segr">${[['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) =>
               `<label><input type="radio" name="theme" value="${v}"${(s.theme || 'auto') === v ? ' checked' : ''}><span>${l}</span></label>`).join('')}</div>`)}
-            ${toggle('pictures', s.pictures !== false, 'Photos and company logos', 'Logos come from Google’s site-icon service, photos from Gravatar. LinkedIn photos cannot be shown.')}
+            ${toggle('pictures', s.pictures !== false, 'Photos and company logos', 'Logos come from Google’s site-icon service. Photos come from Gravatar or, with a Tavily search key, from the web when you get facts.')}
           </div>`)}
 
         ${section('reminders', 'Reminders', '', `

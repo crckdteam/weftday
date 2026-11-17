@@ -200,6 +200,41 @@ export function mergeInto(existing, answer, dayText) {
   return `${own ? `${own}\n\n` : ''}${lines.join('\n')}`;
 }
 
+// ---- photos found on the web
+// Puts the pictures a search returned in order, most likely to be this person first, and marks the
+// ones with real evidence (their name in the picture's caption or address) as "sure". A picture is
+// only shown by itself when it is sure; the rest are offered for you to pick from.
+const EXPIRING = /licdn\.com|fbcdn\.net|fbsbx\.com|cdninstagram\.com|twimg\.com\/profile_banners/i; // addresses that stop working after a while
+export function rankPhotos(images, who) {
+  const words = who.name.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+  const first = words[0] || '', last = words.length > 1 ? words[words.length - 1] : '';
+  const firm = (who.company || '').toLowerCase();
+  const seen = new Set(), out = [];
+  for (const img of images) {
+    const url = String(img?.url || '');
+    if (!/^https:\/\//.test(url) || url.length > 320 || seen.has(url) || EXPIRING.test(url) || /\.(svg|gif)(\?|$)/i.test(url)) continue;
+    seen.add(url);
+    let path = url.toLowerCase();
+    try { path = decodeURIComponent(path); } catch { /* keep as is */ }
+    const text = `${img.title || ''} ${img.description || ''}`.toLowerCase();
+    const named = last ? text.includes(`${first} ${last}`) || (text.includes(first) && text.includes(last)) : !!first && text.includes(first) && (!!firm && text.includes(firm));
+    const inPath = last ? path.includes(last) && path.includes(first) : !!first && path.includes(first) && (!!who.domain && path.includes(who.domain.split('.')[0]));
+    let score = (named ? 5 : 0) + (inPath ? 4 : 0) + (last && path.includes(last) ? 1 : 0);
+    if (/portrait|headshot|smil|profile (photo|picture)/.test(text)) score += 1;
+    if (/\b(two|three|four|five|several|group|team|crowd|panel|audience)\b/.test(text)) score -= 3;
+    if (/logo|icon|banner|chart|graph|screenshot|diagram|infographic|illustration|cartoon|building|skyline|product|book cover|poster/.test(text) || /logo|icon|sprite|banner|placeholder|default[-_]?(avatar|profile)/.test(path)) score -= 6;
+    if (score > -3) out.push({ url, sure: (named || inPath) && score >= 4, score });
+  }
+  return out.sort((a, b) => b.score - a.score).slice(0, 6).map(({ url, sure }) => ({ url, sure }));
+}
+// Sets the photo shown for a person in their saved note ('' removes it).
+export function setPhoto(note, url) {
+  const { own, raw, day } = split(note);
+  if (!raw) return note;
+  const lines = raw.split('\n').filter(l => !/^photo\s*:/i.test(l.trim()));
+  return join(own, [`Photo: ${url || 'none'}`, ...lines].join('\n'), day);
+}
+
 // ---- reading a saved note back: your own words, and the facts as tidy parts for display
 // A person's note is "<what you wrote>\n\n— Facts from the web · <day> —\n<the brief>".
 export function split(note) {
@@ -216,6 +251,7 @@ const LABELS = {
   company: 'company', teamsize: 'teamSize', team: 'teamSize', employees: 'teamSize', funding: 'funding',
   keypeople: 'people', people: 'people', leadership: 'people', clients: 'clients', customers: 'clients',
   recent: 'recent', ideas: 'ideas', linkedin: 'linkedin', sources: 'sources', hint: 'hint', coverage: 'coverage',
+  photo: 'photo', photos: 'photos',
 };
 const TAG_LISTS = ['expertise', 'clients']; // shown as small tags, so a comma-separated line is split up
 const asLink = text => {
@@ -229,6 +265,7 @@ const asLink = text => {
 export function parse(raw) {
   const out = {
     role: '', location: '', education: '', company: '', teamSize: '', linkedin: '', hint: '', coverage: '',
+    photo: '', photoSet: false, photos: [], // the picture shown (photoSet: one was chosen, even if it is "none") and the others found
     background: [], expertise: [], funding: [], people: [], clients: [], recent: [], ideas: [], sources: [], other: [],
   };
   let section = 'other';
@@ -239,6 +276,8 @@ export function parse(raw) {
     const known = label && LABELS[label[1].toLowerCase().replace(/\s+/g, '')];
     if (known) { section = known; line = label[2].trim(); if (!line) continue; }
     line = line.replace(/^[-•*]\s*/, '').trim();
+    if (section === 'photo') { out.photoSet = true; out.photo = /^https:\/\//.test(line) ? line : ''; section = 'other'; continue; }
+    if (section === 'photos') { if (/^https:\/\//.test(line) && out.photos.length < 8) out.photos.push(line); continue; }
     if (!line || /^(none|n\/a|not found|unknown|not available|no information( available| found)?)\.?$/i.test(line)) continue;
     if (section === 'sources') {
       const link = asLink(line);
