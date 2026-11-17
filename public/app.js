@@ -5,6 +5,7 @@ import * as N from './notes.js';
 import * as AI from './ai.js';
 import * as F from './facts.js';
 import * as S from './services.js';
+import * as R from './recorder.js';
 import { qrSvg } from './qr.js';
 import { PUBLIC_URL } from './config.js';
 import {
@@ -86,8 +87,10 @@ function dialog(html, handlers = {}, cls = '') {
   const showing = el.toast.classList.contains('show');
   document.body.append(el.toast);
   el.dlg.className = cls;
+  if (recBar?.isConnected) document.body.append(recBar);
   el.dlg.innerHTML = html;
   if (showing) el.dlg.append(el.toast); // a message on screen stays in front of the new box
+  if (recBar?.isConnected) el.dlg.append(recBar); // so does the bar of a running recording
   dlgOpenedAt = Date.now();
   if (!el.dlg.open) el.dlg.showModal();
   el.dlg.onclick = e => {
@@ -469,7 +472,7 @@ function renderSide() {
   const carried = state.tasks.filter(t => t.date && t.date < today && !t.done).sort((a, b) => a.date.localeCompare(b.date));
   const inbox = state.tasks.filter(t => !t.date && !t.done).sort((a, b) => (b.priority === 'high') - (a.priority === 'high') || b.created - a.created);
   const tagOf = t => t.tag ? ` · #${esc(t.tag)}` : '';
-  let h = todayCardHtml() + `<div class="tools"><button data-act="open-today" title="Each of today’s meetings: who is in it, last time, what is open">${toolIcon('prepare')}<span>Prepare</span></button><button data-act="people" title="Everyone you meet, and their companies">${toolIcon('people')}<span>People</span></button><button data-act="free" title="A text with the times you are free, to paste into an email">${toolIcon('free')}<span>Free times</span></button></div>`
+  let h = todayCardHtml() + `<div class="tools"><button data-act="open-today" title="Each of today’s meetings: who is in it, last time, what is open">${toolIcon('prepare')}<span>Prepare</span></button><button data-act="people" title="Everyone you meet, and their companies">${toolIcon('people')}<span>People</span></button><button data-act="free" title="A text with the times you are free, to paste into an email">${toolIcon('free')}<span>Free times</span></button><button data-act="record" title="Record a meeting or your screen, and get notes from it">${toolIcon('record')}<span>Record</span></button></div>`
     + `<div id="upnext">${upNextHtml()}</div>`;
   if (carried.length) {
     h += `<div class="sec"><h4><span>Carried over</span><span>${carried.length}</span></h4>${carried.map(t =>
@@ -695,6 +698,7 @@ function doAct(btn) {
   if (act === 'open-today') return openToday(); // not 'today': that one is "do this task today" on a task
   if (act === 'people') return openPeople();
   if (act === 'free') return openFreeTimes();
+  if (act === 'record') return R.current() ? toast('A recording is running. Use the bar at the bottom to stop it.') : openRecordSetup(null);
   if (act === 'toast-go') { el.toast.className = ''; return toastGo?.(); }
   if (act === 'mini-prev' || act === 'mini-next') {
     const m = miniMonth || monthStart(cursor);
@@ -946,7 +950,7 @@ function bind() {
   addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (view === 'month') renderMonth(); }, 150); });
   addEventListener('offline', () => setStatus('Offline. Changes are kept and sent later.', true));
   addEventListener('online', () => { setStatus(''); scheduleFlush(); refresh(); });
-  el.dlg.addEventListener('close', () => { saveOpenNote(); returnTo = null; document.body.append(el.toast); });
+  el.dlg.addEventListener('close', () => { saveOpenNote(); returnTo = null; document.body.append(el.toast); if (recBar?.isConnected) document.body.append(recBar); });
   addEventListener('weftday-save-failed', () => setStatus('This browser is out of storage space. New changes are not being kept.', true));
   el.dlg.addEventListener('submit', e => { // any form in a box: never let the browser reload the page
     e.preventDefault();
@@ -1107,7 +1111,7 @@ function openPalette() {
     <div id="palList"></div><div class="palfoot">↑ ↓ to move · Enter to open · Esc to close</div></div>`, {}, 'palette');
   const input = $('#palIn', el.dlg), list = $('#palList', el.dlg);
   const cmds = [
-    ['Go to today', goToday], ['Today: prepare for my meetings', openToday], ['People and companies', () => openPeople()], ['Share my free times', () => openFreeTimes()], ['Show me around (tour)', () => setTimeout(startTour, 250)], ['Show a second time zone', openSecondZone], ['Plan my day', openPlan], ['New task', newTaskHere], ['New event', () => openEventForm(null)],
+    ['Go to today', goToday], ['Today: prepare for my meetings', openToday], ['People and companies', () => openPeople()], ['Share my free times', () => openFreeTimes()], ['Record a meeting or my screen', () => openRecordSetup(null)], ['Recordings', () => openRecordings(null)], ['Show me around (tour)', () => setTimeout(startTour, 250)], ['Show a second time zone', openSecondZone], ['Plan my day', openPlan], ['New task', newTaskHere], ['New event', () => openEventForm(null)],
     ['Day view', () => setView('day')], ['Week view', () => setView('week')], ['Month view', () => setView('month')], ['List view', () => setView('list')],
     ['Settings', () => openSettings()], ['Set up phone or another device', openDeviceSetup], ['Keyboard shortcuts', openHelp],
   ].map(([label, run]) => ({ kind: 'Go', label, sub: '', run }));
@@ -1611,9 +1615,11 @@ function openEvent(ev, writeNotes) { // writeNotes: put the cursor in the notes 
     <div class="meta">${esc(eventWhen(ev))}</div>
     <div class="meta"><span class="dot" style="background:${a?.color || '#888'}"></span>${esc(a?.email || '')}${c && !c.primary ? ' · ' + esc(c.summary) : ''}</div>
     ${ev.location ? `<div class="meta">${esc(ev.location)}</div>` : ''}
-    ${ev.meet || extras.length || others.length ? `<div class="btnrow">
+    ${ev.meet || extras.length || others.length || R.supported() ? `<div class="btnrow">
       ${ev.meet ? `<a class="btn primary" href="${esc(ev.meet)}" target="_blank" rel="noopener">Join video call</a>` : ''}
       ${others.length ? '<button type="button" class="btn" data-x="brief">Brief me</button>' : ''}
+      ${R.supported() && !ev.allDay ? '<button type="button" class="btn" data-x="record">Record</button>' : ''}
+      <button type="button" class="btn" data-x="recs" id="recsBtn" hidden></button>
       ${extras.map(x => `<a class="btn" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.label)}</a>`).join('')}</div>` : ''}
     ${others.length ? `<h4>Who’s there</h4><div class="whos">${shown.map(p => who(p, true)).join('')}
       ${rest.length ? `<details><summary>${rest.length} more</summary><div class="whos">${rest.map(p => who(p, false)).join('')}</div></details>` : ''}</div>` : ''}
@@ -1648,6 +1654,8 @@ function openEvent(ev, writeNotes) { // writeNotes: put the cursor in the notes 
     edit: () => openEventForm(ev),
     person: btn => openPerson(guests.find(g => (g.email || '').toLowerCase() === btn.dataset.email), ev),
     brief: () => openBrief(ev),
+    record: () => openRecordSetup(ev),
+    recs: () => openRecordings(ev),
     // Opens a draft in Gmail, written from your notes. Nothing is sent: you read it and press Send yourself.
     followup() {
       const text = $('[name=note]', el.dlg).value, to = outsiders(ev).map(x => x.who);
@@ -1789,6 +1797,10 @@ function openEvent(ev, writeNotes) { // writeNotes: put the cursor in the notes 
   box.addEventListener('input', () => { saved.textContent = ''; showTaskButton(); clearTimeout(timer); timer = setTimeout(commitNote, 600); });
   box.addEventListener('change', commitNote);
   noteCommit = commitNote;
+  R.forMeeting(key).then(list => { // recordings of this meeting, if there are any
+    const b = $('#recsBtn', el.dlg);
+    if (b && list.length) { b.hidden = false; b.textContent = list.length === 1 ? '1 recording' : `${list.length} recordings`; }
+  }).catch(() => {});
   if (others.length) firstTip('meeting');
   showPictures();
   if (writeNotes) { box.scrollIntoView({ block: 'center' }); box.focus(); }
@@ -2515,6 +2527,7 @@ const TOOL_ICONS = {
   prepare: '<path d="M11 3.5l1.9 5.1L18 10.5l-5.1 1.9L11 17.5l-1.9-5.1L4 10.5l5.1-1.9z"/><path d="M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/>',
   people: '<circle cx="9" cy="8" r="3.3"/><path d="M2.8 19.2c.7-3.1 3-4.9 6.2-4.9s5.5 1.8 6.2 4.9"/><circle cx="17.2" cy="9" r="2.5"/><path d="M17 14.3c2.2.3 3.7 1.7 4.3 4"/>',
   free: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.3V12l3.2 2"/>',
+  record: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.4" fill="currentColor" stroke="none"/>',
 };
 const toolIcon = name => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${TOOL_ICONS[name]}</svg>`;
 
@@ -2695,6 +2708,7 @@ function openSettings(msg, pane) {
         ${section('data', 'Your data', 'Weftday has no server. Everything lives in this browser and in your own Google accounts.', `
           <div class="sgroup">
             ${row(`${state.tasks.length} task${state.tasks.length === 1 ? '' : 's'} on this device`, 'Save a copy as a file', '<button type="button" class="btn" data-x="backup">Download backup</button>')}
+            ${row('Recordings', 'Kept in this browser only', '<button type="button" class="btn" data-x="recordings">Open</button>')}
             ${row('Tour', 'A quick look around the main screen', '<button type="button" class="btn" data-x="tour">Start</button>')}
             ${row('Guide', 'The whole app in ten short steps', '<a class="btn" href="guide.html" target="_blank" rel="noopener">Open</a>')}
             ${row('Privacy', 'What is kept, and where', '<a class="btn" href="privacy.html" target="_blank" rel="noopener">Read</a>')}
@@ -2756,6 +2770,7 @@ function openSettings(msg, pane) {
     pane: x => show(x.dataset.pane),
     async notif() { await Notification.requestPermission(); showPerm(); },
     tour: () => { stash(); closeDialog(); setTimeout(startTour, 250); },
+    recordings: () => { stash(); openRecordings(null); },
     // These lead to another box, so what was typed here is kept first.
     device: () => { stash(); openDeviceSetup(); },
     connect: () => { stash(); connect(); },
@@ -3540,6 +3555,183 @@ function openFreeTimes(keep = {}) {
   paint(true);
 }
 
+// ---------------------------------------------------------------- the recorder
+// Weftday's own recorder (recorder.js does the capturing and the storing). Here: the screens around
+// it, the small bar shown while it runs, and turning a recording into meeting notes with your AI key.
+const clock = secs => { const h = Math.floor(secs / 3600), m = Math.floor(secs % 3600 / 60), s = secs % 60; return `${h ? `${h}:${pad(m)}` : m}:${pad(s)}`; };
+const fmtSize = bytes => (bytes >= 1048576 ? `${(bytes / 1048576).toFixed(bytes >= 10485760 ? 0 : 1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);
+const eventFor = key => [...events.values()].find(ev => noteKey(ev) === key) || null;
+let recBar = null;
+function showRecBar(session) {
+  recBar ||= Object.assign(document.createElement('div'), { id: 'recBar' });
+  recBar.innerHTML = `<span class="rdot"></span><b id="recTime">0:00</b><span class="rname">${esc(session.rec.title)}</span>
+    <button type="button" data-r="pause">Pause</button><button type="button" class="stop" data-r="stop">Stop</button>`;
+  recBar.onclick = async e => {
+    const b = e.target.closest('[data-r]');
+    if (!b) return;
+    e.stopPropagation();
+    if (b.dataset.r === 'stop') { b.disabled = true; b.textContent = 'Saving…'; return session.stop(); }
+    if (session.state === 'recording') { session.pause(); b.textContent = 'Resume'; recBar.classList.add('paused'); }
+    else { session.resume(); b.textContent = 'Pause'; recBar.classList.remove('paused'); }
+  };
+  (el.dlg.open && !el.dlg.classList.contains('closing') ? el.dlg : document.body).append(recBar); // not into a box that is on its way out
+}
+addEventListener('beforeunload', e => { if (R.current()) { e.preventDefault(); e.returnValue = ''; } }); // do not lose a running recording by accident
+
+// The one question before recording: what to record. ev is the meeting it belongs to, if any.
+function openRecordSetup(ev) {
+  if (R.current()) return toast('A recording is already running. Stop it first.');
+  const screen = R.canCaptureScreen();
+  if (!R.supported()) return toast('This browser cannot record. Use Chrome on a computer.', true);
+  dialog(`<form class="dbody">
+    <h3>${ev ? 'Record this meeting' : 'Record'}</h3>
+    ${ev ? `<div class="meta">${esc(ev.title)}</div>` : ''}
+    <div class="rchoice">
+      ${screen ? `<label><input type="radio" name="what" value="sound" checked><span><b>The meeting’s sound</b><i>Small file. Best for getting notes afterwards.</i></span></label>
+      <label><input type="radio" name="what" value="video"><span><b>Screen and sound</b><i>A video you can watch again. Much larger.</i></span></label>` : ''}
+      <label><input type="radio" name="what" value="mic"${screen ? '' : ' checked'}><span><b>Only my microphone</b><i>For a meeting in the same room.</i></span></label>
+    </div>
+    <label class="check" id="recMicRow"${screen ? '' : ' hidden'}><input type="checkbox" name="mic" checked>Also record my own voice (microphone)</label>
+    ${screen ? '<p class="note" id="recHow">Chrome will ask what to share. Pick the <b>tab your meeting is in</b> and leave <b>“Also share tab audio”</b> switched on.</p>' : ''}
+    <p class="note warn2">Tell everyone in the meeting that you are recording. In many places that is the law.</p>
+    <p class="note">The recording stays in this browser. Nothing is sent anywhere unless you later press “Make notes”.</p>
+    <div class="actions"><span class="sp"></span><button type="button" class="btn ghost" data-x="close">Cancel</button><button class="btn primary">Start recording</button></div></form>`, {
+    async submit(fd, form) {
+      const what = fd.get('what'), btn = $('button.primary', form);
+      btn.disabled = true;
+      try {
+        const streams = await R.ask({ screen: what !== 'mic', mic: what === 'mic' || fd.get('mic') === 'on' });
+        const session = await R.start(streams, {
+          keepVideo: what === 'video', key: ev ? noteKey(ev) : '', title: ev ? ev.title : `Recording, ${dayLabel(new Date())}`,
+          onTick: secs => { const t = $('#recTime'); if (t) t.textContent = clock(secs); },
+          onEnd: rec => {
+            recBar?.remove();
+            toast(`Recording saved · ${clock(rec.secs)}`, { go: ['Open it', () => openRecording(rec.id)] });
+          },
+        });
+        closeDialog();
+        showRecBar(session);
+        toast(session.rec.heard.length === 2 ? 'Recording the meeting and your microphone.' : `Recording ${session.rec.heard[0]} only.`);
+      } catch (err) {
+        btn.disabled = false;
+        if (err.name === 'NotAllowedError' || err.name === 'AbortError') toast('Nothing was chosen, so nothing is being recorded.');
+        else toast(err.kind === 'nosound' ? err.message : 'The recording could not start. Check that this browser may use your screen and microphone.', true);
+      }
+    },
+  });
+  const sync = () => { const v = $('[name=what]:checked', el.dlg).value; $('#recMicRow', el.dlg).hidden = v === 'mic'; const how = $('#recHow', el.dlg); if (how) how.hidden = v === 'mic'; };
+  for (const r of $$('[name=what]', el.dlg)) r.addEventListener('change', sync);
+}
+
+// What is said in each piece of the recording, then the notes written from all of it.
+const LISTEN = 'This is part of a recorded meeting. Write down what is said, as plain text, in the language it is spoken in. Start a new line each time the speaker changes, and begin it with “Speaker 1:”, “Speaker 2:” and so on when you can tell the voices apart. Leave out filler sounds. If nobody speaks, answer with exactly: (silence)';
+async function notesFromRecording(rec, signal, say) {
+  const key = state.settings.aiKey;
+  if (!key) throw Object.assign(new Error('nokey'), { kind: 'nokey' });
+  const parts = await R.pieces(rec.id);
+  if (!parts.length) throw new Error('This recording has no sound that can be listened to.');
+  const heard = [];
+  for (let i = 0; i < parts.length; i++) {
+    say(parts.length > 1 ? `Listening… part ${i + 1} of ${parts.length}` : 'Listening to the recording…');
+    for (let tries = 0; ; tries++) {
+      try { heard.push(await F.askAudio(parts[i], rec.pieceMime, LISTEN, key, signal)); break; }
+      catch (err) { // the free key allows only so much a minute: wait and go on
+        if (err.name === 'AbortError' || tries >= 2 || !['billing', 'credit', 'busy', 'slow'].includes(err.kind)) throw err;
+        say('Google’s AI asked for a short pause. Carrying on in half a minute…');
+        await new Promise((done, fail) => { const t = setTimeout(done, 30000); signal?.addEventListener('abort', () => { clearTimeout(t); fail(new DOMException('Stopped', 'AbortError')); }, { once: true }); });
+      }
+    }
+  }
+  const transcript = heard.filter(t => t && !/^\(silence\)$/i.test(t.trim())).join('\n').trim();
+  if (!transcript) throw new Error('No speech was found in this recording.');
+  await R.update(rec.id, { transcript });
+  say('Writing the notes…');
+  const ev = eventFor(rec.key), people = ev ? outsiders(ev).map(x => x.who.name).join(', ') : '';
+  const raw = await F.askPlain([
+    `Below is the transcript of a recorded meeting${rec.title ? ` called “${rec.title}”` : ''}${people ? ` with ${people}` : ''}. Write notes from it.`,
+    'Answer with JSON only, no other words: {"summary":"two or three sentences on what it was about and where things stand","decisions":["…"],"actions":["…"],"questions":["…"]}',
+    'decisions: what was agreed or settled. actions: what somebody still has to do; start with a verb and keep any name or deadline that was said. questions: what was left open. Use only what was said. Leave a list empty when there is nothing for it.',
+    `Transcript:\n${transcript.slice(0, 60000)}`,
+  ].join('\n'), { provider: 'google', google: key }, signal);
+  let got = {};
+  try { got = JSON.parse(/\{[\s\S]*\}/.exec(raw)?.[0] || '{}'); } catch { got = {}; }
+  const lines = v => (Array.isArray(v) ? v : []).map(x => String(x || '').replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 20);
+  const result = { summary: String(got.summary || '').trim(), decisions: lines(got.decisions), actions: lines(got.actions), questions: lines(got.questions), info: [] };
+  if (!result.summary && !result.actions.length && !result.decisions.length) throw new Error('The AI could not write notes from this recording. Please try again.');
+  // into the meeting's own notes, above whatever you typed yourself
+  let notes = '';
+  if (rec.key) {
+    const had = N.get(rec.key), own = AI.originalOf(had?.text || '').trim();
+    notes = AI.layout(result, own || `Written from the recording of ${dayLabel(new Date(rec.at))}.`).slice(0, N.MAX_LENGTH);
+    N.set(rec.key, notes, ev ? { title: ev.title, when: ev.s, people: outsiders(ev).map(x => x.who.email).slice(0, 30) } : { title: had?.title || rec.title, when: had?.when || rec.at, people: had?.people || [] });
+    scheduleFlush();
+    renderView();
+  } else notes = AI.layout(result, 'Written from the recording.');
+  await R.update(rec.id, { notes });
+  return { transcript, notes };
+}
+
+// One recording: play it, get notes from it, save it as a file, or delete it.
+async function openRecording(id, back) {
+  const rec = await R.get(id);
+  if (!rec) return toast('That recording is no longer here.', true);
+  const blob = await R.file(id), url = blob ? URL.createObjectURL(blob) : '';
+  const ev = eventFor(rec.key);
+  dialog(`<div class="dbody">
+    <h3>${esc(rec.title)}</h3>
+    <div class="meta">${esc(dayLabel(new Date(rec.at)))} · ${clock(rec.secs)} · ${fmtSize(rec.size)}${rec.heard?.length ? ` · heard ${esc(rec.heard.join(' and '))}` : ''}${rec.cut ? ' · cut short' : ''}</div>
+    ${url ? (rec.kind === 'video' ? `<video class="rplay" controls src="${url}"></video>` : `<audio class="rplay" controls src="${url}"></audio>`) : '<p class="note">This recording has no playable part.</p>'}
+    <div class="btnrow">
+      <button type="button" class="btn primary" data-x="notes">${rec.notes ? 'Make the notes again' : 'Make notes'}</button>
+      <a class="btn" href="${url}" download="${esc(rec.title.replace(/[^\w -]+/g, '').trim() || 'recording')}.${rec.mime.includes('mp4') ? 'mp4' : 'webm'}">Save as a file</a>
+      ${ev ? '<button type="button" class="btn" data-x="meeting">Open the meeting</button>' : ''}
+    </div>
+    <div class="note" id="recSay" hidden></div>
+    ${rec.notes ? `<h4>Notes</h4><div class="desc rtext">${esc(AI.originalOf(rec.notes) === rec.notes ? rec.notes : rec.notes.slice(0, rec.notes.indexOf(AI.ORIGINAL_MARK)).trim())}</div>` : ''}
+    ${rec.transcript ? `<details><summary>What was said (the full text)</summary><div class="desc rtext">${esc(rec.transcript)}</div></details>` : ''}
+    <div class="actions"><button type="button" class="btn danger" data-x="del">Delete</button>${back ? '<button type="button" class="btn" data-x="back">Back</button>' : ''}<span class="sp"></span><button type="button" class="btn ghost" data-x="close">Close</button></div></div>`, {
+    back: () => back(),
+    meeting: () => openEvent(ev),
+    async del() {
+      if (!confirm('Delete this recording? It cannot be brought back.')) return;
+      await R.remove(id);
+      toast('Recording deleted');
+      if (back) back(); else closeDialog();
+    },
+    async notes(btn) {
+      const say = $('#recSay', el.dlg), job = newJob();
+      btn.disabled = true;
+      say.hidden = false;
+      try {
+        await notesFromRecording(rec, job.signal, text => { if (say.isConnected) say.textContent = text; });
+        if (job.signal.aborted || !say.isConnected) return;
+        toast(rec.key ? 'Notes written into the meeting.' : 'Notes written.');
+        openRecording(id, back);
+      } catch (err) {
+        if (err.name === 'AbortError' || !say.isConnected) return;
+        btn.disabled = false;
+        say.hidden = true;
+        if (err.kind === 'nokey') openSettings('Making notes from a recording needs the free Google AI key. Add it here.', 'ai');
+        else toast(err.message || 'The notes could not be made. Please try again.', true);
+      } finally { if (aiJob === job) aiJob = null; }
+    },
+  });
+  el.dlg.addEventListener('close', () => URL.revokeObjectURL(url), { once: true });
+}
+// The recordings kept in this browser: for one meeting (ev), or all of them.
+async function openRecordings(ev) {
+  const list = ev ? await R.forMeeting(noteKey(ev)) : await R.all(), total = list.reduce((n, r) => n + (r.size || 0), 0);
+  dialog(`<div class="dbody">
+    <h3>${ev ? 'Recordings of this meeting' : 'Recordings'}</h3>
+    <p class="note">${list.length ? `${list.length} kept in this browser, ${fmtSize(total)} in all. They are not copied to your other devices.` : 'Nothing recorded yet. Recordings are kept in this browser only.'}</p>
+    <div class="plist3 tall">${list.map(r => `<button type="button" class="prow2" data-x="open" data-id="${esc(r.id)}">
+      <div class="clogo sm rk">${r.kind === 'video' ? '▶' : '♪'}</div><span><b>${esc(r.title)}</b><i>${esc(dayLabel(new Date(r.at)))} · ${clock(r.secs)} · ${fmtSize(r.size)}${r.notes ? ' · notes made' : ''}</i></span></button>`).join('')}</div>
+    <div class="actions"><button type="button" class="btn" data-x="rec">Record${ev ? ' again' : ''}</button><span class="sp"></span><button type="button" class="btn primary" data-x="close">Close</button></div></div>`, {
+    open: x => openRecording(x.dataset.id, () => openRecordings(ev)),
+    rec: () => openRecordSetup(ev),
+  });
+}
+
 // ---------------------------------------------------------------- showing people around
 // The first time Weftday opens, a short tour points at each part of the main screen, one at a time.
 // The first time a feature's own box opens, one line at the top of that box says what it is for.
@@ -3551,7 +3743,7 @@ const TOUR = [
   { find: () => $('#sideBody .card'), side: true,
     title: 'Your day at a glance', text: 'How much is planned and how much is done. “Plan my day” fits your tasks into the gaps between your meetings.' },
   { find: () => $('.tools'), side: true,
-    title: 'Three shortcuts', text: 'Prepare briefs you on today’s meetings. People lists everyone you meet and their companies. Free times writes out when you are free, ready to paste.' },
+    title: 'Four shortcuts', text: 'Prepare briefs you on today’s meetings. People lists everyone you meet. Free times writes out when you are free. Record captures a meeting and turns it into notes.' },
   { find: () => [...document.querySelectorAll('#sideBody .sec')].find(s => /^inbox/i.test(s.textContent.trim())), side: true,
     title: 'Your inbox', text: 'A task with no day waits here. Drag it onto the calendar to give it a time, or press “→ Today”.' },
   { find: () => [el.grid, el.month, el.list].find(v => v && !v.hidden), big: true,
@@ -3753,6 +3945,7 @@ async function boot() {
   save();
   render();
   setTimeout(maybeTour, 900);
+  R.recover().then(n => { if (n) toast(n === 1 ? 'A recording that was cut off has been kept.' : `${n} recordings that were cut off have been kept.`, { go: ['Show', () => openRecordings(null)] }); }).catch(() => {});
   if (homeFromLink) await adoptHome(homeFromLink);
   else if (gotKeys) toast('Keys added. Now press “+ Connect Google account”.');
   try {

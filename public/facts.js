@@ -221,6 +221,40 @@ export async function askPlain(input, keys, signal) {
   throw Object.assign(new Error(`${svc.name} cannot be used for this.`), { kind: 'noplain' });
 }
 
+// Sound to text with Google's AI and your own key: one short piece of a recording at a time.
+// Returns what the model wrote. Other AI services are not used for this; Google's free key can listen.
+export async function askAudio(blob, mime, question, key, signal) {
+  const data = await new Promise((done, fail) => {
+    const reader = new FileReader();
+    reader.onload = () => done(String(reader.result).slice(String(reader.result).indexOf(',') + 1));
+    reader.onerror = () => fail(new Error('The recording could not be read from this browser’s storage.'));
+    reader.readAsDataURL(blob);
+  });
+  return firstThatAnswers(READ_MODELS, async model => {
+    const stop = new AbortController(), giveUp = () => stop.abort();
+    signal?.addEventListener('abort', giveUp);
+    const timer = setTimeout(giveUp, 150000); // a few minutes of sound takes a while to listen to
+    let res, body;
+    try {
+      res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+        method: 'POST', signal: stop.signal, cache: 'no-store',
+        headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
+        body: JSON.stringify({ contents: [{ parts: [{ inline_data: { mime_type: mime, data } }, { text: question }] }] }),
+      });
+      body = await res.json().catch(() => null);
+    } catch (err) {
+      if (signal?.aborted) throw new DOMException('Stopped', 'AbortError');
+      if (stop.signal.aborted) throw Object.assign(new Error('Google’s AI took too long. Please try again.'), { kind: 'slow' });
+      throw Object.assign(new Error('Could not reach Google’s AI. Check your connection and try again.'), { kind: 'offline' });
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', giveUp);
+    }
+    if (!res.ok || body?.error) throw problem(res.status, body?.error);
+    return (body?.candidates?.[0]?.content?.parts || []).map(part => part.text || '').join('').trim();
+  });
+}
+
 // ---- photos found on the web
 // Puts the pictures a search returned in order, most likely to be this person first, and marks the
 // ones with real evidence (their name in the picture's caption or address) as "sure". A picture is
