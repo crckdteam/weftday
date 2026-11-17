@@ -10,6 +10,8 @@ called "Teams" in your own Google account. Weftday then shows it like any other 
 
 ## Set it up (about 5 minutes)
 
+The easiest way is the **+ Add Teams calendar** button in Weftday, which shows these same steps and copies the code for you.
+
 1. **Get the calendar link from Outlook.** Open [outlook.office.com/calendar](https://outlook.office.com/calendar) with your
    company account (the same login as Teams). Press the gear → **Calendar** → **Shared calendars**. Under
    **Publish a calendar** pick **Calendar** and **Can view all details**, press **Publish**, and copy the link that ends in `.ics`.

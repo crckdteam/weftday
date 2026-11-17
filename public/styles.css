@@ -326,6 +326,9 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
 .rowline { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 details summary { cursor: pointer; color: var(--accent); font-size: 13px; }
 details ol { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 6px; font-size: 13px; }
+ol.steps { margin: 0; padding-left: 20px; display: grid; gap: 10px; font-size: 13.5px; }
+ol.steps li > * { margin-top: 6px; }
+ol.steps a { color: var(--accent); }
 code { background: var(--bg); border: 1px solid var(--line); border-radius: 5px; padding: 0 4px; font-size: 12px; overflow-wrap: anywhere; }
 
 .qr { justify-self: center; width: min(300px, 78vw); border-radius: 12px; overflow: hidden; border: 1px solid var(--line); line-height: 0; }

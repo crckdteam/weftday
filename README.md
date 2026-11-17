@@ -13,7 +13,7 @@ All your Google calendars and your tasks in one place. Schedule tasks as time bl
 
 ## Company Teams calendar
 
-A small helper can copy a company Teams / Outlook calendar into your Google account so Weftday can show it (view-only). See [helpers/README.md](helpers/README.md).
+A small helper can copy a company Teams / Outlook calendar into your Google account so Weftday can show it (view-only). Press **+ Add Teams calendar** in the app, or see [public/helpers/README.md](public/helpers/README.md).
 
 ## Setting up a device
 

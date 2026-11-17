@@ -4,7 +4,7 @@
  *
  * - One way only: Teams -> Google. Nothing is ever changed in Teams or Outlook.
  * - It runs inside your own Google account (Google Apps Script). No other server is involved.
- * - Setup steps are in helpers/README.md.
+ * - Setup steps: press "+ Add Teams calendar" in Weftday, or read public/helpers/README.md.
  */
 
 // ---------------------------------------------------------------- settings

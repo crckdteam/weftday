@@ -1,4 +1,4 @@
-// Checks the Teams -> Google helper (helpers/teams-to-google.gs) with a pretend Outlook calendar
+// Checks the Teams -> Google helper (public/helpers/teams-to-google.gs) with a pretend Outlook calendar
 // and a pretend Google. Run:  node test/teams-helper.test.mjs
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -8,7 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const untouched = readFileSync(path.join(here, '..', 'helpers', 'teams-to-google.gs'), 'utf8');
+const untouched = readFileSync(path.join(here, '..', 'public', 'helpers', 'teams-to-google.gs'), 'utf8');
 const source = untouched.replace("'PASTE YOUR OUTLOOK CALENDAR LINK HERE'", "'https://outlook.example/calendar.ics'");
 assert.notEqual(source, untouched);
 

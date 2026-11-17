@@ -776,6 +776,7 @@ function bind() {
   $('#searchBtn').onclick = e => { e.stopPropagation(); openPalette(); };
   $('#fab').onclick = e => { e.stopPropagation(); newTaskHere(); };
   $('#connect').onclick = connect;
+  $('#teamsBtn').onclick = openTeams;
   $('#settingsBtn').onclick = () => openSettings();
   $('#helpBtn').onclick = openHelp;
   $('#menu').onclick = e => { e.stopPropagation(); document.body.classList.add('side-open'); };
@@ -1436,6 +1437,47 @@ function openDeviceSetup(mine = true) {
     copy() { navigator.clipboard.writeText(link).then(() => toast('Link copied'), () => toast('Could not copy the link', true)); },
     mine: () => openDeviceSetup(true),
     other: () => openDeviceSetup(false),
+  });
+}
+
+// ---------------------------------------------------------------- company Teams calendar (view-only)
+// Weftday cannot sign in to a company's Microsoft account without that company's approval. Instead, a small
+// helper script in the user's own Google account copies a published Outlook/Teams calendar into a Google
+// calendar called "Teams". This dialog walks through setting that helper up.
+const TEAMS_PLACEHOLDER = "'PASTE YOUR OUTLOOK CALENDAR LINK HERE'";
+let teamsCode = '';
+function openTeams() {
+  if (!teamsCode) fetch('helpers/teams-to-google.gs').then(r => (r.ok ? r.text() : '')).then(t => { teamsCode = t; }).catch(() => {});
+  dialog(`<form class="dbody"><h3>Add a Teams calendar</h3>
+    <p class="note">Shows your company’s Teams (Outlook) meetings in Weftday, to look at only. A small helper in your own Google account copies them into a calendar called “Teams” every 15 minutes. Your company’s IT does not need to approve anything.</p>
+    <ol class="steps">
+      <li>Open <a href="https://outlook.office.com/calendar/options/calendar/SharedCalendars" target="_blank" rel="noopener">Outlook on the web</a> with your Teams login. Under <b>Publish a calendar</b> choose <b>Calendar</b> and <b>Can view all details</b>, press <b>Publish</b>, and copy the link that ends in <b>.ics</b>.</li>
+      <li>Paste that link here. You can leave it empty and add it later.
+        <input name="ics" placeholder="https://outlook.office365.com/…/calendar.ics" autocomplete="off" spellcheck="false"></li>
+      <li>Press <button type="button" class="btn" data-x="copy">Copy the helper code</button></li>
+      <li>Open <a href="https://script.google.com/home/projects/create" target="_blank" rel="noopener">script.google.com</a> with the Google account you use in Weftday. Delete what is in the new project and paste the code.</li>
+      <li>On the left, press <b>+</b> next to <b>Services</b>, choose <b>Google Calendar API</b> and press <b>Add</b>.</li>
+      <li>At the top, choose the function <b>install</b>, press <b>Run</b>, and allow access when Google asks.</li>
+      <li>Press Done below. A calendar called <b>Teams</b> appears under that account.</li>
+    </ol>
+    <p class="note warn">The Outlook link lets anyone who has it see your meetings. Keep it private, and check that publishing your calendar is fine with your company.</p>
+    <div class="actions"><span class="sp"></span><button type="button" class="btn primary" data-x="done">Done</button></div></form>`, {
+    copy() {
+      const link = $('[name=ics]', el.dlg).value.trim();
+      if (!teamsCode) return toast('Still loading the helper. Try again in a moment.', true);
+      if (link && !/^(https|webcal):\/\/[^\s'"\\]+$/i.test(link)) return toast('That does not look like an Outlook calendar link.', true);
+      const code = link ? teamsCode.replace(TEAMS_PLACEHOLDER, `'${link}'`) : teamsCode;
+      navigator.clipboard.writeText(code).then(
+        () => toast(link ? 'Code copied, with your link filled in' : 'Code copied'),
+        () => toast('Could not copy. Open helpers/teams-to-google.gs on this site and copy it by hand.', true));
+    },
+    async done() {
+      closeDialog();
+      if (DEMO) return;
+      await Promise.all(state.accounts.filter(a => !a.needsReconnect).map(a => G.refreshCalendars(a).catch(err => console.warn(a.email, err))));
+      render();
+      refresh();
+    },
   });
 }
 
