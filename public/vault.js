@@ -179,3 +179,39 @@ export async function clearShared() {
   state.sharedSeen = false;
   save();
 }
+
+// ---- the link that sets up one of your own devices
+// It carries a sign-in, so it is locked: the link alone (in a chat, a photo of the square, the
+// clipboard) opens nothing. It only works together with a code that is shown on your screen and
+// typed on the new device, and only for a quarter of an hour.
+const CODE_LETTERS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no 0/O or 1/I/L to mix up
+const toB64u = bytes => toB64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const fromB64u = text => fromB64(text.replace(/-/g, '+').replace(/_/g, '/'));
+const plainCode = code => String(code).toUpperCase().replace(/[^A-Z0-9]/g, '');
+async function codeKey(code, salt) {
+  const raw = await crypto.subtle.importKey('raw', new TextEncoder().encode(plainCode(code)), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: 310000 }, raw, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+// Returns { blob, code }: blob goes into the link, code is shown to the person.
+export async function lockSetup(d, minutes = 15) {
+  let code = '';
+  while (code.length < 10) for (const b of crypto.getRandomValues(new Uint8Array(16))) if (b < 248 && code.length < 10) code += CODE_LETTERS[b % 31]; // 248 = 8 x 31: every letter equally likely
+  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+  const body = new TextEncoder().encode(JSON.stringify({ ...d, x: Date.now() + minutes * 60000 }));
+  const locked = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await codeKey(code, salt), body));
+  const all = new Uint8Array(28 + locked.length);
+  all.set(salt); all.set(iv, 16); all.set(locked, 28);
+  return { blob: toB64u(all), code: `${code.slice(0, 5)}-${code.slice(5)}` };
+}
+// Opens it again. Throws an error with kind 'link' (damaged), 'code' (wrong code) or 'expired'.
+export async function unlockSetup(blob, code) {
+  let all = null;
+  try { all = fromB64u(blob); } catch { /* not a link of ours */ }
+  if (!all || all.length < 45) throw Object.assign(new Error('That setup link is not valid.'), { kind: 'link' });
+  let d = null;
+  try { d = JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: all.slice(16, 28) }, await codeKey(code, all.slice(0, 16)), all.slice(28)))); }
+  catch { throw Object.assign(new Error('That code does not match. Check it on your other device and type it again.'), { kind: 'code' }); }
+  if (!(d.x > Date.now())) throw Object.assign(new Error('This link is more than 15 minutes old. Make a fresh one on your other device.'), { kind: 'expired' });
+  return d;
+}
+

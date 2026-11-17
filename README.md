@@ -23,7 +23,7 @@ A small helper can copy a company Teams / Outlook calendar into your Google acco
 1. On a device that is already set up, open **Settings → Set up another device** and scan the square with the new device's camera (or copy the link).
 2. If "Keep my accounts the same on all my devices" is switched on, the new device opens with every account already connected. Otherwise, press **+ Connect Google account** there.
 
-The square has two versions: "My own device" (signs the device in to your accounts, never share it) and "Someone else's" (only the app keys).
+The square has two versions: "My own device" (signs the device in to your accounts; the link is locked and only opens with the code shown under the square, for 15 minutes) and "Someone else's" (only the app keys).
 
 Setting up from scratch needs a Google Cloud "OAuth client" (Client ID and secret). The steps are inside the app under **Settings → How to get these**.
 

@@ -171,6 +171,9 @@ export function mergeCalendars(acct, items) {
     summary: c.summaryOverride || c.summary || c.id,
     primary: !!c.primary,
     accessRole: c.accessRole,
+    // Google names the real owner of a calendar. One that somebody else made and shared with full
+    // rights also says "owner" as the role, and must never be taken for a calendar of this app's own.
+    owned: !c.dataOwner || String(c.dataOwner).toLowerCase() === String(acct.id || c.dataOwner).toLowerCase(),
     enabled: old.has(c.id) ? old.get(c.id).enabled : (!!c.primary || !!c.selected),
   }));
 }
@@ -188,7 +191,7 @@ export async function refreshCalendars(acct) {
 // Finds or creates the "Weftday" calendar that holds your task blocks.
 export async function ensurePlannerCalendar(acct) {
   await refreshCalendars(acct);
-  let cal = acct.calendars.find(c => c.summary === 'Weftday' && c.accessRole === 'owner');
+  let cal = acct.calendars.find(c => c.summary === 'Weftday' && c.accessRole === 'owner' && c.owned !== false);
   if (!cal) {
     const made = await api(acct, '/calendars', {
       method: 'POST',

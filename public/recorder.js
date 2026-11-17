@@ -349,7 +349,7 @@ let live = null; // the recording in progress, if any
 export const current = () => live;
 
 // Starts recording the given streams.
-// opts = { keepVideo, camera: { corner, size }, title, key, onTick(seconds), onEnd(record), onProblem(kind) }.
+// opts = { keepVideo, camera: { corner, size }, title, key, onTick(seconds), onEnd(record, endedBy), onProblem(kind) }.
 // streams.sound may be given instead of display/mic: a ready-made sound stream (used by the tests).
 export async function start(streams, opts = {}) {
   if (live) throw new Error('A recording is already running.');
@@ -450,6 +450,18 @@ export async function start(streams, opts = {}) {
     try { rec.thumb = stage ? await stage.still() : await smallPicture(await grab(videoTrack)); } catch { /* tried again at the end */ }
   };
   const thumbTimer = setTimeout(thumb, 1500);
+  // The screen is kept awake while recording, so a laptop or phone left alone in a long meeting does
+  // not doze off and cut it short. A browser drops this whenever the tab is hidden, so it is asked for
+  // again each time the tab comes back.
+  // While Weftday's own tab is in the background, the small floating controls (if open) hold it instead.
+  let awake = null, floating = null, endedBy = '';
+  const stayAwake = async () => {
+    if (session.state === 'stopped' || (awake && !awake.released)) return;
+    const from = !document.hidden ? navigator : floating && !floating.closed ? floating.navigator : null;
+    if (!from) return;
+    try { awake = await from.wakeLock?.request('screen') || null; } catch { /* not allowed just now (low battery, hidden): tried again later */ }
+    if (session.state === 'stopped') awake?.release?.().catch(() => {});
+  };
   const levels = analyser ? new Float32Array(analyser.fftSize) : null;
 
   session = {
@@ -486,6 +498,8 @@ export async function start(streams, opts = {}) {
       if (session.state === 'recording') ran += performance.now() - since;
       session.state = 'stopped';
       clearInterval(ticker); clearInterval(beat); clearInterval(pull); clearTimeout(guard); clearTimeout(pieceTimer); clearTimeout(thumbTimer);
+      document.removeEventListener('visibilitychange', stayAwake);
+      awake?.release?.().catch(() => {});
       await thumb();
       const ended = new Promise(done => { main.onstop = done; });
       if (main.state !== 'inactive') main.stop(); else main.onstop?.();
@@ -500,13 +514,17 @@ export async function start(streams, opts = {}) {
       await putRec(rec).catch(() => {});
       release();
       live = null;
-      opts.onEnd?.(rec);
+      opts.onEnd?.(rec, endedBy); // endedBy: 'share' when sharing ended by itself, '' when Stop was pressed
       return rec;
     },
   };
   // Pressing the browser's own "Stop sharing", closing the shared tab, or unplugging the camera ends the recording.
-  for (const t of [...(display?.getTracks() || []), ...(screenTrack ? [] : cam?.getTracks() || [])]) t.addEventListener('ended', () => session.stop());
+  for (const t of [...(display?.getTracks() || []), ...(screenTrack ? [] : cam?.getTracks() || [])]) t.addEventListener('ended', () => { if (session.state !== 'stopped') endedBy = 'share'; session.stop(); });
   live = session;
+  document.addEventListener('visibilitychange', stayAwake);
+  stayAwake();
+  session.awake = () => !!awake && !awake.released;
+  session.keepAwakeIn = win => { floating = win; stayAwake(); };
   return session;
 }
 

@@ -11,6 +11,7 @@ or by hand, with the test server already running on port 4322:
 import datetime
 import json
 import os
+import re
 import sys
 from playwright.sync_api import sync_playwright
 
@@ -512,6 +513,8 @@ def run(p):
     check('the calendar comes back from the Notes page', page.locator('#grid').is_visible() and not page.locator('#notes').is_visible())
 
     page.screenshot(path=os.path.join(OUT, 'desktop.png'))
+    check('a meeting squeezed beside another shows its name on two lines, not cut to a few letters',
+          page.evaluate("[...document.querySelectorAll('#gridBody .blk.ml .t')].some(t => t.getBoundingClientRect().height > 20 && t.scrollHeight <= t.clientHeight + 1)"))
     page.close()
 
     # ---- share links: a connected (pretend) Google account, a recording, and a link through (pretend) Google Drive
@@ -583,6 +586,51 @@ def run(p):
     rp.close()
     real.close()
 
+    # ---- setting up another of your own devices: the link is locked, and opens only with the code shown beside it
+    fresh = browser.new_context(viewport={'width': 1440, 'height': 860})
+    fresh.add_init_script(SEEN + QUIET)
+    fp = fresh.new_page()
+    watch(fp, 'setup code')
+    fp.request.post(BASE + '/mock/reset')
+    fp.request.post(BASE + '/mock/lookalike', data={'acct': 'me@test.dev'})
+    fp.goto(BASE + '/about.html')
+    made = fp.evaluate("""async () => {
+      const V = await import('./vault.js');
+      const d = { i: 'test.apps.googleusercontent.com', s: 'pretend', e: 'me@test.dev', r: 'rt:me@test.dev' };
+      const kind = async (blob, code) => { try { await V.unlockSetup(blob, code); return 'opened'; } catch (e) { return e.kind; } };
+      const a = await V.lockSetup(d), old = await V.lockSetup(d, -1);
+      const back = await V.unlockSetup(a.blob, a.code.toLowerCase().replace('-', ' '));
+      const wrong = a.code[0] === 'A' ? 'B' + a.code.slice(1) : 'A' + a.code.slice(1);
+      return { blob: a.blob, code: a.code, same: back.r === d.r && back.e === d.e && back.i === d.i, plain: atob(a.blob.replace(/-/g, '+').replace(/_/g, '/').slice(0, a.blob.length - a.blob.length % 4)).includes('rt:me'),
+        wrong: await kind(a.blob, wrong), old: await kind(old.blob, old.code), junk: await kind('abc', a.code), other: (await V.lockSetup(d)).code !== a.code };
+    }""")
+    check('a setup code looks like XXXXX-XXXXX and opens its own link', bool(re.match(r'^[A-Z2-9]{5}-[A-Z2-9]{5}$', made['code'])) and made['same'], made['code'][:2] + '…')
+    check('the sign-in cannot be read from the link itself', not made['plain'])
+    old_kind = fp.evaluate("btoa(JSON.stringify({ i: 'test.apps.googleusercontent.com', s: 'pretend', e: 'me@test.dev', r: 'rt:me@test.dev' })).replace(/=+$/, '')")
+    plain = fresh.new_page()
+    plain.goto(BASE + '/#setup=' + old_kind)
+    plain.wait_for_timeout(1500)
+    check('a sign-in in a plain, unlocked link is never taken', plain.evaluate("!(JSON.parse(localStorage.getItem('planner.v1') || '{}').accounts || []).length") and 'old kind' in plain.evaluate("document.querySelector('#toast').innerText"))
+    plain.close()
+    check('a wrong code, an old link and a damaged link are each refused', (made['wrong'], made['old'], made['junk']) == ('code', 'expired', 'link') and made['other'], str((made['wrong'], made['old'], made['junk'])))
+    fp.on('dialog', lambda d: d.accept())   # "Set this device up with the Google account …?"
+    fp.goto(BASE + '/#setup2=' + made['blob'])
+    fp.wait_for_selector('#dlg input[name=code]', timeout=10000)
+    check('a locked link asks for its code, and is taken out of the address bar', 'Type the code' in fp.locator('#dlg').inner_text() and '#setup2' not in fp.url, fp.url)
+    check('nothing is set up before the code is typed', fp.evaluate("!(JSON.parse(localStorage.getItem('planner.v1') || '{}').accounts || []).length"))
+    fp.locator('#dlg input[name=code]').fill('AAAAA-AAAAA')
+    fp.locator('#dlg button.primary').click()
+    wait_until(fp, "!document.querySelector('#codeErr').hidden", 15000)
+    check('a wrong code says so and lets you try again', 'does not match' in fp.locator('#codeErr').inner_text() and fp.locator('#dlg button.primary').is_enabled())
+    fp.screenshot(path=os.path.join(OUT, 'setup-code.png'))
+    fp.locator('#dlg input[name=code]').fill(made['code'].lower())
+    fp.locator('#dlg button.primary').click()
+    wait_until(fp, "JSON.parse(localStorage.getItem('planner.v1') || '{}').settings?.plannerCalendarId", 20000)
+    saved = fp.evaluate("JSON.parse(localStorage.getItem('planner.v1'))")
+    check('the right code sets the device up with that account', saved['settings'].get('plannerAccountId') == 'me@test.dev' and saved['accounts'][0]['id'] == 'me@test.dev', str(saved['settings'].get('plannerAccountId')))
+    check('a calendar named “Weftday” that somebody else owns is not taken for the app’s own', saved['settings']['plannerCalendarId'] not in ('', 'lookalike'), saved['settings']['plannerCalendarId'])
+    fresh.close()
+
     # ---- as a meeting begins, Weftday offers to record it (the clock is set to the start of a sample meeting)
     monday = datetime.date.today() - datetime.timedelta(days=datetime.date.today().weekday())
     early = browser.new_context(viewport={'width': 1440, 'height': 860})
@@ -645,7 +693,7 @@ def run(p):
     check('the guide’s buttons work', 'Share when you are free' in guide.locator('body').inner_text())
     guide.screenshot(path=os.path.join(OUT, 'guide-record.png'))
     guide.close()
-    for path in ['/home.html', '/guide.html', '/about.html', '/privacy.html']:
+    for path in ['/home.html', '/guide.html', '/about.html', '/privacy.html', '/terms.html']:
         other = open_app(context, path, path)
         check(f'{path} opens', other.locator('body').inner_text().strip() != '')
         check(f'{path} has no sideways scrolling', other.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'))

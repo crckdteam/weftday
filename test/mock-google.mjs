@@ -32,12 +32,12 @@ async function api(req, res, url) {
   db.log.push(`${who(req)} ${req.method} ${parts.join('/')}`);
   if (parts[0] === 'users') return json(res, 200, { items: u.calendars });
   if (parts.length === 1 && req.method === 'POST') {
-    const cal = { id: `cal${++seq}`, summary: body.summary, primary: false, accessRole: 'owner' };
+    const cal = { id: `cal${++seq}`, summary: body.summary, primary: false, accessRole: 'owner', dataOwner: who(req) };
     u.calendars.push(cal); u.events[cal.id] = [];
     return json(res, 200, cal);
   }
   if (parts.length === 2) { // one calendar's own details (name, description)
-    const cal = u.calendars.find(c => c.id === parts[1]);
+    const cal = u.calendars.find(c => (parts[1] === 'primary' ? c.primary : c.id === parts[1]));
     if (!cal) return json(res, 404, { error: { message: 'Calendar not found' } });
     if (req.method === 'PATCH') Object.assign(cal, body);
     return json(res, 200, cal);
@@ -118,6 +118,8 @@ http.createServer(async (req, res) => {
       return json(res, 200, { ok: true });
     }
     if (p === '/mock/grant') { const b = await readBody(req); user(b.acct || 'me@test.dev').drive = b.drive !== false; return json(res, 200, { ok: true }); }
+    // somebody else's calendar, named like the app's own and shared with full rights
+    if (p === '/mock/lookalike') { const b = await readBody(req), u = user(b.acct || 'me@test.dev'); u.calendars.push({ id: 'lookalike', summary: b.name || 'Weftday', primary: false, accessRole: 'owner', dataOwner: 'someone@else.dev' }); u.events.lookalike = []; return json(res, 200, { ok: true }); }
     if (p === '/mock/driveoff') { db.driveOff = (await readBody(req)).off !== false; return json(res, 200, { ok: true }); }
     if (p.startsWith('/mock/drive/v3/') || p.startsWith('/mock/upload/drive/v3/')) return await drive(req, res, url, p);
     if (p.startsWith('/mock/calendar/v3/')) return await api(req, res, url);

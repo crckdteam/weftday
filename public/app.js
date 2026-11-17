@@ -526,7 +526,12 @@ function layout(items) {
       ends[c] = it.ve;
       it.col = c;
     }
-    for (const it of cluster) it.cols = ends.length;
+    for (const it of cluster) {
+      it.cols = ends.length;
+      // a block takes the room to its right that nothing else is using, rather than staying a sliver
+      it.span = 1;
+      for (let c = it.col + 1; c < it.cols && !cluster.some(o => o.col === c && o.s < it.ve && o.ve > it.s); c++) it.span++;
+    }
     cluster = [];
   };
   for (const it of items) {
@@ -543,8 +548,10 @@ const evColor = ev => hue(acct(ev.accountId)?.color);
 
 function blockHtml(it) {
   const h = Math.max((it.e - it.s) * PXM, 20);
-  const style = `top:${it.s * PXM}px;height:${h - 1}px;left:calc(${it.col / it.cols * 100}% + 1px);width:calc(${100 / it.cols}% - 3px);`;
-  const sm = h < 34 ? ' sm' : '';
+  // how many lines of words fit: a long title runs on to the next line instead of being cut to "Wr…"
+  const lines = Math.max(1, Math.floor((h - 5) / 16));
+  const style = `top:${it.s * PXM}px;height:${h - 1}px;left:calc(${it.col / it.cols * 100}% + 1px);width:calc(${(it.span || 1) / it.cols * 100}% - 3px);--l:${lines};`;
+  const sm = h < 34 ? ' sm' : ' ml';
   if (it.kind === 'task') {
     const t = it.t;
     return `<div class="blk task${t.done ? ' done' : ''}${sm}" data-id="${esc(t.id)}" style="${style}${tagStyle(t)}">
@@ -2371,20 +2378,29 @@ async function onConnected(a) {
 // A link (shown as a camera-readable square) that opens the planner on another device with the
 // Google keys already filled in. The keys ride in the part after "#", which is never sent to any server.
 const isLocal = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
-function setupLink(mine) {
+function setupLink() { // the plain link for someone else's device: your Google keys and nothing more
   const { clientId, clientSecret } = state.settings, d = { i: clientId, s: clientSecret };
-  if (mine) { const h = plannerAccount(); d.e = h.id; d.r = h.refreshToken; } // your own device also gets your home account
   const data = btoa(JSON.stringify(d)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   return `${isLocal ? PUBLIC_URL : G.redirectUri()}#setup=${data}`;
 }
 let homeFromLink = '', linkUndo = null; // linkUndo: how to put things back if a link's sign-in turns out not to be that account's
 // text: a setup link pasted into Settings; without it, the link this page was opened with.
+let lockedSetup = ''; // a locked link (for one of your own devices) that is waiting for its code
 function importSetup(text) {
-  const m = text ? text.match(/#setup=([\w-]+)\s*$/) : location.hash.match(/^#setup=([\w-]+)$/);
-  if (!m) { if (text) toast('That setup link is not valid.', true); return false; }
+  const locked = text ? text.match(/#setup2=([\w-]+)\s*$/) : location.hash.match(/^#setup2=([\w-]+)$/);
+  const m = locked ? null : text ? text.match(/#setup=([\w-]+)\s*$/) : location.hash.match(/^#setup=([\w-]+)$/);
+  if (!m && !locked) { if (text) toast('That setup link is not valid.', true); return false; }
   if (!text) history.replaceState(null, '', location.pathname + location.search);
+  if (locked) { lockedSetup = locked[1]; return false; } // openSetupCode() asks for the code next
+  let d = null;
+  try { d = JSON.parse(atob(m[1].replace(/-/g, '+').replace(/_/g, '/'))); } catch { toast('That setup link is not valid.', true); return false; }
+  // A sign-in is only ever taken from a locked link, with its code. Plain links carry Google keys and nothing more.
+  if (d && (d.e || d.r)) { toast('This setup link is an old kind. Make a fresh one on your other device.', true); return false; }
+  return applySetup(d);
+}
+// What a setup link holds, put to use. d = { i, s } (Google keys), and for your own device also { e, r } (your home account).
+function applySetup(d) {
   try {
-    const d = JSON.parse(atob(m[1].replace(/-/g, '+').replace(/_/g, '/')));
     if (typeof d.i !== 'string' || typeof d.s !== 'string' || !/^[\w.-]+\.apps\.googleusercontent\.com$/.test(d.i)) throw new Error('bad link');
     const s = state.settings, own = typeof d.e === 'string' && typeof d.r === 'string' && d.e && d.r;
     // A link that carries an account makes that account this device's home: tasks, notes and the list
@@ -2414,6 +2430,36 @@ function importSetup(text) {
     return true;
   } catch { toast('That setup link is not valid.', true); return false; }
 }
+// The code that unlocks a link for one of your own devices: asked for here, shown on the other device.
+function openSetupCode() {
+  const blob = lockedSetup;
+  if (!blob) return;
+  dialog(`<form class="dbody">
+    <h3>Type the code</h3>
+    <p class="note" style="color:var(--text)">Your other device shows a code under the square. Type it here to set this device up.</p>
+    <input name="code" class="codein" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text" maxlength="14" placeholder="XXXXX-XXXXX" aria-label="The code from your other device">
+    <p class="note warn" id="codeErr" hidden></p>
+    <div class="actions"><span class="sp"></span><button type="button" class="btn ghost" data-x="close">Cancel</button><button class="btn primary">Continue</button></div></form>`, {
+    async submit(fd, form) {
+      const btn = $('button.primary', form), err = $('#codeErr', form);
+      btn.disabled = true;
+      err.hidden = true;
+      try {
+        const d = await V.unlockSetup(blob, String(fd.get('code') || ''));
+        lockedSetup = '';
+        closeDialog();
+        if (!applySetup(d)) return;
+        if (homeFromLink) adoptHome(homeFromLink).then(refresh); else { render(); toast('Keys added. Now press “+ Connect Google account”.'); }
+      } catch (e) {
+        btn.disabled = false;
+        err.hidden = false;
+        err.textContent = e.message;
+        if (e.kind !== 'code') lockedSetup = '';
+      }
+    },
+  });
+  $('input[name=code]', el.dlg).focus();
+}
 // A setup link from one of your own devices carries your home account. Use it to bring in the rest.
 async function adoptHome(id) {
   setStatus('Bringing in your accounts…');
@@ -2441,23 +2487,27 @@ async function adoptHome(id) {
     toast('Could not bring in your accounts. Press “+ Connect Google account” instead.', true);
   }
 }
-function openDeviceSetup(mine = true) {
+async function openDeviceSetup(mine = true) {
   if (DEMO) return toast('This is sample data. Open the app without “?demo” first.');
   if (!state.settings.clientId) return openSettings('Add your Google keys first, then you can set up your phone.');
   const canMine = V.sharingReady();
   mine = mine && canMine;
-  const link = setupLink(mine);
+  // A link for your own device carries a sign-in, so it is locked with a code (see vault.js).
+  const home = plannerAccount();
+  const locked = mine ? await V.lockSetup({ i: state.settings.clientId, s: state.settings.clientSecret, e: home.id, r: home.refreshToken }) : null;
+  const link = locked ? `${isLocal ? PUBLIC_URL : G.redirectUri()}#setup2=${locked.blob}` : setupLink(false);
   let square = '';
   try { square = qrSvg(link); } catch { /* too long for a square: the link can still be copied */ }
   dialog(`<div class="dbody"><h3>Set up another device</h3>
     ${canMine ? `<div class="seg"><button type="button" data-x="mine" class="${mine ? 'on' : ''}">My own device</button><button type="button" data-x="other" class="${mine ? '' : 'on'}">Someone else’s</button></div>` : ''}
     <p class="note">${mine
-      ? 'Point your phone’s camera at this square and tap the link that appears. The planner opens with all your accounts already connected.'
+      ? 'Point your phone’s camera at this square and tap the link that appears. It asks for the code below, then opens with all your accounts already connected.'
       : 'Point the phone’s camera at this square and tap the link that appears. The planner opens with the Google keys already filled in. Then press “+ Connect Google account” there.'}</p>
     ${square ? `<div class="qr">${square}</div>` : '<p class="note warn">This link is too long to show as a square. Use “Copy the link instead”.</p>'}
+    ${locked ? `<div class="setcode"><span>Type this code on the new device</span><b id="setupCode">${esc(locked.code)}</b></div>` : ''}
     <p class="note">On an iPhone, open the link in Safari, then use Share → Add to Home Screen to get an app icon.</p>
     <p class="note warn">${mine
-      ? 'This square signs a device in to your Google calendars. Never show it to anyone else.'
+      ? 'The link works only with this code, and only for 15 minutes. Never show the code to anyone else.'
       : 'This square contains your keys. Only show it to people you trust.'}</p>
     ${canMine ? '' : '<p class="note">Tip: switch on “Keep my accounts the same on all my devices” in Settings, and your own devices will need no Google login.</p>'}
     <div class="actions"><button class="btn" data-x="copy">Copy the link instead</button>
@@ -2480,7 +2530,7 @@ let teamsCode = '';
 function teamsCalendar() { // the "Teams" calendar the helper made, looking in the home account first
   const order = [...state.accounts].sort((a, b) => (b.id === state.settings.plannerAccountId) - (a.id === state.settings.plannerAccountId));
   for (const a of order) {
-    const c = a.needsReconnect ? null : a.calendars.find(c => c.summary === 'Teams' && c.accessRole === 'owner');
+    const c = a.needsReconnect ? null : a.calendars.find(c => c.summary === 'Teams' && c.accessRole === 'owner' && c.owned !== false);
     if (c) return { a, c };
   }
   return null;
@@ -2783,6 +2833,8 @@ function openSettings(msg, pane) {
             ${row('Tour', 'A quick look around the main screen', '<button type="button" class="btn" data-x="tour">Start</button>')}
             ${row('Guide', 'The whole app in ten short steps', '<a class="btn" href="guide.html" target="_blank" rel="noopener">Open</a>')}
             ${row('Privacy', 'What is kept, and where', '<a class="btn" href="privacy.html" target="_blank" rel="noopener">Read</a>')}
+            ${row('Terms', 'The rules for using Weftday', '<a class="btn" href="terms.html" target="_blank" rel="noopener">Read</a>')}
+            ${row('Help', 'Report a problem or ask a question', '<a class="btn" href="https://github.com/crckdteam/planner/issues" target="_blank" rel="noopener">Get help</a>')}
             ${row('About Weftday', 'What it is, in one screen', '<a class="btn" href="home.html" target="_blank" rel="noopener">Open</a>')}
           </div>`)}
 
@@ -2848,7 +2900,7 @@ function openSettings(msg, pane) {
     teams: () => { stash(); openTeams(); },
     uselink() {
       stash();
-      if (!importSetup($('[name=setupLink]', el.dlg).value.trim())) return;
+      if (!importSetup($('[name=setupLink]', el.dlg).value.trim())) { if (lockedSetup) openSetupCode(); return; }
       closeDialog();
       if (homeFromLink) adoptHome(homeFromLink).then(refresh); else { render(); toast('Keys added. Now press “+ Connect Google account”.'); }
     },
@@ -3731,6 +3783,7 @@ async function openFloat(session, quiet) {
   try { win = await documentPictureInPicture.requestWindow({ width: 330, height: session.cam ? 190 : 100 }); }
   catch { if (!quiet) toast('The floating controls could not be opened here.', true); return; }
   recFloat = win;
+  session.keepAwakeIn?.(win); // the screen stays awake through these controls while Weftday's own tab is hidden
   const css = getComputedStyle(document.documentElement), v = n => css.getPropertyValue(n).trim();
   win.document.title = 'Weftday is recording';
   win.document.head.innerHTML = `<style>
@@ -3777,10 +3830,13 @@ async function beginRecording(ev, o) {
     key: ev ? noteKey(ev) : '', title: ev ? ev.title : `Recording, ${dayLabel(now)} ${fmtTime(now.getHours() * 60 + now.getMinutes())}`,
     onTick: secs => { for (const v of recViews()) { const t = $('.rtime', v); if (t) t.textContent = clock(secs); } },
     onProblem: () => toast('This browser ran out of room, so the recording was stopped. What was recorded so far is kept.', true),
-    onEnd: rec => {
+    onEnd: (rec, endedBy) => {
       endRecViews();
+      // Sharing can end by itself (the shared tab is closed, the screen goes to sleep). Say so, also when Weftday is not in front.
+      const alone = endedBy === 'share';
+      if (alone && document.hidden) systemNote('Recording stopped', `Sharing ended after ${clock(rec.secs)}, so Weftday stopped recording. What was recorded is saved.`);
       if (o.auto && rec.pieceMime && rec.secs >= 5) return autoNotes(rec);
-      toast(`Recording saved · ${clock(rec.secs)}`, { go: ['Open it', () => openRecording(rec.id)] });
+      toast(alone ? `Sharing ended, so the recording stopped. Saved · ${clock(rec.secs)}` : `Recording saved · ${clock(rec.secs)}`, { go: ['Open it', () => openRecording(rec.id)] });
     },
   });
   closeDialog();
@@ -4804,6 +4860,7 @@ async function boot() {
   R.recover().then(n => { if (n) toast(n === 1 ? 'A recording that was cut off has been kept.' : `${n} recordings that were cut off have been kept.`, { go: ['Show', () => openRecordings(null)] }); }).catch(() => {});
   if (homeFromLink) await adoptHome(homeFromLink);
   else if (gotKeys) toast('Keys added. Now press “+ Connect Google account”.');
+  if (lockedSetup) openSetupCode();
   try {
     const a = await G.finishConnect();
     if (a) await onConnected(a);

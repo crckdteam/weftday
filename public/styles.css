@@ -1115,3 +1115,16 @@ button.hopen:hover b { text-decoration: underline; text-decoration-thickness: 1.
 }
 #brandHome { display: flex; align-items: center; gap: 8px; border: 0; background: transparent; padding: 2px 6px 2px 2px; margin: -2px 0 -2px -2px; border-radius: 8px; font: inherit; font-weight: 650; font-size: 16px; color: var(--text); cursor: pointer; }
 #brandHome:hover { background: var(--shade); }
+.setcode { display: grid; justify-items: center; gap: 3px; padding: 12px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); }
+.setcode span { font-size: 12px; color: var(--muted); }
+.setcode b { font: 650 24px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; }
+.dbody input.codein { font: 600 20px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .1em; text-align: center; text-transform: uppercase; padding: 10px; }
+
+/* ---- the calendar grid, tidied: titles run on to a second line, and a narrow block gives its room to the title */
+.blk { line-height: 16px; container-type: inline-size; }
+.blk.ev { box-shadow: 0 0 0 1px var(--panel); }
+.blk.ml .t { white-space: normal; overflow-wrap: break-word; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: calc(var(--l) - 1); line-clamp: calc(var(--l) - 1); }
+@container (max-width: 104px) { /* squeezed beside another: the words matter more than the time or the tick-box */
+  .blk .m, .blk.task .chk { display: none; }
+  .blk.ml .t { -webkit-line-clamp: var(--l); line-clamp: var(--l); }
+}
