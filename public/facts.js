@@ -152,8 +152,10 @@ async function ask(model, input, tool, key, signal) { // tool: 'google_search', 
 }
 async function firstThatAnswers(models, run) {
   let last;
-  for (const model of models) {
-    try { return await run(model); }
+  const order = [...models, models[0]]; // all busy at once is usually over in seconds: the first gets one more go
+  for (let i = 0; i < order.length; i++) {
+    if (i === models.length) await new Promise(done => setTimeout(done, 2500));
+    try { return await run(order[i]); }
     catch (err) { last = err; if (err.kind !== 'busy') throw err; }
   }
   throw last;
