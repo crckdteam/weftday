@@ -1192,14 +1192,13 @@ function metLine(list, key) {
 
 // Shown when "Get facts" is pressed before an AI key has been added.
 function openFactsHelp(guest, from) {
-  dialog(`<div class="dbody"><h3>Get facts needs a key</h3>
-    <p>To look people up on the web, Weftday uses Google’s AI with a key that belongs to you.</p>
+  dialog(`<div class="dbody"><h3>Get facts needs a free key</h3>
+    <p>To look people up on the web, Weftday uses Google’s AI with a key that belongs to you. The key is free.</p>
     <ol class="steps">
       <li>Open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> and press <b>Create API key</b>.</li>
-      <li>Web search needs billing switched on for that key (Google asks for a card). The first 5,000 searches each month are not charged.</li>
-      <li>Paste the key into <b>Settings → AI</b>.</li>
+      <li>Copy the key and paste it into <b>Settings → AI</b>.</li>
     </ol>
-    <p class="note">Each time you press Get facts, the person’s name, their company and the meeting title go to Google. Nothing is sent before that.</p>
+    <p class="note">Each time you press Get facts, the person’s name, their company and the meeting title go to Google’s AI, which reads web search results about them. Nothing is sent before that.</p>
     <div class="actions"><button type="button" class="btn ghost" data-x="back">Back</button><span class="sp"></span><button type="button" class="btn primary" data-x="settings">Open Settings</button></div></div>`, {
     back: () => openPerson(guest, from),
     settings: () => openSettings(),
@@ -1240,7 +1239,7 @@ function openPerson(guest, from) {
       btn.textContent = 'Looking…';
       saved.textContent = 'Searching the web. This takes about 20 seconds.';
       try {
-        const answer = await F.personFacts(p, from?.title, aiKey, job.signal);
+        const answer = await getFacts(p, from?.title, job.signal);
         if (job.signal.aborted || !box.isConnected) return;
         box.value = F.mergeInto(box.value, answer, dayLabel(new Date())).slice(0, N.MAX_LENGTH);
         commitAbout();
@@ -1354,7 +1353,7 @@ function openEvent(ev) {
       btn.disabled = true;
       btn.textContent = 'Searching the web… about 20 seconds';
       try {
-        const answer = await F.personFacts(who, ev.title, state.settings.aiKey, job.signal);
+        const answer = await getFacts(who, ev.title, job.signal);
         if (job.signal.aborted) return;
         const aboutKey = N.aboutKey(who.email);
         N.set(aboutKey, F.mergeInto(N.get(aboutKey)?.text || '', answer, dayLabel(new Date())).slice(0, N.MAX_LENGTH), { title: who.name, when: Date.now(), people: [who.email] });
@@ -1581,6 +1580,17 @@ function noteLinks(text) {
 }
 const noteKey = ev => ev.nk || ev.id;
 const hasFacts = email => (N.get(N.aboutKey(email))?.text || '').includes(F.MARK);
+// Runs "Get facts". A key without Google's own web search is remembered for a few days, so the
+// free way (reading search result pages) is used straight away instead of asking and being refused.
+async function getFacts(who, meeting, signal) {
+  const s = state.settings, freeLately = s.aiFreeSince && Date.now() - s.aiFreeSince < 3 * 86400000;
+  const answer = await F.personFacts(who, meeting, s.aiKey, signal, !freeLately);
+  const wasFree = !!s.aiFreeSince;
+  if (answer.how === 'reading' && !freeLately) s.aiFreeSince = Date.now();
+  if (answer.how === 'search') s.aiFreeSince = 0;
+  if (wasFree !== !!s.aiFreeSince || answer.how === 'reading') save();
+  return answer;
+}
 
 let refreshSeq = 0;
 async function refresh() {
@@ -2035,11 +2045,10 @@ function openSettings(msg) {
     <h4>AI</h4>
     <div class="rowline"><span class="note">Tidying notes: <b id="aiState">checking…</b></span></div>
     <label>“Ask AI” about a person opens<select name="aiApp">${opts(Object.entries(AI_APPS).map(([k, v]) => [k, v[0]]), s.aiApp)}</select></label>
-    <label><span>Google AI key <i>· optional, for “Get facts” about a person</i></span><input name="aiKey" type="password" value="${esc(s.aiKey || '')}" autocomplete="off" spellcheck="false"></label>
+    <label><span>Google AI key <i>· optional and free, for “Get facts” about a person</i></span><input name="aiKey" type="password" value="${esc(s.aiKey || '')}" autocomplete="off" spellcheck="false"></label>
     <details><summary>How to get this key</summary><ol>
       <li>Open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> and press <b>Create API key</b>.</li>
-      <li>Web search needs billing switched on for that key (Google asks for a card). The first 5,000 searches each month are not charged.</li>
-      <li>Paste the key above and press Save. It is kept only in this browser.</li>
+      <li>Copy the key, paste it above and press Save. It is kept only in this browser. The key is free.</li>
     </ol></details>
     <p class="note">Tidying runs inside your browser, so your notes stay on this device. “Ask AI” and “Get facts” send the person’s name, company and the meeting title to that AI, and only when you press them.</p>
     <h4>Look</h4>
@@ -2058,6 +2067,7 @@ function openSettings(msg) {
       s.morning = +fd.get('morning');
       s.theme = fd.get('theme');
       s.aiApp = fd.get('aiApp');
+      if (s.aiKey !== fd.get('aiKey').trim()) s.aiFreeSince = 0; // a new key may have Google's own search
       s.aiKey = fd.get('aiKey').trim();
       const want = fd.get('planner'), share = fd.get('share') === 'on';
       save();

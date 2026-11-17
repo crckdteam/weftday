@@ -11,6 +11,7 @@ const base = () => ({
     shareAccounts: false, // keep the account list the same on all devices (see vault.js)
     aiApp: 'claude',      // which AI app the "Ask AI" link about a person opens
     aiKey: '',            // your own Google AI key, for "Get facts" (kept only in this browser)
+    aiFreeSince: 0,       // when this key was last found to have no Google web search (free plan)
   },
   accounts: [],     // connected Google accounts
   tasks: [],        // your tasks and time blocks
