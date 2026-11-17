@@ -17,6 +17,7 @@ const base = () => ({
   lastBrief: '',    // the day the morning summary was last shown
   goneAccounts: [], // accounts removed here, so other devices drop them too
   notes: {},        // your private notes on meetings (see notes.js)
+  names: {},        // full names of people seen in your calendars, by email address
   sharedSeen: false, // the shared account list has been found in Google at least once
 });
 

@@ -1074,18 +1074,49 @@ function eventWhen(ev) {
 const FREE_MAIL = new Set(['gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com', 'live.com', 'msn.com', 'yahoo.com',
   'yahoo.co.in', 'icloud.com', 'me.com', 'proton.me', 'protonmail.com', 'aol.com', 'zoho.com', 'rediffmail.com']);
 const cap = w => w.charAt(0).toUpperCase() + w.slice(1);
-function person(p) {
-  const email = (p.email || '').toLowerCase(), [local, domain = ''] = email.split('@');
-  const name = p.displayName && !p.displayName.includes('@') ? p.displayName : local.split(/[._-]+/).filter(Boolean).map(cap).join(' ') || email;
-  const company = domain && !FREE_MAIL.has(domain) ? cap(domain.split('.')[0]) : '';
-  return { email, name, domain, company, self: !!p.self || !!acct(email), organizer: !!p.organizer, status: p.responseStatus };
+// Full names seen anywhere in your calendars (guest lists, organisers) are remembered, so someone who
+// appears as just an email address in one meeting can still be named properly.
+const knownNames = new Map(Object.entries(state.names || {}));
+let namesChanged = false;
+function learnNames(e) {
+  for (const p of [...(e.attendees || []), e.organizer, e.creator]) {
+    const email = (p?.email || '').toLowerCase(), name = (p?.displayName || '').trim();
+    if (!email || !name || name.includes('@') || name.toLowerCase() === email.split('@')[0]) continue;
+    const had = knownNames.get(email);
+    if (had === name || (had?.includes(' ') && !name.includes(' '))) continue; // keep the fuller name
+    knownNames.set(email, name);
+    namesChanged = true;
+  }
 }
-// Links that search for the person by name (and company). Nothing is sent until you press one.
+function saveNames() {
+  if (!namesChanged) return;
+  namesChanged = false;
+  state.names = Object.fromEntries([...knownNames].slice(-800));
+  save();
+}
+const TWO_PART_ENDINGS = /\.(co|com|org|net|ac|gov|edu)\.[a-z]{2}$/;
+function person(p) {
+  const email = (p.email || '').toLowerCase(), [local, host = ''] = email.split('@');
+  const labels = host.split('.'), keep = TWO_PART_ENDINGS.test(host) ? 3 : 2;
+  const domain = labels.slice(-keep).join('.'); // mail.acme.co.uk -> acme.co.uk
+  const given = p.displayName && !p.displayName.includes('@') ? p.displayName.trim() : knownNames.get(email);
+  const name = given || local.split(/[._-]+/).filter(Boolean).map(cap).join(' ') || email;
+  const company = domain && !FREE_MAIL.has(domain) ? cap(domain.split('.')[0]) : '';
+  return {
+    email, name, domain, company, fullName: !!given && given.includes(' '),
+    self: !!p.self || !!acct(email), organizer: !!p.organizer, status: p.responseStatus,
+  };
+}
+// Links that search for the person. Nothing is sent until you press one. With a full name the search
+// goes to LinkedIn directly; with only a first name it looks for LinkedIn profiles at that company.
 function lookupLinks(who) {
-  const words = who.name + (who.company ? ` ${who.company}` : '');
+  if (!who.fullName && !who.company) return ''; // a first name alone is not enough to find anyone
+  const at = who.company ? ` ${who.company}` : '';
   const links = [
-    ['LinkedIn', `https://www.linkedin.com/search/results/people/?keywords=${G.enc(words)}`],
-    ['Google', `https://www.google.com/search?q=${G.enc(`"${who.name}"${who.company ? ` ${who.company}` : ''}`)}`],
+    ['LinkedIn', who.fullName
+      ? `https://www.linkedin.com/search/results/people/?keywords=${G.enc(who.name + at)}`
+      : `https://www.google.com/search?q=${G.enc(`site:linkedin.com/in ${who.name}${at}`)}`],
+    ['Google', `https://www.google.com/search?q=${G.enc(`"${who.name}"${at}`)}`],
   ];
   if (who.company) links.push(['Website', `https://${who.domain}`]);
   return links.map(([label, url]) => `<a href="${esc(url)}" target="_blank" rel="noopener">${label}</a>`).join('');
@@ -1110,6 +1141,7 @@ async function meetingsWith(email) {
         const j = await G.api(a, `/calendars/${G.enc(cal.id)}/events`, { params });
         for (const e of j.items || []) {
           if (e.status === 'cancelled' || !e.start) continue;
+          learnNames(e);
           if (!(e.attendees || []).some(p => (p.email || '').toLowerCase() === email)) continue;
           if ((e.attendees || []).find(p => p.self)?.responseStatus === 'declined') continue;
           const nk = N.keyFor(e);
@@ -1130,7 +1162,7 @@ function metLine(list, key) {
 
 function openEvent(ev) {
   const a = acct(ev.accountId), c = a?.calendars.find(c => c.id === ev.calendarId);
-  const everyone = (ev.att || []).filter(p => !p.resource).map(person);
+  const guests = (ev.att || []).filter(p => !p.resource), everyone = guests.map(person);
   const others = everyone.filter(p => !p.self); // your own reply is shown further down, under "Are you going?"
   const key = noteKey(ev), note = N.get(key);
   const about = { title: ev.title, when: ev.s, people: others.slice(0, 30).map(p => p.email) };
@@ -1138,7 +1170,7 @@ function openEvent(ev) {
   const shown = others.slice(0, 4), rest = others.slice(4, 40);
   const extras = [...(ev.links || []), ...(ev.files || []).filter(f => !(ev.links || []).some(l => l.url === f.url))].slice(0, 6);
   const who = (p, lookup) => `<div class="who" data-email="${esc(p.email)}">
-      <div><b>${esc(p.name)}</b>${p.organizer ? ' <i>· organiser</i>' : ''}${STATUS_LABEL[p.status] ? ` <i>· ${STATUS_LABEL[p.status]}</i>` : ''}</div>
+      <div><b class="nm">${esc(p.name)}</b>${p.organizer ? ' <i>· organiser</i>' : ''}${STATUS_LABEL[p.status] ? ` <i>· ${STATUS_LABEL[p.status]}</i>` : ''}</div>
       <div class="wm">${lookup ? '<span class="met">Checking your past meetings…</span>' : ''}<span class="look">${lookupLinks(p)}</span></div></div>`;
   dialog(`<div class="dbody">
     <h3>${esc(ev.title)}</h3>
@@ -1206,8 +1238,12 @@ function openEvent(ev) {
   // Fill in the history with each of the first few people.
   for (const p of shown) {
     meetingsWith(p.email).then(list => {
-      const line = el.dlg.querySelector(`.who[data-email="${CSS.escape(p.email)}"] .met`);
-      if (line) line.textContent = metLine(list, key);
+      const row = el.dlg.querySelector(`.who[data-email="${CSS.escape(p.email)}"]`);
+      if (!row) return;
+      row.querySelector('.met').textContent = metLine(list, key);
+      const better = person(guests.find(g => (g.email || '').toLowerCase() === p.email)); // a fuller name may have turned up
+      if (better.name !== p.name) { row.querySelector('.nm').textContent = better.name; row.querySelector('.look').innerHTML = lookupLinks(better); }
+      saveNames();
     }).catch(() => {});
   }
 }
@@ -1279,6 +1315,7 @@ function openEventForm(ev) {
 const VIDEO_RE = /https:\/\/[^\s"'<>]*(?:zoom\.us\/j\/|teams\.microsoft\.com\/l\/meetup-join|teams\.microsoft\.com\/meet\/|teams\.live\.com\/meet\/|meet\.google\.com\/|webex\.com\/)[^\s"'<>]*/i;
 
 function normalize(e, a, c) {
+  learnNames(e);
   const allDay = !!e.start?.date;
   const self = (e.attendees || []).find(p => p.self);
   const calWritable = ['owner', 'writer'].includes(c.accessRole);
@@ -1350,6 +1387,7 @@ async function refresh() {
   saveEventCache(ymd(startOfWeek(today)), [...events.values()].filter(ev => ev.e > ws && ev.s < we));
   if (plannerReady()) await sync(() => pullPlanner(from, to));
   if (plannerReady()) await sync(() => N.pull().catch(err => console.warn('Reading notes failed', err)));
+  saveNames();
   if (seq !== refreshSeq) return;
   if (!dragging) render();
   const time = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
