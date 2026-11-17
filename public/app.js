@@ -1133,7 +1133,7 @@ function openEventForm(ev) {
 }
 
 // ---------------------------------------------------------------- Google sync
-const VIDEO_RE = /https:\/\/[^\s"'<>]*(?:zoom\.us\/j\/|teams\.microsoft\.com\/l\/meetup-join|meet\.google\.com\/|webex\.com\/)[^\s"'<>]*/i;
+const VIDEO_RE = /https:\/\/[^\s"'<>]*(?:zoom\.us\/j\/|teams\.microsoft\.com\/l\/meetup-join|teams\.microsoft\.com\/meet\/|teams\.live\.com\/meet\/|meet\.google\.com\/|webex\.com\/)[^\s"'<>]*/i;
 
 function normalize(e, a, c) {
   const allDay = !!e.start?.date;

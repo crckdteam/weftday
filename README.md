@@ -11,6 +11,10 @@ All your Google calendars and your tasks in one place. Schedule tasks as time bl
 - Tasks can also be saved in a "Weftday" calendar in your own Google account, which keeps your devices in step and lets your phone remind you.
 - Optionally, the list of connected accounts is kept (encrypted) in that same calendar, so all your devices show the same accounts and a new device needs no Google login. See `public/vault.js`.
 
+## Company Teams calendar
+
+A small helper can copy a company Teams / Outlook calendar into your Google account so Weftday can show it (view-only). See [helpers/README.md](helpers/README.md).
+
 ## Setting up a device
 
 1. On a device that is already set up, open **Settings → Set up another device** and scan the square with the new device's camera (or copy the link).
