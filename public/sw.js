@@ -1,6 +1,6 @@
 // Keeps a copy of the app's own files so it still opens without a connection.
 // Always asks the network for the newest copy first, so updates show up straight away.
-const CACHE = 'planner-shell-v61';
+const CACHE = 'planner-shell-v62';
 const FILES = ['./', 'index.html', 'styles.css', 'app.js', 'google.js', 'store.js', 'util.js', 'qr.js', 'vault.js', 'notes.js', 'ai.js', 'facts.js', 'services.js', 'recorder.js', 'drive.js', 'editor.js', 'claude.js', 'config.js', 'about.html', 'privacy.html', 'home.html', 'guide.html', 'guide.js', 'site.css', 'helpers/teams-to-google.gs', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'manifest.webmanifest'];
 
 self.addEventListener('install', e => {

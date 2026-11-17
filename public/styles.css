@@ -1113,3 +1113,5 @@ button.hopen:hover b { text-decoration: underline; text-decoration-thickness: 1.
   .hhello h2 { font-size: 25px; }
   .hopen b { font-size: 21px; }
 }
+#brandHome { display: flex; align-items: center; gap: 8px; border: 0; background: transparent; padding: 2px 6px 2px 2px; margin: -2px 0 -2px -2px; border-radius: 8px; font: inherit; font-weight: 650; font-size: 16px; color: var(--text); cursor: pointer; }
+#brandHome:hover { background: var(--shade); }

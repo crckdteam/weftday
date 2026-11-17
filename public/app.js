@@ -942,7 +942,8 @@ function bind() {
   $('#prev').onclick = () => step(-1);
   $('#next').onclick = () => step(1);
   $('#viewSeg').onclick = e => { if (e.target.dataset.view) setView(e.target.dataset.view); };
-  // The two places the app has: the calendar (in the view it was last in) and the notes.
+  $('#brandHome').onclick = () => { document.body.classList.remove('side-open'); if (view !== 'home') setView('home'); }; // the name at the top always leads Home
+  // The places the app has: Home, the calendar (in the view it was last in) and the notes.
   $('#mainNav').onclick = e => {
     const b = e.target.closest('[data-nav]');
     if (!b) return;

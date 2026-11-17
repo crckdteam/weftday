@@ -462,6 +462,11 @@ def run(p):
     close_dialog(page)
     page.unroute('https://generativelanguage.googleapis.com/**')
 
+    page.locator('#brandHome').click()
+    page.wait_for_timeout(500)
+    check('the Weftday name at the top leads Home', page.locator('#home').is_visible() and page.locator('#mainNav [data-nav=home].on').count() == 1)
+    page.locator('#mainNav [data-nav=calendar]').click()
+    page.wait_for_timeout(400)
     # ---- back on Home, the note just written is listed, and opens in Notes
     page.locator('#mainNav [data-nav=home]').click()
     page.wait_for_selector('#home .hnote', timeout=8000)
