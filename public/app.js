@@ -866,6 +866,7 @@ function onSidePointerDown(e) {
 }
 
 function onKey(e) {
+  if (tourOn) return;
   const mod = e.metaKey || e.ctrlKey, key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (mod && key === 'k') { e.preventDefault(); return openPalette(); }
   if (el.dlg.open || e.target.closest?.('input, textarea, select')) return;
@@ -1094,6 +1095,7 @@ function openPlan() {
       toast(loose ? `${n} scheduled, ${loose} added without a time (day is full)` : `${n} task${n === 1 ? '' : 's'} scheduled for today`, { undo: true });
     },
   });
+  firstTip('plan');
 }
 
 // ---------------------------------------------------------------- search and commands
@@ -1102,7 +1104,7 @@ function openPalette() {
     <div id="palList"></div><div class="palfoot">↑ ↓ to move · Enter to open · Esc to close</div></div>`, {}, 'palette');
   const input = $('#palIn', el.dlg), list = $('#palList', el.dlg);
   const cmds = [
-    ['Go to today', goToday], ['Today: prepare for my meetings', openToday], ['People and companies', () => openPeople()], ['Share my free times', () => openFreeTimes()], ['Show a second time zone', openSecondZone], ['Plan my day', openPlan], ['New task', newTaskHere], ['New event', () => openEventForm(null)],
+    ['Go to today', goToday], ['Today: prepare for my meetings', openToday], ['People and companies', () => openPeople()], ['Share my free times', () => openFreeTimes()], ['Show me around (tour)', () => setTimeout(startTour, 250)], ['Show a second time zone', openSecondZone], ['Plan my day', openPlan], ['New task', newTaskHere], ['New event', () => openEventForm(null)],
     ['Day view', () => setView('day')], ['Week view', () => setView('week')], ['Month view', () => setView('month')], ['List view', () => setView('list')],
     ['Settings', () => openSettings()], ['Set up phone or another device', openDeviceSetup], ['Keyboard shortcuts', openHelp],
   ].map(([label, run]) => ({ kind: 'Go', label, sub: '', run }));
@@ -1473,6 +1475,7 @@ function openPerson(guest, from) {
     },
   });
 
+  firstTip('person');
   showPictures();
   // Your own words save by themselves; the facts found on the web ride along in the same note.
   const box = $('[name=about]', el.dlg), saved = $('#aboutState', el.dlg);
@@ -1783,6 +1786,7 @@ function openEvent(ev, writeNotes) { // writeNotes: put the cursor in the notes 
   box.addEventListener('input', () => { saved.textContent = ''; showTaskButton(); clearTimeout(timer); timer = setTimeout(commitNote, 600); });
   box.addEventListener('change', commitNote);
   noteCommit = commitNote;
+  if (others.length) firstTip('meeting');
   showPictures();
   if (writeNotes) { box.scrollIntoView({ block: 'center' }); box.focus(); }
 
@@ -2688,6 +2692,7 @@ function openSettings(msg, pane) {
         ${section('data', 'Your data', 'Weftday has no server. Everything lives in this browser and in your own Google accounts.', `
           <div class="sgroup">
             ${row(`${state.tasks.length} task${state.tasks.length === 1 ? '' : 's'} on this device`, 'Save a copy as a file', '<button type="button" class="btn" data-x="backup">Download backup</button>')}
+            ${row('Tour', 'A quick look around the main screen', '<button type="button" class="btn" data-x="tour">Start</button>')}
             ${row('Guide', 'The whole app in ten short steps', '<a class="btn" href="guide.html" target="_blank" rel="noopener">Open</a>')}
             ${row('Privacy', 'What is kept, and where', '<a class="btn" href="privacy.html" target="_blank" rel="noopener">Read</a>')}
             ${row('About Weftday', 'What it is, in one screen', '<a class="btn" href="home.html" target="_blank" rel="noopener">Open</a>')}
@@ -2747,6 +2752,7 @@ function openSettings(msg, pane) {
     },
     pane: x => show(x.dataset.pane),
     async notif() { await Notification.requestPermission(); showPerm(); },
+    tour: () => { stash(); closeDialog(); setTimeout(startTour, 250); },
     // These lead to another box, so what was typed here is kept first.
     device: () => { stash(); openDeviceSetup(); },
     connect: () => { stash(); connect(); },
@@ -3187,6 +3193,7 @@ function openToday() {
       if (!job.signal.aborted && btn.isConnected) openToday();
     },
   }, 'wide');
+  firstTip('today');
   showPictures();
 }
 
@@ -3315,6 +3322,7 @@ function openPeople(tab = peopleTab) {
   }
   find.addEventListener('input', paint);
   paint();
+  firstTip('people');
   if (innerWidth >= 760) find.focus();
 }
 
@@ -3525,7 +3533,140 @@ function openFreeTimes(keep = {}) {
     const live = state.accounts.filter(a => !a.needsReconnect).length, out = state.accounts.length - live;
     $('#ftNote', el.dlg).textContent = DEMO ? 'Sample data' : `${live} account${live === 1 ? '' : 's'} checked${out ? `, ${out} signed out and not counted` : ''}${skipped ? `, ${skipped} calendar${skipped === 1 ? '' : 's'} could not be read` : ''}`;
   }
+  firstTip('free');
   paint(true);
+}
+
+// ---------------------------------------------------------------- showing people around
+// The first time Weftday opens, a short tour points at each part of the main screen, one at a time.
+// The first time a feature's own box opens, one line at the top of that box says what it is for.
+const TOUR = [
+  { find: () => $('#connect'), side: true, when: () => !state.accounts.length && !DEMO, // nothing connected yet: this comes first
+    title: 'Start by connecting your calendars', text: 'Add each Google account once. Work, personal, anything else: they all show here together, each in its own colour.' },
+  { find: () => $('.qbox'), side: true,
+    title: 'Add a task here', text: 'Type it the way you would say it, like “gym tomorrow 7am”. Press the ✦ button to let AI turn a whole sentence into several tasks.' },
+  { find: () => $('#sideBody .card'), side: true,
+    title: 'Your day at a glance', text: 'How much is planned and how much is done. “Plan my day” fits your tasks into the gaps between your meetings.' },
+  { find: () => $('.tools'), side: true,
+    title: 'Three shortcuts', text: 'Prepare briefs you on today’s meetings. People lists everyone you meet and their companies. Free times writes out when you are free, ready to paste.' },
+  { find: () => [...document.querySelectorAll('#sideBody .sec')].find(s => /^inbox/i.test(s.textContent.trim())), side: true,
+    title: 'Your inbox', text: 'A task with no day waits here. Drag it onto the calendar to give it a time, or press “→ Today”.' },
+  { find: () => [el.grid, el.month, el.list].find(v => v && !v.hidden), big: true,
+    title: 'Your calendar', text: 'Every account in one place. Click an empty time to add a task there. Click a meeting to see who is coming, get a brief, and keep private notes.' },
+  { find: () => $('#viewSeg'), title: 'Change the view', text: 'Day, Week, Month or List. On a keyboard: D, W, M and L, and T for today.' },
+  { find: () => $('#searchBtn'), title: 'Search everything', text: 'Tasks, meetings, people and companies in one box. The “/” key opens it too.' },
+  { find: () => $('#zoneBtn'), title: 'A second time zone', text: 'Show another zone next to your own down the side of the calendar. Handy for calls across countries.' },
+  { find: () => $('#connect'), side: true, when: () => state.accounts.length > 0 || DEMO,
+    title: 'More calendars', text: 'Connect another Google account at any time. A company Teams calendar can be added just below.' },
+  { find: () => $('.sideFoot .footrow'), side: true,
+    title: 'Settings and the guide', text: 'Everything you can change lives in Settings, in six short sections. The Guide shows the whole app in ten steps, whenever you want it.' },
+];
+let tourOn = false;
+function startTour() {
+  if (tourOn) return;
+  const phone = innerWidth < 760;
+  // only the parts that are on screen here (a phone has no second-time-zone button, for one)
+  const steps = TOUR.filter(s => { const t = s.find(); return t && (s.side && phone ? true : t.offsetParent !== null) && (!s.when || s.when()); });
+  if (!steps.length) return;
+  tourOn = true;
+  let at = 0;
+  const box = document.createElement('div');
+  box.id = 'tour';
+  box.innerHTML = `<div class="tour-hole"></div><div class="tour-card" role="dialog" aria-label="A quick tour of Weftday">
+    <div class="tour-count"></div><h4></h4><p></p>
+    <div class="tour-actions"><button type="button" class="linkbtn" data-t="skip">Skip the tour</button><span class="sp"></span>
+      <button type="button" class="btn" data-t="back">Back</button><button type="button" class="btn primary" data-t="next">Next</button></div></div>`;
+  document.body.append(box);
+  const hole = box.querySelector('.tour-hole'), card = box.querySelector('.tour-card');
+  function place() {
+    const s = steps[at], last = at === steps.length - 1;
+    document.body.classList.toggle('side-open', phone && !!s.side);
+    const target = s.find();
+    if (!target) return go(1);
+    target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    card.querySelector('.tour-count').textContent = `${at + 1} of ${steps.length}`;
+    card.querySelector('h4').textContent = s.title;
+    card.querySelector('p').textContent = s.text;
+    card.querySelector('[data-t=back]').hidden = at === 0;
+    card.querySelector('[data-t=next]').textContent = last ? 'Done' : 'Next';
+    const settle = () => { // after any sliding panel has stopped moving
+      const r = target.getBoundingClientRect(), pad = s.big ? -6 : 6, W = innerWidth, H = innerHeight;
+      const x = Math.max(6, r.left - pad), y = Math.max(6, r.top - pad);
+      const w = Math.min(W - 6, r.right + pad) - x, h = Math.min(H - 6, r.bottom + pad) - y;
+      hole.style.cssText = `left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
+      const cw = Math.min(340, W - 24), ch = card.offsetHeight || 170;
+      let cx, cy;
+      if (s.big) { cx = x + (w - cw) / 2; cy = y + Math.min(90, h / 5); } // a large area: the note sits inside it
+      else if (y + h + 14 + ch <= H) { cx = x; cy = y + h + 14; }            // below
+      else if (y - 14 - ch >= 0) { cx = x; cy = y - 14 - ch; }                // above
+      else if (x + w + 14 + cw <= W) { cx = x + w + 14; cy = y; }             // to the right
+      else { cx = x - 14 - cw; cy = y; }                                      // to the left
+      card.style.cssText = `width:${cw}px;left:${clamp(cx, 12, W - cw - 12)}px;top:${clamp(cy, 12, H - ch - 12)}px`;
+    };
+    settle();
+    setTimeout(settle, 320);
+    card.querySelector('[data-t=next]').focus({ preventScroll: true });
+  }
+  function end(done) {
+    tourOn = false;
+    box.remove();
+    document.body.classList.remove('side-open');
+    removeEventListener('resize', place);
+    removeEventListener('keydown', keys, true);
+    try { localStorage.setItem('weftday.toured', '1'); } catch { /* private window */ }
+    toast(done ? 'That’s the tour. Each feature also explains itself the first time you open it.' : 'Tour closed. You can take it again from Settings → Your data.');
+  }
+  function go(step) {
+    at += step;
+    if (at < 0) at = 0;
+    if (at >= steps.length) return end(true);
+    place();
+  }
+  function keys(e) { // the tour takes the keyboard while it is open
+    if (!['Escape', 'ArrowRight', 'ArrowLeft', 'Enter'].includes(e.key)) return;
+    e.preventDefault(); e.stopPropagation();
+    if (e.key === 'Escape') end(false); else go(e.key === 'ArrowLeft' ? -1 : 1);
+  }
+  box.addEventListener('click', e => {
+    e.stopPropagation(); // the page underneath must not react (on a phone it would close the side menu)
+    const b = e.target.closest('[data-t]');
+    if (!b) return;
+    if (b.dataset.t === 'skip') end(false); else go(b.dataset.t === 'back' ? -1 : 1);
+  });
+  addEventListener('resize', place);
+  addEventListener('keydown', keys, true);
+  place();
+}
+// Starts the tour once, the first time the app opens with nothing else on screen.
+function maybeTour() {
+  let seen = '1';
+  try { seen = localStorage.getItem('weftday.toured'); } catch { /* private window: no tour */ }
+  if (seen || tourOn) return;
+  if (el.dlg.open) return el.dlg.addEventListener('close', () => setTimeout(maybeTour, 500), { once: true });
+  startTour();
+}
+// One line at the top of a feature's box, the first time that box is opened.
+const FIRST_TIPS = {
+  meeting: 'This is a meeting. <b>Brief me</b> gathers what you know about the guests. Your notes below are private, and <b>Tidy my notes</b> turns them into action points.',
+  person: 'Everything about one person. <b>Get facts</b> looks them up on the web. What you write about them here shows in every meeting you have together.',
+  today: 'Your meetings for today, each with who is coming, what happened last time and what is still open. Press a name for the full profile.',
+  people: 'Everyone from your meetings. Switch to <b>Companies</b> to see them grouped. Press anyone to open their profile.',
+  free: 'Your open slots across all your calendars. Pick the other person’s time zone, then press <b>Copy</b> and paste it into an email.',
+  plan: 'Tick the tasks you want to do today, and Weftday fits them into the gaps between your meetings.',
+};
+function firstTip(id) {
+  if (tourOn) return;
+  let seen = {};
+  try { seen = JSON.parse(localStorage.getItem('weftday.tips') || '{}'); } catch { return; }
+  const body = $('.dbody', el.dlg);
+  if (seen[id] || !body || $('.ftip', el.dlg)) return;
+  seen[id] = 1;
+  try { localStorage.setItem('weftday.tips', JSON.stringify(seen)); } catch { return; }
+  const tip = document.createElement('div');
+  tip.className = 'ftip';
+  tip.innerHTML = `<span class="ftip-mark">New</span><span>${FIRST_TIPS[id]}</span><button type="button" class="linkbtn">Got it</button>`;
+  tip.querySelector('button').onclick = () => tip.remove();
+  body.insertBefore(tip, body.children[1] || null);
 }
 
 // ---------------------------------------------------------------- sample data (?demo)
@@ -3608,6 +3749,7 @@ async function boot() {
   topUpSeries();
   save();
   render();
+  setTimeout(maybeTour, 900);
   if (homeFromLink) await adoptHome(homeFromLink);
   else if (gotKeys) toast('Keys added. Now press “+ Connect Google account”.');
   try {

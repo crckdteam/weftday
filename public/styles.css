@@ -705,6 +705,32 @@ dialog.wide { width: min(640px, calc(100vw - 24px)); }
   .tperson i, .prow2 i { max-width: 190px; }
 }
 
+/* ---------- the first-time tour and first-use tips */
+#tour { position: fixed; inset: 0; z-index: 200; }
+.tour-hole {
+  position: fixed; border-radius: 14px; pointer-events: none;
+  box-shadow: 0 0 0 9999px rgba(8, 10, 16, .62), 0 0 0 2px var(--accent), 0 0 0 7px color-mix(in srgb, var(--accent) 28%, transparent);
+  transition: left .38s var(--ease), top .38s var(--ease), width .38s var(--ease), height .38s var(--ease);
+}
+.tour-card {
+  position: fixed; padding: 15px 16px 13px; border-radius: 15px; background: var(--panel); color: var(--text);
+  border: 1px solid var(--line); box-shadow: 0 22px 60px rgba(0, 0, 0, .42); display: grid; gap: 7px;
+  transition: left .38s var(--ease), top .38s var(--ease); animation: pop .25s var(--ease);
+}
+.tour-count { font-size: 11px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); font-variant-numeric: tabular-nums; }
+.tour-card h4 { font-size: 16px; letter-spacing: -.01em; }
+.tour-card p { font-size: 13.5px; line-height: 1.5; color: var(--muted); }
+.tour-actions { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
+.tour-actions .linkbtn { color: var(--muted); }
+.ftip {
+  display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: 12px; font-size: 13px; line-height: 1.5;
+  background: color-mix(in srgb, var(--accent) 8%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent);
+  animation: born .3s var(--ease);
+}
+.ftip > span:nth-child(2) { flex: 1; min-width: 0; }
+.ftip-mark { flex: none; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 2px 7px; border-radius: 99px; background: var(--accent); color: var(--accent-text); margin-top: 1px; }
+.ftip .linkbtn { flex: none; white-space: nowrap; }
+
 /* ---------- meeting prep */
 .btnrow { display: flex; gap: 8px; flex-wrap: wrap; }
 .whos { display: grid; gap: 9px; font-size: 13.5px; }
