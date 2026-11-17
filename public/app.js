@@ -3775,7 +3775,7 @@ function openRecordSetup(ev) {
     <div class="segr rkind">${kinds.map(k => `<label><input type="radio" name="what" value="${k}"${k === first ? ' checked' : ''}><span>${REC_KINDS[k][0]}</span></label>`).join('')}</div>
     <p class="note" id="recWhy"></p>
     ${hasKey
-    ? `<label class="check" id="recAutoRow"><input type="checkbox" name="auto"${prefs.auto === false ? '' : ' checked'}><span>Write the notes for me when it ends<i class="rsub">Google’s AI, with your own key, is sent the sound, who was in the meeting and your notes.</i></span></label>`
+    ? `<label class="check" id="recAutoRow"><input type="checkbox" name="auto"${prefs.seen && prefs.auto === false ? '' : ' checked'}><span>Write the notes for me when it ends<i class="rsub">Google’s AI, with your own key, is sent the sound, who was in the meeting and your notes.</i></span></label>`
     : '<p class="note" id="recAutoRow">To have the notes written for you, <button type="button" class="linkbtn" data-x="aikey">add the free Google AI key</button>.</p>'}
     <label class="check" id="recMicRow"><input type="checkbox" name="mic"${prefs.micOff ? '' : ' checked'}>Record my own voice too</label>
     <label class="check" id="recCamRow" hidden><input type="checkbox" name="cam"${prefs.camOn ? ' checked' : ''}>Show my camera in a corner</label>
