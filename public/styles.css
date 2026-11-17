@@ -918,3 +918,8 @@ h3 img.logo { width: 22px; height: 22px; vertical-align: -4px; margin-right: 9px
 .rlines { display: grid; gap: 1px; max-height: 300px; overflow: auto; margin-top: 6px; }
 .rline b { font-weight: 600; }
 .rline.now { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.rtrim { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
+.rtrimrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rkeep { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rkeep b { color: var(--text); font-weight: 600; }
+.ranswer.tall { max-height: min(46vh, 420px); }

@@ -186,6 +186,82 @@ export async function makeThumb(id) {
   } catch { return null; } finally { URL.revokeObjectURL(url); video.removeAttribute('src'); video.load(); }
 }
 
+// ---- trimming: a copy of a recording from one moment to another
+// An MP4 from the recorder is a short opening (what kind of file this is) followed by pieces of about
+// two seconds, each complete in itself. A trimmed copy is the opening plus the pieces that are wanted,
+// with their clocks set back so the copy starts at zero. Nothing is re-made, so it takes no time at
+// all and loses no quality; the cut lands on the start of a piece.
+function boxesIn(view, start, end) {
+  const out = [];
+  for (let at = start; at + 8 <= end;) {
+    let size = view.getUint32(at), head = 8;
+    if (size === 1) { size = Number(view.getBigUint64(at + 8)); head = 16; } else if (size === 0) size = end - at;
+    if (size < head || at + size > end) break; // not a well-formed file: stop reading rather than guess
+    out.push({ type: String.fromCharCode(view.getUint8(at + 4), view.getUint8(at + 5), view.getUint8(at + 6), view.getUint8(at + 7)), at, size, body: at + head });
+    at += size;
+  }
+  return out;
+}
+const inside = (view, box) => boxesIn(view, box.body, box.at + box.size);
+export const canTrim = rec => !!rec && rec.kind !== 'shot' && /mp4/.test(rec.mime || '');
+// Returns the new recording (the original is left as it is).
+export async function trim(id, from, to) {
+  const rec = await get(id), blob = canTrim(rec) ? await file(id) : null;
+  const fail = () => Object.assign(new Error('This recording cannot be trimmed.'), { kind: 'notrim' });
+  if (!blob) throw fail();
+  const buf = await blob.arrayBuffer(), view = new DataView(buf), top = boxesIn(view, 0, buf.byteLength);
+  const moov = top.find(b => b.type === 'moov');
+  if (!moov) throw fail();
+  // how each track counts time
+  const scale = new Map();
+  for (const trak of inside(view, moov).filter(b => b.type === 'trak')) {
+    const parts = inside(view, trak), tkhd = parts.find(b => b.type === 'tkhd'), mdia = parts.find(b => b.type === 'mdia');
+    const mdhd = mdia && inside(view, mdia).find(b => b.type === 'mdhd');
+    if (!tkhd || !mdhd) continue;
+    scale.set(view.getUint32(tkhd.body + (view.getUint8(tkhd.body) ? 20 : 12)), view.getUint32(mdhd.body + (view.getUint8(mdhd.body) ? 20 : 12)));
+  }
+  // the pieces: each "moof" (its clock) with the "mdat" (its sound and picture) that follows it
+  const pieces = [];
+  for (let i = 0; i < top.length - 1; i++) {
+    if (top[i].type !== 'moof' || top[i + 1].type !== 'mdat') continue;
+    const clocks = [];
+    for (const traf of inside(view, top[i]).filter(b => b.type === 'traf')) {
+      const parts = inside(view, traf), tfhd = parts.find(b => b.type === 'tfhd'), tfdt = parts.find(b => b.type === 'tfdt');
+      if (!tfhd || !tfdt) continue;
+      const track = view.getUint32(tfhd.body + 4), wide = view.getUint8(tfdt.body) === 1, pos = tfdt.body + 4;
+      clocks.push({ track, wide, pos, time: wide ? Number(view.getBigUint64(pos)) : view.getUint32(pos) });
+    }
+    if (!clocks.length || clocks.some(c => !scale.get(c.track))) throw fail();
+    pieces.push({ at: top[i].at, size: top[i].size + top[i + 1].size, clocks, start: Math.min(...clocks.map(c => c.time / scale.get(c.track))) });
+  }
+  if (pieces.length < 2) throw fail();
+  // keep the piece that holds "from" up to the piece that holds "to"
+  let first = 0, last = pieces.length;
+  for (let i = 0; i < pieces.length; i++) if (pieces[i].start <= from + 0.01) first = i;
+  for (let i = pieces.length - 1; i > first; i--) if (pieces[i].start >= to - 0.01) last = i;
+  const kept = pieces.slice(first, last), offset = kept[0].start, opening = pieces[0].at;
+  const end = last < pieces.length ? pieces[last].start : Math.max(rec.secs || 0, pieces[pieces.length - 1].start + 0.5);
+  const out = new Uint8Array(opening + kept.reduce((n, piece) => n + piece.size, 0)), src = new Uint8Array(buf), outView = new DataView(out.buffer);
+  out.set(src.subarray(0, opening), 0);
+  let at = opening;
+  for (const piece of kept) {
+    out.set(src.subarray(piece.at, piece.at + piece.size), at);
+    for (const c of piece.clocks) { // this piece's clock, set back by what was cut off the front
+      const time = Math.max(0, c.time - Math.round(offset * scale.get(c.track))), pos = at + (c.pos - piece.at);
+      if (c.wide) outView.setBigUint64(pos, BigInt(time)); else outView.setUint32(pos, time);
+    }
+    at += piece.size;
+  }
+  const moved = list => (Array.isArray(list) ? list.filter(x => x.t >= offset - 0.5 && x.t < end).map(x => ({ ...x, t: Math.max(0, Math.round((x.t - offset) * 10) / 10) })) : undefined);
+  const copy = {
+    ...rec, id: newId(), title: `${rec.title} (trimmed)`.slice(0, 120), at: rec.at + 1, secs: Math.max(1, Math.round(end - offset)), size: out.byteLength,
+    thumb: null, done: true, cut: false, pieceMime: '', pieceAt: undefined, trimmedFrom: rec.id, lines: moved(rec.lines), chapters: moved(rec.chapters),
+  };
+  await store(PARTS, 'readwrite', s => wait(s.put({ id: copy.id, kind: 'm', n: 0, blob: new Blob([out], { type: rec.mime }) })));
+  await putRec(copy);
+  return copy;
+}
+
 // ---- the camera drawn into the corner of the screen's picture
 // Every picture of the screen and of the camera is read as it arrives and drawn onto one canvas, and
 // that canvas is what gets recorded. It is driven by the arriving pictures, not by a timer, so it keeps

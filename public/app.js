@@ -1114,7 +1114,7 @@ function openPalette() {
     <div id="palList"></div><div class="palfoot">↑ ↓ to move · Enter to open · Esc to close</div></div>`, {}, 'palette');
   const input = $('#palIn', el.dlg), list = $('#palList', el.dlg);
   const cmds = [
-    ['Go to today', goToday], ['Today: prepare for my meetings', openToday], ['People and companies', () => openPeople()], ['Share my free times', () => openFreeTimes()], ['Record a meeting or my screen', () => openRecordSetup(null)], ['Recordings', () => openRecordings(null)], ['Take a screenshot', () => takeShot(null)], ['Show me around (tour)', () => setTimeout(startTour, 250)], ['Show a second time zone', openSecondZone], ['Plan my day', openPlan], ['New task', newTaskHere], ['New event', () => openEventForm(null)],
+    ['Go to today', goToday], ['Today: prepare for my meetings', openToday], ['People and companies', () => openPeople()], ['Share my free times', () => openFreeTimes()], ['Record a meeting or my screen', () => openRecordSetup(null)], ['Recordings', () => openRecordings(null)], ['Take a screenshot', () => takeShot(null)], ['Ask my meetings a question', openAskAll], ['Show me around (tour)', () => setTimeout(startTour, 250)], ['Show a second time zone', openSecondZone], ['Plan my day', openPlan], ['New task', newTaskHere], ['New event', () => openEventForm(null)],
     ['Day view', () => setView('day')], ['Week view', () => setView('week')], ['Month view', () => setView('month')], ['List view', () => setView('list')],
     ['Settings', () => openSettings()], ['Set up phone or another device', openDeviceSetup], ['Keyboard shortcuts', openHelp],
   ].map(([label, run]) => ({ kind: 'Go', label, sub: '', run }));
@@ -3894,7 +3894,7 @@ async function notesFromRecording(rec, signal, say) {
   }
   if (!lines.length) throw new Error('No speech was found in this recording.');
   const several = lines.some(l => l.part > 0); // voices are numbered afresh in each piece of a long recording
-  const written = () => lines.map((l, i) => `${several && i && l.part !== lines[i - 1].part ? '(the next part of the recording: voices are numbered afresh)\n' : ''}[${clock(Math.floor(l.t))}] ${l.who ? `${l.who}: ` : ''}${l.text}`).join('\n');
+  const written = () => lines.map((l, i) => `${several && i && l.part !== lines[i - 1].part ? '(the next part of the recording: voices are numbered afresh)\n' : ''}${recLine(l)}`).join('\n');
   let transcript = written();
   await R.update(rec.id, { transcript, lines });
   say('Writing the notes…');
@@ -4016,6 +4016,7 @@ async function autoNotes(rec) {
 }
 
 // ---- afterwards: one recording, and the library of them all
+const recLine = l => `[${clock(Math.floor(l.t))}] ${l.who ? `${l.who}: ` : ''}${l.text}`; // one line of what was said, as it is written down
 const REC_SPEEDS = [1, 1.25, 1.5, 2];
 const recKind = r => (r.kind === 'shot' ? 'Screenshot' : r.kind === 'video' ? 'Video' : 'Sound');
 const recFileName = r => `${r.title.replace(/[^\w -]+/g, '').trim() || 'recording'}.${r.mime === 'image/png' ? 'png' : r.mime.includes('mp4') ? (r.kind === 'audio' ? 'm4a' : 'mp4') : 'webm'}`;
@@ -4041,7 +4042,13 @@ async function openRecording(id, back) {
       ${rec.notes && AI.actionsIn(rec.notes).length ? '<button type="button" class="btn" data-x="mktasks">Make tasks</button>' : ''}
       ${shot && url ? '<button type="button" class="btn primary" data-x="copy">Copy</button>' : ''}
       ${url ? `<a class="btn" href="${url}" download="${esc(recFileName(rec))}">Save as a file</a>` : ''}
+      ${url && R.canTrim(rec) && rec.secs >= 6 ? '<button type="button" class="btn" data-x="trim">Trim</button>' : ''}
       ${ev ? '<button type="button" class="btn" data-x="meeting">Open the meeting</button>' : ''}
+    </div>
+    <div class="rtrim" id="recTrim" hidden>
+      <div class="rtrimrow"><button type="button" class="btn" data-x="trimfrom">Start here</button><button type="button" class="btn" data-x="trimto">End here</button>
+        <span class="rkeep">Keeping <b id="trimSpan"></b></span><span class="sp"></span><button type="button" class="btn primary" data-x="trimsave">Save trimmed copy</button></div>
+      <p class="note">Move the player to where it should begin and press “Start here”, then to where it should stop and press “End here”. The original stays as it is; the cut lands within two seconds of the spot.</p>
     </div>
     <div class="note" id="recSay" hidden></div>
     ${rec.notes ? `<h4>Notes</h4><div class="desc rtext">${esc(AI.originalOf(rec.notes) === rec.notes ? rec.notes : rec.notes.slice(0, rec.notes.indexOf(AI.ORIGINAL_MARK)).trim())}</div>` : ''}
@@ -4056,6 +4063,19 @@ async function openRecording(id, back) {
     meeting: () => openEvent(ev),
     mktasks: () => tasksFromNotes(rec.notes, `${rec.title} (${dayLabel(new Date(rec.at))})`, new Date(rec.at)),
     jump(x) { const m = $('.rplay', el.dlg); if (m) { m.currentTime = +x.dataset.t; m.play().catch(() => {}); } },
+    trim() { const box = $('#recTrim', el.dlg); box.hidden = !box.hidden; showKeep(); },
+    trimfrom() { const m = $('.rplay', el.dlg); keep.from = Math.min(m.currentTime, keep.to - 1); showKeep(); },
+    trimto() { const m = $('.rplay', el.dlg); keep.to = Math.max(m.currentTime, keep.from + 1); showKeep(); },
+    async trimsave(btn) {
+      if (keep.from < 0.5 && keep.to > rec.secs - 0.5) return toast('Choose where it should start or end first.');
+      btn.disabled = true;
+      try {
+        const copy = await R.trim(id, keep.from, keep.to);
+        if (copy.lines?.length) await R.update(copy.id, { transcript: copy.lines.map(recLine).join('\n') });
+        toast(`Trimmed copy saved · ${clock(copy.secs)}`);
+        openRecording(copy.id, back);
+      } catch (err) { btn.disabled = false; toast(err.kind === 'notrim' ? err.message : 'The trimmed copy could not be made.', true); }
+    },
     // A question about what was said, answered from the text of this recording only.
     async submit(fd, form) {
       const q = String(fd.get('q') || '').trim(), out = $('#recAnswer', el.dlg), btn = $('button', form);
@@ -4110,6 +4130,8 @@ async function openRecording(id, back) {
     },
   }, rec.kind === 'audio' ? '' : 'wide');
   const title = $('.rtitle', el.dlg), media = $('.rplay', el.dlg);
+  const keep = { from: 0, to: rec.secs || 0 }; // the stretch a trimmed copy would keep
+  const showKeep = () => { const span = $('#trimSpan', el.dlg); if (span) span.textContent = `${clock(Math.floor(keep.from))} – ${clock(Math.ceil(keep.to))} (${clock(Math.max(1, Math.round(keep.to - keep.from)))})`; };
   title.addEventListener('change', async () => {
     const name = title.value.replace(/\s+/g, ' ').trim() || rec.title;
     title.value = rec.title = name;
@@ -4152,6 +4174,47 @@ async function openRecording(id, back) {
   el.dlg.addEventListener('close', () => { el.dlg.removeEventListener('keydown', keys); dropRecUrls(); }, { once: true });
 }
 
+// One question, answered from all your meeting notes and from what was said in every recording.
+function openAskAll() {
+  if (!writers().length) return openSettings('Asking your meetings needs an AI key. The free Google AI key is the quickest to add.', 'ai');
+  dialog(`<form class="dbody">
+    <h3>Ask your meetings</h3>
+    <p class="note">The answer comes from your meeting notes and from what was said in your recordings, and from nothing else. They are sent to your AI service for this one answer.</p>
+    <div class="rask"><input name="q" maxlength="300" autocomplete="off" placeholder="What did we agree with Acme about price?" aria-label="Your question"><button class="btn primary">Ask</button></div>
+    <div class="desc rtext ranswer tall" id="askAnswer" hidden></div>
+    <div class="actions"><span class="sp"></span><button type="button" class="btn ghost" data-x="close">Close</button></div></form>`, {
+    async submit(fd, form) {
+      const q = String(fd.get('q') || '').trim(), out = $('#askAnswer', form), btn = $('button', form);
+      if (!q) return;
+      const job = newJob();
+      btn.disabled = true;
+      out.hidden = false;
+      out.textContent = 'Reading through your meetings…';
+      try {
+        // newest first: the notes of every meeting (short, and they hold the decisions), then what was said in each recording
+        const notes = Object.entries(state.notes || {}).filter(([key, n]) => !key.startsWith('person:') && n.text).sort((a, b) => (b[1].when || 0) - (a[1].when || 0))
+          .map(([, n]) => `### Meeting notes: ${n.title || 'a meeting'} · ${dayLabel(new Date(n.when || Date.now()), true)}\n${n.text.slice(0, 4000)}`);
+        const said = (await R.all()).filter(r => r.transcript).map(r => `### What was said: ${r.title} · ${dayLabel(new Date(r.at), true)}\n${r.transcript.slice(0, 60000)}`);
+        if (!notes.length && !said.length) { out.textContent = 'There are no meeting notes or recordings with notes yet. Record a meeting, or write notes on one, and ask again.'; return; }
+        const answer = await askWriter(room => {
+          let left = room - 3000;
+          const fit = [];
+          for (const block of [...notes, ...said]) { if (block.length > left) { if (left > 2000) fit.push(block.slice(0, left)); break; } fit.push(block); left -= block.length; }
+          return [
+            `Today is ${dayLabel(new Date(), true)}. Answer my question from my meeting notes and recordings below, and from nothing else.`,
+            'Be brief and plain: a few sentences or a short list. After each point, say which meeting it comes from and its date, in brackets. Quote names, numbers and dates exactly. If they do not say, answer: “That is not in your notes or recordings.”',
+            `Question: ${q}`,
+            fit.join('\n\n'),
+          ].join('\n');
+        }, job.signal);
+        if (out.isConnected) out.textContent = String(answer || '').trim() || 'No answer came back. Please try again.';
+      } catch (err) {
+        if (err.name !== 'AbortError' && out.isConnected) out.textContent = err.message || 'That could not be answered just now. Please try again.';
+      } finally { if (aiJob === job) aiJob = null; if (btn.isConnected) btn.disabled = false; }
+    },
+  }, 'wide');
+  $('input[name=q]', el.dlg).focus();
+}
 // Everything recorded and kept in this browser: for one meeting (ev), or all of it.
 let recShow = 'all';
 async function openRecordings(ev) {
@@ -4169,11 +4232,12 @@ async function openRecordings(ev) {
     ${kinds.length > 2 ? `<div class="seg rkinds">${kinds.map(([k, l]) => `<button type="button" data-x="kind" data-v="${k}" class="${k === recShow ? 'on' : ''}">${l}</button>`).join('')}</div>` : ''}
     ${every.length ? `<div class="rgrid">${list.map(card).join('')}</div>`
     : `<div class="rempty">${REC_ICON.snap}<b>Nothing recorded yet</b><span>Record a meeting to get its notes written for you, record your screen to show someone how something works, or keep a screenshot.</span></div>`}
-    <div class="actions">${R.supported() ? `<button type="button" class="btn" data-x="rec">Record${ev && every.length ? ' again' : ''}</button>` : ''}${R.canCaptureScreen() ? '<button type="button" class="btn" data-x="shot">Screenshot</button>' : ''}<span class="sp"></span><button type="button" class="btn primary" data-x="close">Close</button></div></div>`, {
+    <div class="actions">${R.supported() ? `<button type="button" class="btn" data-x="rec">Record${ev && every.length ? ' again' : ''}</button>` : ''}${R.canCaptureScreen() ? '<button type="button" class="btn" data-x="shot">Screenshot</button>' : ''}${ev ? '' : '<button type="button" class="btn" data-x="askall">Ask your meetings</button>'}<span class="sp"></span><button type="button" class="btn primary" data-x="close">Close</button></div></div>`, {
     open: x => openRecording(x.dataset.id, () => openRecordings(ev)),
     kind: x => { recShow = x.dataset.v; openRecordings(ev); },
     rec: () => openRecordSetup(ev),
     shot: () => takeShot(ev),
+    askall: () => openAskAll(),
   }, 'wide');
   el.dlg.addEventListener('close', dropRecUrls, { once: true });
   // videos that have no small picture yet (cut off, or made by an older version) get one now, one at a time

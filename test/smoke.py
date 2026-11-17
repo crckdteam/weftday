@@ -199,6 +199,41 @@ def run(p):
     cam = record('camera', 3)
     check('camera-only recording is saved', cam.get('done') and cam.get('kind') == 'video' and cam.get('size', 0) > 10000, str(cam))
 
+    # ---- trimming: a copy from one moment to another, made at once
+    long_one = record('video', 9)
+    page.locator('#searchBtn').click()
+    page.wait_for_timeout(300)
+    page.keyboard.type('recordings')
+    page.wait_for_timeout(300)
+    page.keyboard.press('Enter')
+    page.wait_for_selector('#dlg .rgrid', timeout=8000)
+    page.locator(f'#dlg .rcard[data-id="{long_one["id"]}"]').click()
+    page.wait_for_selector('#dlg video.rplay', timeout=8000)
+    wait_until(page, "Number.isFinite(document.querySelector('#dlg video.rplay').duration)", 8000)
+    page.locator('#dlg [data-x=trim]').click()
+    page.evaluate("document.querySelector('#dlg video.rplay').currentTime = 4.2")
+    page.wait_for_timeout(500)
+    page.locator('#dlg [data-x=trimfrom]').click()
+    page.screenshot(path=os.path.join(OUT, 'trim.png'))
+    page.locator('#dlg [data-x=trimsave]').click()
+    try:
+        wait_until(page, "document.querySelector('#dlg .rtitle')?.value.endsWith('(trimmed)')", 15000)
+        wait_until(page, "Number.isFinite(document.querySelector('#dlg video.rplay')?.duration)", 8000)
+        short = page.evaluate("document.querySelector('#dlg video.rplay').duration")
+        whole = long_one['secs']
+        check('a trimmed copy is shorter and starts where it was cut', 1.5 <= short <= whole - 1.5, f'{short} of {whole}')
+        played = page.evaluate("""async () => { const v = document.querySelector('#dlg video.rplay'); v.muted = true; v.currentTime = 0; await v.play(); await new Promise(d => setTimeout(d, 1200)); v.pause(); return { t: v.currentTime, w: v.videoWidth, err: v.error?.message || '' }; }""")
+        check('the trimmed copy plays from its beginning', played['t'] > 0.5 and played['w'] > 0 and not played['err'], str(played))
+        check('the original is still there, untouched', any(r['id'] == long_one['id'] and r['secs'] == whole for r in recordings(page)))
+    except Exception as err:  # noqa: BLE001
+        said = page.evaluate("document.querySelector('#toast').innerText")
+        check('a trimmed copy is shorter and starts where it was cut', False, f'{str(err)[:160]} | {said}'[:300])
+    close_dialog(page)
+    sound_trim = page.evaluate("""async id => { const R = await import('./recorder.js'); const copy = await R.trim(id, 1.2, 99);
+      const a = new Audio(URL.createObjectURL(await R.file(copy.id))); await new Promise((d, f) => { a.onloadedmetadata = d; a.onerror = f; });
+      const out = { secs: copy.secs, duration: a.duration, title: copy.title }; await R.remove(copy.id); return out; }""", sound['id'])
+    check('a sound recording can be trimmed too', 0.5 < sound_trim['duration'] < sound['secs'] and sound_trim['title'].endswith('(trimmed)'), str(sound_trim))
+
     # ---- a screenshot
     shots = sum(1 for r in recordings(page) if r['kind'] == 'shot')
     page.locator('#searchBtn').click()
@@ -229,7 +264,7 @@ def run(p):
     page.screenshot(path=os.path.join(OUT, 'library.png'))
     page.locator('#dlg .rkinds [data-v=video]').click()
     page.wait_for_timeout(400)
-    check('the library can show videos only', page.locator('#dlg .rcard').count() == 2)
+    check('the library can show videos only', page.locator('#dlg .rcard').count() == sum(1 for r in recordings(page) if r['kind'] == 'video'))
     page.locator(f'#dlg .rcard[data-id="{video["id"]}"]').click()
     page.wait_for_selector('#dlg video.rplay', timeout=8000)
     wait_until(page, "Number.isFinite(document.querySelector('#dlg video.rplay').duration)", 8000)
@@ -275,6 +310,9 @@ def run(p):
             seen['people'] = 'Ravi Menon' in body
         else:
             text = 'The price agreed was 40 dollars a seat.'
+            if 'Answer my question from my meeting notes and recordings' in body:
+                seen['all_notes'] = '### Meeting notes: Client call: Acme' in body
+                seen['all_said'] = '### What was said: Client call: Acme' in body
         # Google answers in two shapes: one for listening to sound, one for plain questions
         reply = {'outputs': [{'type': 'text', 'text': text}]} if '/interactions' in route.request.url else {'candidates': [{'content': {'parts': [{'text': text}]}}]}
         route.fulfill(status=200, content_type='application/json', body=json.dumps(reply))
@@ -342,6 +380,19 @@ def run(p):
     wait_until(page, "document.querySelector('#recAnswer').textContent.includes('40 dollars')", 15000)
     check('a question about the meeting is answered from the recording', True)
     page.screenshot(path=os.path.join(OUT, 'ask-recording.png'))
+    close_dialog(page)
+    # one question across every meeting
+    page.locator('#searchBtn').click()
+    page.wait_for_timeout(300)
+    page.keyboard.type('ask my meetings')
+    page.wait_for_timeout(300)
+    page.keyboard.press('Enter')
+    page.wait_for_selector('#dlg #askAnswer', state='attached', timeout=8000)
+    page.locator('#dlg input[name=q]').fill('what did we agree with Acme?')
+    page.locator('#dlg .rask button').click()
+    wait_until(page, "document.querySelector('#askAnswer').textContent.includes('40 dollars')", 15000)
+    check('a question is answered from all meeting notes and recordings', seen.get('all_notes') and seen.get('all_said'), str(seen))
+    page.screenshot(path=os.path.join(OUT, 'ask-all.png'))
     close_dialog(page)
     page.unroute('https://generativelanguage.googleapis.com/**')
 
