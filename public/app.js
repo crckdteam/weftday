@@ -2864,20 +2864,23 @@ function planQuestion(text) {
   ].join('\n');
 }
 // Reads the AI's answer into tasks, checks every part, and finds real free time for the loose ones.
-function readPlan(raw) {
+function readPlan(raw, text = '') {
   const found = /\{[\s\S]*\}/.exec(String(raw || ''));
   let list = [];
   try { list = JSON.parse(found?.[0] || '{}').tasks || []; } catch { list = []; }
   const today = todayYmd(), taken = new Map(), out = [];
   for (const x of Array.isArray(list) ? list.slice(0, 12) : []) {
-    const title = String(x?.title || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+    let title = String(x?.title || '').replace(/\s+/g, ' ').trim().slice(0, 200);
     if (!title) continue;
+    title = title[0].toUpperCase() + title.slice(1);
     let date = /^\d{4}-\d{2}-\d{2}$/.test(x.date || '') && !isNaN(fromYmd(x.date)) ? x.date : null;
     const clock = /^(\d{1,2}):(\d{2})$/.exec(x.start || '');
     let start = clock && +clock[1] < 24 && +clock[2] < 60 ? Math.round((+clock[1] * 60 + +clock[2]) / SNAP) * SNAP : null;
     const duration = +x.minutes >= 5 ? clamp(Math.round(+x.minutes / SNAP) * SNAP, SNAP, 720) : 30;
     if (date && date < today) date = today;
     if (start != null && !date) date = start < nowMinutes() ? ymd(addDays(new Date(), 1)) : today;
+    // an exact time today that has already gone by means tomorrow, unless they said "today" themselves
+    if (date === today && start != null && !x.flexible && start + 15 < nowMinutes() && !/\b(today|tonight|this (morning|afternoon|evening)|now)\b/i.test(text)) date = ymd(addDays(new Date(), 1));
     if (start != null) {
       start = Math.min(start, 1440 - duration);
       // a loose time ("in the morning"), or one that would sit on top of another new task, moves to the next gap
@@ -2893,11 +2896,11 @@ function readPlan(raw) {
 }
 async function askForTasks(text, signal) {
   const s = state.settings, svc = S.aiService(s.aiProvider), question = planQuestion(text);
-  if (svc.kind === 'claude' && s.claudeKey) return readPlan(await (await import('./claude.js')).plain(question, s.claudeKey, signal));
+  if (svc.kind === 'claude' && s.claudeKey) return readPlan(await (await import('./claude.js')).plain(question, s.claudeKey, signal), text);
   const usable = svc.kind === 'google' || (svc.kind === 'chat' && svc.base);
-  if (usable && factsKey()) return readPlan(await F.askPlain(question, { provider: svc.id, key: aiKeyOf(svc.id), model: s.aiModels?.[svc.id] || '', google: s.aiKey }, signal));
-  if (s.aiKey) return readPlan(await F.askPlain(question, { provider: 'google', google: s.aiKey }, signal)); // the chosen service cannot do this: your Google key can
-  if (AI.supported() && await AI.status() !== 'no') return readPlan(await AI.ask(question, PLAN_SCHEMA, signal)); // no key: the browser's own AI
+  if (usable && factsKey()) return readPlan(await F.askPlain(question, { provider: svc.id, key: aiKeyOf(svc.id), model: s.aiModels?.[svc.id] || '', google: s.aiKey }, signal), text);
+  if (s.aiKey) return readPlan(await F.askPlain(question, { provider: 'google', google: s.aiKey }, signal), text); // the chosen service cannot do this: your Google key can
+  if (AI.supported() && await AI.status() !== 'no') return readPlan(await AI.ask(question, PLAN_SCHEMA, signal), text); // no key: the browser's own AI
   throw Object.assign(new Error('nokey'), { kind: 'nokey' });
 }
 let planJob = null;
