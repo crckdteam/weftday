@@ -966,9 +966,10 @@ function reminderOptions(cur, withDefault) {
 function openTask(t, isNew = false) {
   const durs = [...new Set([...DURATIONS, t.duration])].sort((a, b) => a - b);
   const inSeries = !isNew && t.seriesId && t.repeat !== 'none';
-  dialog(`<form class="dbody">
-    <h3>${isNew ? 'New task' : 'Task'}</h3>
-    <label>What needs doing?<input name="title" required value="${esc(t.title)}" autocomplete="off"></label>
+  dialog(`<form class="dbody taskform">
+    <div class="thead2">${isNew ? '' : `<button type="button" class="chk${t.done ? ' on' : ''}" data-x="tick" aria-label="${t.done ? 'Mark as not done' : 'Mark as done'}" title="${t.done ? 'Mark as not done' : 'Mark as done'}"></button>`}
+      <input name="title" class="ttl" required value="${esc(t.title)}" placeholder="What needs doing?" aria-label="Task" autocomplete="off"></div>
+    <h4>When</h4>
     <div class="row">
       <label>Day<input type="date" name="date" value="${t.date || ''}"></label>
       <label>Start<input type="time" name="start" value="${t.start != null ? hhmm(t.start) : ''}"></label>
@@ -981,6 +982,7 @@ function openTask(t, isNew = false) {
       <button type="button" class="mini" data-x="when" data-v="free">Next free time</button>
       <button type="button" class="mini" data-x="when" data-v="inbox">No date (inbox)</button>
     </div>
+    <h4>Details</h4>
     <div class="row">
       <label>Repeat<select name="repeat">${opts([['none', 'Never'], ['daily', 'Every day'], ['weekdays', 'Mon – Fri'], ['weekly', 'Every week'], ...(repeatDays(t.repeat) ? [[t.repeat, cap(repeatLabel(t.repeat))]] : [])], t.repeat)}</select></label>
       <label>Reminder<select name="reminder">${reminderOptions(t.reminder, true)}</select></label>
@@ -996,6 +998,7 @@ function openTask(t, isNew = false) {
       <button type="button" class="btn ghost" data-x="close">Cancel</button>
       <button class="btn primary">Save</button>
     </div></form>`, {
+    tick() { closeDialog(); toggleDone(t); }, // the circle next to the title
     when(btn) {
       const f = $('form', el.dlg).elements, v = btn.dataset.v, today = startOfDay(new Date());
       if (v === 'inbox') { f.date.value = ''; f.start.value = ''; return; }
