@@ -8,7 +8,7 @@
  */
 
 // ---------------------------------------------------------------- settings
-const ICS_URL = 'PASTE YOUR OUTLOOK CALENDAR LINK HERE'; // the link from Outlook that ends in .ics
+const ICS_URL = ''; // leave empty and add your Outlook link in Weftday ("+ Add Teams calendar"), or paste it here
 const CALENDAR_NAME = 'Teams'; // the Google calendar the meetings are copied into (made for you if missing)
 const EVERY_MINUTES = 15;      // how often to check: 1, 5, 10, 15 or 30
 
@@ -33,11 +33,12 @@ function sync() {
   try {
     const props = PropertiesService.getScriptProperties();
     const calendarId = targetCalendarId_(props); // makes the Google calendar the first time
-    if (!/^(https|webcal):\/\//i.test(ICS_URL)) { // installed ahead of time: wait quietly until the link is pasted in
-      console.log('Waiting for the Outlook calendar link. Paste it into ICS_URL at the top.');
+    const link = calendarLink_(calendarId);
+    if (!link) { // set up ahead of time: wait quietly until the link is added
+      console.log('Waiting for the Outlook calendar link. Add it in Weftday with "+ Add Teams calendar".');
       return;
     }
-    const res = UrlFetchApp.fetch(ICS_URL.replace(/^webcal:/i, 'https:'), { muteHttpExceptions: true });
+    const res = UrlFetchApp.fetch(link.replace(/^webcal:/i, 'https:'), { muteHttpExceptions: true });
     if (res.getResponseCode() !== 200) throw new Error('Could not read the Outlook calendar link (error ' + res.getResponseCode() + ').');
     const text = res.getContentText();
     if (text.indexOf('BEGIN:VCALENDAR') < 0) throw new Error('That link did not return a calendar.');
@@ -57,6 +58,15 @@ function sync() {
 // ---------------------------------------------------------------- Google side
 function removeTriggers_() {
   ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'sync') ScriptApp.deleteTrigger(t); });
+}
+
+// The Outlook link: the one typed at the top of this file, or else the one Weftday saved in the
+// description of the Google calendar.
+function calendarLink_(calendarId) {
+  if (/^(https|webcal):\/\//i.test(ICS_URL)) return ICS_URL;
+  const cal = CalendarApp.getCalendarById(calendarId);
+  const found = /(https|webcal):\/\/\S+/i.exec((cal && cal.getDescription()) || '');
+  return found ? found[0] : '';
 }
 
 function targetCalendarId_(props) {

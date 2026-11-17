@@ -9,8 +9,8 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const untouched = readFileSync(path.join(here, '..', 'public', 'helpers', 'teams-to-google.gs'), 'utf8');
-const source = untouched.replace("'PASTE YOUR OUTLOOK CALENDAR LINK HERE'", "'https://outlook.example/calendar.ics'");
-assert.notEqual(source, untouched);
+const source = untouched; // the link comes from the Google calendar's description, as Weftday saves it
+let savedLink = '';
 
 // ---- pretend Google
 let feed = '', feedCode = 200, seq = 0;
@@ -29,7 +29,7 @@ const g = {
     computeDigest: (_, text) => [...createHash('md5').update(text, 'utf8').digest()].map(b => (b > 127 ? b - 256 : b)),
   },
   CalendarApp: {
-    getCalendarById: id => (id === 'teams-cal' ? { getId: () => id } : null),
+    getCalendarById: id => (id === 'teams-cal' ? { getId: () => id, getDescription: () => savedLink } : null),
     getOwnedCalendarsByName: () => [],
     createCalendar: () => ({ getId: () => 'teams-cal' }),
   },
@@ -81,16 +81,22 @@ const scrapped = ['BEGIN:VEVENT', 'UID:GONE-1', stamp(1), 'SUMMARY:Cancelled mee
 const oldOne = ['BEGIN:VEVENT', 'UID:OLD-1', stamp(1), 'SUMMARY:Last year kickoff', 'DTSTART:20250106T093000Z', 'DTEND:20250106T100000Z', 'END:VEVENT'];
 const all = [standup(), moved, dropped, review(), offsite, holiday, utcCall, scrapped, oldOne];
 
-// ---- 0. installed before the Outlook link is pasted in: the calendar is made and it waits quietly
-const waiting = vm.createContext({ ...g });
-vm.runInContext(untouched, waiting, { filename: 'teams-to-google.gs' });
-waiting.install();
+// ---- 0. set up before the Outlook link is added: the calendar is made and it waits quietly
+g.install();
 assert.equal(ops.fetch, 0, 'nothing is read while there is no link');
 assert.equal(props.get('calendarId'), 'teams-cal', 'the Teams calendar exists already');
 assert.equal(triggers.length, 1);
-waiting.sync();
+g.sync();
 assert.equal(store.size, 0);
 props.clear(); triggers.length = 0; resetOps();
+
+// a link typed into the file itself still works, and wins
+const typed = vm.createContext({ ...g });
+vm.runInContext(untouched.replace("const ICS_URL = '';", "const ICS_URL = 'https://typed.example/calendar.ics';"), typed);
+assert.equal(typed.calendarLink_('teams-cal'), 'https://typed.example/calendar.ics');
+savedLink = 'https://outlook.example/owa/calendar/abc/def/calendar.ics';
+assert.equal(g.calendarLink_('teams-cal'), savedLink, 'the link saved by Weftday is used');
+assert.equal(typed.calendarLink_('teams-cal'), 'https://typed.example/calendar.ics');
 
 // ---- 1. first run
 feed = ics(all);

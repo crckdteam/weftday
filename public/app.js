@@ -1443,40 +1443,100 @@ function openDeviceSetup(mine = true) {
 // ---------------------------------------------------------------- company Teams calendar (view-only)
 // Weftday cannot sign in to a company's Microsoft account without that company's approval. Instead, a small
 // helper script in the user's own Google account copies a published Outlook/Teams calendar into a Google
-// calendar called "Teams". This dialog walks through setting that helper up.
-const TEAMS_PLACEHOLDER = "'PASTE YOUR OUTLOOK CALENDAR LINK HERE'";
+// calendar called "Teams". The helper is set up once; after that, the Outlook link is simply saved in that
+// calendar's description, where the helper reads it.
+const OUTLOOK_PUBLISH = 'https://outlook.office.com/calendar/options/calendar/SharedCalendars';
+const LINK_RE = /(https|webcal):\/\/[^\s'"\\]+/i;
 let teamsCode = '';
+function teamsCalendar() { // the "Teams" calendar the helper made, looking in the home account first
+  const order = [...state.accounts].sort((a, b) => (b.id === state.settings.plannerAccountId) - (a.id === state.settings.plannerAccountId));
+  for (const a of order) {
+    const c = a.needsReconnect ? null : a.calendars.find(c => c.summary === 'Teams' && c.accessRole === 'owner');
+    if (c) return { a, c };
+  }
+  return null;
+}
 function openTeams() {
+  const found = DEMO ? null : teamsCalendar();
+  if (found) openTeamsLink(found); else openTeamsSetup();
+}
+
+// The helper is in place: all that is needed is the calendar link.
+function openTeamsLink({ a, c }) {
+  const path = `/calendars/${G.enc(c.id)}`;
+  dialog(`<form class="dbody"><h3>Teams calendar</h3>
+    <p class="note">Paste the link to your Teams calendar. Your meetings then show here, to look at only, and update every 15 minutes.</p>
+    <label>Outlook calendar link<input name="ics" placeholder="https://outlook.office365.com/…/calendar.ics" autocomplete="off" spellcheck="false"></label>
+    <details><summary>Where do I find this link?</summary><ol>
+      <li>Open <a href="${OUTLOOK_PUBLISH}" target="_blank" rel="noopener">Outlook on the web</a> with your Teams login.</li>
+      <li>Under <b>Publish a calendar</b> choose <b>Calendar</b> and <b>Can view all details</b>, then press <b>Publish</b>.</li>
+      <li>Copy the link that ends in <b>.ics</b> and paste it above.</li>
+      <li>If your company has rules about sharing calendars, check that publishing is allowed.</li>
+    </ol></details>
+    <p class="note">Keep this link private. Anyone who has it can see your meetings.</p>
+    <div class="actions"><span class="sp"></span><button type="button" class="btn ghost" data-x="close">Cancel</button><button class="btn primary">Save</button></div></form>`, {
+    async submit(fd, form) {
+      const link = fd.get('ics').trim();
+      if (link && LINK_RE.exec(link)?.[0] !== link) return toast('That does not look like an Outlook calendar link.', true);
+      const btn = $('button.primary', form);
+      btn.disabled = true;
+      try {
+        await G.api(a, path, { method: 'PATCH', body: { description: link } });
+        closeDialog();
+        toast(link ? 'Saved. Your Teams meetings will show within 15 minutes.' : 'Link removed. No new meetings will be copied.');
+      } catch (err) { btn.disabled = false; toast(err.message, true); }
+    },
+  });
+  const input = $('[name=ics]', el.dlg);
+  G.api(a, path).then(cal => { // show the link that is already saved, if any
+    const saved = LINK_RE.exec(cal?.description || '')?.[0];
+    if (saved && input.isConnected && !input.value) input.value = saved;
+  }).catch(() => {});
+}
+
+// First time: put the helper into the user's own Google account. One small step per screen.
+const TEAMS_STEPS = [
+  { title: 'Copy the helper',
+    body: 'Weftday uses a small helper that lives in your own Google account. Press the button to copy it.',
+    action: '<button type="button" class="btn" data-x="copy">Copy the helper</button>' },
+  { title: 'Paste it into Google',
+    body: 'Open Google Apps Script with the Google account you use here. Delete what is in the new project, then paste.',
+    action: '<a class="btn" href="https://script.google.com/home/projects/create" target="_blank" rel="noopener">Open Google Apps Script</a>' },
+  { title: 'Give it calendar access',
+    body: 'On the left, press <b>+</b> next to <b>Services</b>. Choose <b>Google Calendar API</b> and press <b>Add</b>.' },
+  { title: 'Start it',
+    body: 'At the top, choose <b>install</b> and press <b>Run</b>. Allow access when Google asks.' },
+];
+function openTeamsSetup(i = -1) {
   if (!teamsCode) fetch('helpers/teams-to-google.gs').then(r => (r.ok ? r.text() : '')).then(t => { teamsCode = t; }).catch(() => {});
-  dialog(`<form class="dbody"><h3>Add a Teams calendar</h3>
-    <p class="note">Shows your company’s Teams (Outlook) meetings in Weftday, to look at only. A small helper in your own Google account copies them into a calendar called “Teams” every 15 minutes. Your company’s IT does not need to approve anything.</p>
-    <ol class="steps">
-      <li>Open <a href="https://outlook.office.com/calendar/options/calendar/SharedCalendars" target="_blank" rel="noopener">Outlook on the web</a> with your Teams login. Under <b>Publish a calendar</b> choose <b>Calendar</b> and <b>Can view all details</b>, press <b>Publish</b>, and copy the link that ends in <b>.ics</b>.</li>
-      <li>Paste that link here. You can leave it empty and add it later.
-        <input name="ics" placeholder="https://outlook.office365.com/…/calendar.ics" autocomplete="off" spellcheck="false"></li>
-      <li>Press <button type="button" class="btn" data-x="copy">Copy the helper code</button></li>
-      <li>Open <a href="https://script.google.com/home/projects/create" target="_blank" rel="noopener">script.google.com</a> with the Google account you use in Weftday. Delete what is in the new project and paste the code.</li>
-      <li>On the left, press <b>+</b> next to <b>Services</b>, choose <b>Google Calendar API</b> and press <b>Add</b>.</li>
-      <li>At the top, choose the function <b>install</b>, press <b>Run</b>, and allow access when Google asks.</li>
-      <li>Press Done below. A calendar called <b>Teams</b> appears under that account.</li>
-    </ol>
-    <p class="note warn">The Outlook link lets anyone who has it see your meetings. Keep it private, and check that publishing your calendar is fine with your company.</p>
-    <div class="actions"><span class="sp"></span><button type="button" class="btn primary" data-x="done">Done</button></div></form>`, {
+  const step = TEAMS_STEPS[i], last = i === TEAMS_STEPS.length - 1;
+  const html = step
+    ? `<h4>Step ${i + 1} of ${TEAMS_STEPS.length}</h4><h3>${step.title}</h3><p>${step.body}</p>${step.action ? `<div>${step.action}</div>` : ''}`
+    : `<h3>See your Teams meetings here</h3>
+       <p>Weftday can show your company’s Teams meetings next to everything else, to look at only.</p>
+       <p class="note">Setup takes about 3 minutes and you only do it once. Your company’s IT does not need to approve anything.</p>`;
+  dialog(`<div class="dbody">${html}
+    <div class="actions"><span class="sp"></span>
+      <button type="button" class="btn ghost" data-x="${step ? 'back' : 'close'}">${step ? 'Back' : 'Not now'}</button>
+      <button type="button" class="btn primary" data-x="next">${!step ? 'Start' : last ? 'I’ve done this' : 'Next'}</button></div></div>`, {
     copy() {
-      const link = $('[name=ics]', el.dlg).value.trim();
-      if (!teamsCode) return toast('Still loading the helper. Try again in a moment.', true);
-      if (link && !/^(https|webcal):\/\/[^\s'"\\]+$/i.test(link)) return toast('That does not look like an Outlook calendar link.', true);
-      const code = link ? teamsCode.replace(TEAMS_PLACEHOLDER, `'${link}'`) : teamsCode;
-      navigator.clipboard.writeText(code).then(
-        () => toast(link ? 'Code copied, with your link filled in' : 'Code copied'),
+      if (!teamsCode) return toast('Still loading. Try again in a moment.', true);
+      navigator.clipboard.writeText(teamsCode).then(
+        () => toast('Copied'),
         () => toast('Could not copy. Open helpers/teams-to-google.gs on this site and copy it by hand.', true));
     },
-    async done() {
-      closeDialog();
-      if (DEMO) return;
+    back: () => openTeamsSetup(i - 1),
+    async next(btn) {
+      if (!last) return openTeamsSetup(i + 1);
+      if (DEMO) return toast('This is sample data. Open the app without “?demo” first.');
+      btn.disabled = true;
       await Promise.all(state.accounts.filter(a => !a.needsReconnect).map(a => G.refreshCalendars(a).catch(err => console.warn(a.email, err))));
       render();
       refresh();
+      const found = teamsCalendar();
+      if (found) { el.toast.className = ''; return openTeamsLink(found); }
+      btn.disabled = false;
+      toast('No “Teams” calendar yet. Check that Run finished without an error, then press this again.', true);
     },
   });
 }

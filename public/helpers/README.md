@@ -8,19 +8,27 @@ called "Teams" in your own Google account. Weftday then shows it like any other 
 - It runs inside your own Google account (Google Apps Script). No other server is involved.
 - You do not need your company's IT to approve anything, as long as your company lets you publish your calendar.
 
-## Set it up (about 5 minutes)
+## Set it up
 
-The easiest way is the **+ Add Teams calendar** button in Weftday, which shows these same steps and copies the code for you.
+The easiest way is the **+ Add Teams calendar** button in Weftday. It shows these steps and copies the code for you.
 
-1. **Get the calendar link from Outlook.** Open [outlook.office.com/calendar](https://outlook.office.com/calendar) with your
-   company account (the same login as Teams). Press the gear → **Calendar** → **Shared calendars**. Under
-   **Publish a calendar** pick **Calendar** and **Can view all details**, press **Publish**, and copy the link that ends in `.ics`.
-2. **Create the helper.** Open [script.google.com](https://script.google.com) with the Google account you use in Weftday and
-   press **New project**. Delete what is there and paste in everything from `teams-to-google.gs`.
-3. **Paste your link** between the quotes on the `ICS_URL` line near the top. (You can skip this and do it later: the helper waits quietly until the link is there.)
-4. **Switch on Calendar access.** On the left, press **+** next to **Services**, choose **Google Calendar API**, press **Add**.
-5. **Start it.** At the top, choose the function **install**, press **Run**, and allow access when Google asks.
-6. **Open Weftday** and tick the new **Teams** calendar.
+**Once, about 3 minutes: put the helper in your Google account**
+
+1. Open [script.google.com](https://script.google.com) with the Google account you use in Weftday and press **New project**.
+   Delete what is there and paste in everything from `teams-to-google.gs`.
+2. On the left, press **+** next to **Services**, choose **Google Calendar API**, press **Add**.
+3. At the top, choose the function **install**, press **Run**, and allow access when Google asks.
+   A calendar called "Teams" now exists in your Google account, and the helper waits for your link.
+
+**Then: give it your calendar link**
+
+4. Open [outlook.office.com/calendar](https://outlook.office.com/calendar) with your company account (the same login as Teams).
+   Press the gear → **Calendar** → **Shared calendars**. Under **Publish a calendar** pick **Calendar** and
+   **Can view all details**, press **Publish**, and copy the link that ends in `.ics`.
+5. In Weftday, press **+ Add Teams calendar**, paste the link, and press **Save**. (Weftday keeps the link in the
+   description of the "Teams" calendar, which is where the helper reads it. You can also paste it into `ICS_URL` at the top of the code.)
+
+Your meetings show up within 15 minutes.
 
 ## Good to know
 

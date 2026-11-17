@@ -36,6 +36,12 @@ async function api(req, res, url) {
     u.calendars.push(cal); u.events[cal.id] = [];
     return json(res, 200, cal);
   }
+  if (parts.length === 2) { // one calendar's own details (name, description)
+    const cal = u.calendars.find(c => c.id === parts[1]);
+    if (!cal) return json(res, 404, { error: { message: 'Calendar not found' } });
+    if (req.method === 'PATCH') Object.assign(cal, body);
+    return json(res, 200, cal);
+  }
   const list = u.events[parts[1]];
   if (!list) return json(res, 404, { error: { message: 'Calendar not found' } });
   if (parts.length === 3 && req.method === 'GET') {
