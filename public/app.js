@@ -1199,6 +1199,7 @@ function openFactsHelp(guest, from) {
       <li>Copy the key and paste it into <b>Settings → AI</b>.</li>
     </ol>
     <p class="note">Each time you press Get facts, the person’s name, their company and the meeting title go to Google’s AI, which reads web search results about them. Nothing is sent before that.</p>
+    <p class="note">Want better results? In Settings → AI you can use a Claude key instead.</p>
     <div class="actions"><button type="button" class="btn ghost" data-x="back">Back</button><span class="sp"></span><button type="button" class="btn primary" data-x="settings">Open Settings</button></div></div>`, {
     back: () => openPerson(guest, from),
     settings: () => openSettings(),
@@ -1226,7 +1227,9 @@ function factsHtml(f, day, who) {
     ${firm ? `<div class="fgroup"><h4>${esc(who.company || 'Their company')}</h4>${firm}</div>` : ''}
     ${f.recent.length || f.ideas.length || f.other.length ? `<div class="fgroup"><h4>For this meeting</h4>${part('Recently', f.recent)}${part('Worth asking', f.ideas)}${part('Also', f.other)}</div>` : ''}
     ${f.sources.length ? `<div class="chips2">${f.sources.map(x => `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.host)}</a>`).join('')}</div>` : ''}
-    <div class="ffoot"><span>From the web${day ? ` · ${esc(day)}` : ''}. Check before relying on it.</span><button type="button" class="linkbtn" data-x="facts">Refresh</button></div>`;
+    <div class="ffoot"><span>From the web${day ? ` · ${esc(day)}` : ''}${f.hint ? `, using your hint “${esc(f.hint)}”` : ''}. Check before relying on it.</span>
+      <span class="flinks"><button type="button" class="linkbtn" data-x="notthem">Not them?</button><button type="button" class="linkbtn" data-x="facts">Refresh</button></span></div>
+    <form class="hintrow" id="hintRow" hidden><input name="hint" maxlength="120" placeholder="A hint: their job, city, or LinkedIn address" autocomplete="off" value="${esc(f.hint || '')}"><button class="btn" data-x="retry" type="button">Look again</button></form>`;
 }
 const FACTS_LOADING = `<div class="note">Reading the web about them and their company. This takes up to half a minute…</div>
   <div class="sk w40"></div><div class="sk"></div><div class="sk w80"></div><div class="sk w60"></div>`;
@@ -1237,6 +1240,7 @@ function openPerson(guest, from) {
   const p = person(guest), key = N.aboutKey(p.email), first = p.name.split(' ')[0];
   let { own, raw, day } = F.split(N.get(key)?.text || '');
   const f = raw ? F.parse(raw) : null;
+  let hint = f?.hint || ''; // what you told Weftday about them, used again on Refresh
   const canLook = p.fullName || !!p.company, at = p.company ? ` ${p.company}` : '';
   const linkedin = f?.linkedin || (!canLook ? '' : p.fullName
     ? `https://www.linkedin.com/search/results/people/?keywords=${G.enc(p.name + at)}`
@@ -1267,17 +1271,24 @@ function openPerson(guest, from) {
     ${notes.length ? `<h4>Your notes from meetings with them</h4><div class="past">${notes.slice(0, 8).map(n => `<div><b>${esc(n.title || 'Meeting')}</b>${n.when ? ` <i>· ${esc(dayLabel(new Date(n.when)))}</i>` : ''}<div class="desc">${esc(AI.gistOf(n.text, 400))}</div></div>`).join('')}</div>` : ''}
     <div class="actions">${from ? '<button type="button" class="btn" data-x="back">Back to the meeting</button>' : ''}<span class="sp"></span><button type="button" class="btn primary" data-x="close">Close</button></div></div>`, {
     back: () => openEvent(from),
-    // Looks the person up on the web with Google's AI and shows what it finds as a card.
+    // "Not them?": shows a box for a hint, then looks again with it.
+    notthem() {
+      const row = $('#hintRow', el.dlg);
+      row.hidden = false;
+      $('[name=hint]', row).focus();
+    },
+    retry() { hint = $('#hintRow [name=hint]', el.dlg).value.trim(); this.facts(); },
+    // Looks the person up on the web and shows what it finds as a card.
     async facts() {
-      if (!state.settings.aiKey) return openFactsHelp(guest, from);
+      if (!factsKey()) return openFactsHelp(guest, from);
       const card = $('#factsBox', el.dlg), before = card.innerHTML;
       const job = aiJob = new AbortController();
       card.innerHTML = FACTS_LOADING;
       try {
-        const answer = await getFacts(p, from?.title, job.signal);
+        const answer = await getFacts(p, from?.title, job.signal, hint);
         if (job.signal.aborted || !card.isConnected) return;
         ({ raw, day } = F.split(F.mergeInto('', answer, dayLabel(new Date()))));
-        commitAbout(true);
+        if (!commitAbout(true)) { N.set(key, F.join(box.value, raw, day), { title: p.name, when: Date.now(), people: [p.email] }); scheduleFlush(); }
         const searched = answer.queries;
         openPerson(guest, from); // draw the page again, now with the facts
         if (searched.length) {
@@ -1298,10 +1309,12 @@ function openPerson(guest, from) {
   let timer = 0;
   const commitAbout = quiet => {
     clearTimeout(timer);
-    if (!N.set(key, F.join(box.value.trim() ? box.value : '', raw, day).slice(0, N.MAX_LENGTH), { title: p.name, when: Date.now(), people: [p.email] })) return;
+    if (!N.set(key, F.join(box.value.trim() ? box.value : '', raw, day).slice(0, N.MAX_LENGTH), { title: p.name, when: Date.now(), people: [p.email] })) return false;
     scheduleFlush();
     if (quiet !== true && saved.isConnected) saved.textContent = plannerReady() ? 'Saved' : 'Saved on this device';
+    return true;
   };
+  $('#hintRow', el.dlg)?.addEventListener('submit', e => { e.preventDefault(); $('[data-x=retry]', el.dlg).click(); });
   box.addEventListener('input', () => { saved.textContent = ''; clearTimeout(timer); timer = setTimeout(commitAbout, 600); });
   box.addEventListener('change', commitAbout);
   noteCommit = commitAbout;
@@ -1316,6 +1329,75 @@ function openPerson(guest, from) {
          ${next.slice(0, 3).map(row).join('')}${past.slice(0, 8).map(row).join('')}${past.length > 8 ? `<div class="note">and ${past.length - 8} earlier</div>` : ''}`;
     saveNames();
   }).catch(() => {});
+}
+
+// "Brief me": everything worth knowing before one meeting, on a single screen. It is put together
+// from what is already saved (profiles, your notes), so it opens at once.
+function openBrief(ev) {
+  const guests = (ev.att || []).filter(g => !g.resource);
+  const others = guests.map(g => ({ guest: g, who: person(g) })).filter(x => !x.who.self).slice(0, 8);
+  const withFacts = others.map(x => {
+    const { own, raw } = F.split(N.get(N.aboutKey(x.who.email))?.text || '');
+    return { ...x, own, f: raw ? F.parse(raw) : null };
+  });
+  const missing = withFacts.filter(x => !x.f && (x.who.fullName || x.who.company));
+  // their company: the one most of the guests belong to
+  const counts = new Map();
+  for (const x of withFacts) if (x.who.company) counts.set(x.who.company, (counts.get(x.who.company) || 0) + 1);
+  const firmName = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+  const firm = withFacts.find(x => x.who.company === firmName && x.f && (x.f.company || x.f.funding.length || x.f.teamSize))?.f || null;
+  const key = noteKey(ev), emails = others.map(x => x.who.email);
+  const earlier = N.withPeople(emails, key), last = earlier.find(n => (n.when || 0) < ev.s) || null;
+  const open = [];
+  for (const n of earlier) for (const text of AI.actionsIn(n.text)) {
+    const task = state.tasks.find(t => t.title.toLowerCase() === text.toLowerCase());
+    if (!task?.done && !open.includes(text)) open.push(text);
+  }
+  const uniq = lists => [...new Set(lists.flat())].slice(0, 4);
+  const recent = uniq(withFacts.map(x => x.f?.recent || [])), ideas = uniq(withFacts.map(x => x.f?.ideas || []));
+  const mine = N.get(key)?.text || '';
+  const list = items => items.map(x => `<p>${esc(x)}</p>`).join('');
+  const tags = items => `<div class="tags">${items.map(x => `<span>${esc(x)}</span>`).join('')}</div>`;
+  dialog(`<div class="dbody brief">
+    <h3>${esc(ev.title)}</h3>
+    <div class="meta">${esc(eventWhen(ev))}</div>
+    <h4>Who you’re meeting</h4>
+    <div class="whos">${withFacts.map(x => `<div class="bwho">
+      <div class="avatar sm" style="--tc:${tagColor(x.who.email)}">${esc(initials(x.who.name))}</div>
+      <div><button type="button" class="nm" data-x="person" data-email="${esc(x.who.email)}">${esc(x.who.name)} ›</button>
+        <div class="wm">${esc(x.f ? [x.f.role, x.f.location].filter(Boolean).join(' · ') || 'Profile saved' : x.own ? AI.gistOf(x.own, 120) : 'No profile yet')}</div>
+        ${x.f?.expertise.length ? tags(x.f.expertise.slice(0, 4)) : ''}</div></div>`).join('')}</div>
+    ${missing.length ? `<div><button type="button" class="mini" data-x="fill">Get the missing ${missing.length === 1 ? 'profile' : `${missing.length} profiles`}</button></div>` : ''}
+    ${firm ? `<h4>${esc(firmName)}</h4><div class="fsec">${firm.company ? `<p>${esc(firm.company)}</p>` : ''}
+      ${firm.teamSize ? `<p><i>Team</i> ${esc(firm.teamSize)}</p>` : ''}${firm.funding.length ? `<p><i>Funding</i> ${esc(firm.funding[0])}</p>` : ''}
+      ${firm.clients.length ? tags(firm.clients.slice(0, 6)) : ''}</div>` : ''}
+    ${last ? `<h4>Last time${last.when ? ` · ${esc(dayLabel(new Date(last.when)))}` : ''}</h4><div class="fsec"><p>${esc(AI.gistOf(last.text, 320))}</p></div>` : ''}
+    ${open.length ? `<h4>Still open with them</h4><div class="fsec multi">${list(open.slice(0, 6))}</div>` : ''}
+    ${recent.length ? `<h4>Recently</h4><div class="fsec multi">${list(recent)}</div>` : ''}
+    ${ideas.length ? `<h4>Worth asking</h4><div class="fsec multi">${list(ideas)}</div>` : ''}
+    ${mine ? `<h4>Your notes for this meeting</h4><div class="fsec"><p>${esc(AI.gistOf(mine, 400))}</p></div>` : ''}
+    <div class="actions"><button type="button" class="btn" data-x="back">Back to the meeting</button><span class="sp"></span><button type="button" class="btn primary" data-x="close">Close</button></div></div>`, {
+    back: () => openEvent(ev),
+    person: btn => openPerson(guests.find(g => (g.email || '').toLowerCase() === btn.dataset.email), ev),
+    // Looks up the people who have no profile yet, one after another, then shows the brief again.
+    async fill(btn) {
+      if (!factsKey()) return openFactsHelp(missing[0].guest, ev);
+      const job = aiJob = new AbortController();
+      btn.disabled = true;
+      try {
+        for (let i = 0; i < missing.length; i++) {
+          btn.textContent = `Looking up ${missing[i].who.name.split(' ')[0]}… (${i + 1} of ${missing.length})`;
+          keepFacts(missing[i].who, await getFacts(missing[i].who, ev.title, job.signal));
+          if (job.signal.aborted) return;
+        }
+      } catch (err) {
+        if (err.name !== 'AbortError') toast(err.message, true);
+      } finally {
+        if (aiJob === job) aiJob = null;
+      }
+      if (!job.signal.aborted && btn.isConnected) openBrief(ev);
+    },
+  });
 }
 
 function openEvent(ev) {
@@ -1345,8 +1427,9 @@ function openEvent(ev) {
     <div class="meta">${esc(eventWhen(ev))}</div>
     <div class="meta"><span class="dot" style="background:${a?.color || '#888'}"></span>${esc(a?.email || '')}${c && !c.primary ? ' · ' + esc(c.summary) : ''}</div>
     ${ev.location ? `<div class="meta">${esc(ev.location)}</div>` : ''}
-    ${ev.meet || extras.length ? `<div class="btnrow">
+    ${ev.meet || extras.length || others.length ? `<div class="btnrow">
       ${ev.meet ? `<a class="btn primary" href="${esc(ev.meet)}" target="_blank" rel="noopener">Join video call</a>` : ''}
+      ${others.length ? '<button type="button" class="btn" data-x="brief">Brief me</button>' : ''}
       ${extras.map(x => `<a class="btn" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.label)}</a>`).join('')}</div>` : ''}
     ${others.length ? `<h4>Who’s there</h4><div class="whos">${shown.map(p => who(p, true)).join('')}
       ${rest.length ? `<details><summary>${rest.length} more</summary><div class="whos">${rest.map(p => who(p, false)).join('')}</div></details>` : ''}</div>` : ''}
@@ -1379,20 +1462,19 @@ function openEvent(ev) {
     </div></div>`, {
     edit: () => openEventForm(ev),
     person: btn => openPerson(guests.find(g => (g.email || '').toLowerCase() === btn.dataset.email), ev),
+    brief: () => openBrief(ev),
     // Looks the person up on the web, saves what it finds about them, then shows their page.
     async facts(btn) {
       const guest = guests.find(g => (g.email || '').toLowerCase() === btn.dataset.email), who = person(guest);
       if (hasFacts(who.email)) return openPerson(guest, ev);
-      if (!state.settings.aiKey) return openFactsHelp(guest, ev);
+      if (!factsKey()) return openFactsHelp(guest, ev);
       const job = aiJob = new AbortController();
       btn.disabled = true;
       btn.textContent = 'Searching the web… about 20 seconds';
       try {
         const answer = await getFacts(who, ev.title, job.signal);
         if (job.signal.aborted) return;
-        const aboutKey = N.aboutKey(who.email);
-        N.set(aboutKey, F.mergeInto(N.get(aboutKey)?.text || '', answer, dayLabel(new Date())).slice(0, N.MAX_LENGTH), { title: who.name, when: Date.now(), people: [who.email] });
-        scheduleFlush();
+        keepFacts(who, answer);
         if (btn.isConnected) openPerson(guest, ev);
       } catch (err) {
         if (err.name !== 'AbortError') toast(err.message, true);
@@ -1617,14 +1699,69 @@ const noteKey = ev => ev.nk || ev.id;
 const hasFacts = email => (N.get(N.aboutKey(email))?.text || '').includes(F.MARK);
 // Runs "Get facts". A key without Google's own web search is remembered for a few days, so the
 // free way (reading search result pages) is used straight away instead of asking and being refused.
-async function getFacts(who, meeting, signal) {
-  const s = state.settings, freeLately = s.aiFreeSince && Date.now() - s.aiFreeSince < 3 * 86400000;
-  const answer = await F.personFacts(who, meeting, s.aiKey, signal, !freeLately);
+const factsKey = () => (state.settings.aiProvider === 'claude' ? state.settings.claudeKey : state.settings.aiKey) || '';
+async function getFacts(who, meeting, signal, hint = '') {
+  const s = state.settings;
+  if (s.aiProvider === 'claude' && s.claudeKey) { // the better-results choice: Claude with its own web search
+    const C = await import('./claude.js');
+    return { ...(await C.personFacts(who, meeting, s.claudeKey, signal, hint)), hint };
+  }
+  const freeLately = s.aiFreeSince && Date.now() - s.aiFreeSince < 3 * 86400000;
+  const answer = await F.personFacts(who, meeting, s.aiKey, signal, !freeLately, hint);
   const wasFree = !!s.aiFreeSince;
   if (answer.how === 'reading' && !freeLately) s.aiFreeSince = Date.now();
   if (answer.how === 'search') s.aiFreeSince = 0;
   if (wasFree !== !!s.aiFreeSince || answer.how === 'reading') save();
-  return answer;
+  return { ...answer, hint };
+}
+// Saves what was found into the person's note, keeping what you wrote about them yourself.
+function keepFacts(who, answer) {
+  const key = N.aboutKey(who.email);
+  N.set(key, F.mergeInto(N.get(key)?.text || '', answer, dayLabel(new Date())).slice(0, N.MAX_LENGTH), { title: who.name, when: Date.now(), people: [who.email] });
+  scheduleFlush();
+}
+
+// When switched on in Settings: quietly gets facts for the people in today's meetings, so their
+// profiles are ready before you open the meeting. Colleagues (same email domain as one of your own
+// accounts) are skipped, and nobody is looked up more than once a week.
+let autoRunning = false, autoPausedUntil = 0;
+async function autoFacts() {
+  if (DEMO || autoRunning || aiJob || !state.settings.aiAuto || !factsKey() || document.hidden || Date.now() < autoPausedUntil) return;
+  const from = startOfDay(new Date()).getTime(), to = from + 86400000, weekAgo = Date.now() - 7 * 86400000;
+  const mine = new Set(state.accounts.map(a => a.email.split('@')[1]));
+  const tried = (state.factsTried ||= {});
+  const todo = new Map();
+  for (const ev of events.values()) {
+    if (ev.s < from || ev.s >= to || ev.selfStatus === 'declined' || !enabledEvent(ev)) continue;
+    for (const guest of (ev.att || []).filter(g => !g.resource)) {
+      const who = person(guest);
+      if (who.self || mine.has(who.email.split('@')[1]) || (!who.fullName && !who.company)) continue;
+      if (hasFacts(who.email) || tried[who.email] > weekAgo || todo.has(who.email)) continue;
+      todo.set(who.email, { who, title: ev.title });
+    }
+  }
+  if (!todo.size) return;
+  autoRunning = true;
+  let ready = 0;
+  try {
+    for (const { who, title } of [...todo.values()].slice(0, 5)) {
+      try {
+        keepFacts(who, await getFacts(who, title));
+        tried[who.email] = Date.now();
+        ready++;
+      } catch (err) {
+        console.warn('Could not get facts for', who.email, err.message);
+        if (!['slow', 'busy'].includes(err.kind)) { autoPausedUntil = Date.now() + 3600000; break; } // a problem with the key: stop for an hour
+        tried[who.email] = Date.now() - 6 * 86400000; // the AI was busy: try this person again tomorrow
+      }
+      save();
+      await new Promise(r => setTimeout(r, 3000));
+    }
+  } finally { autoRunning = false; }
+  if (ready) {
+    if (!el.dlg.open) toast(ready === 1 ? 'A profile is ready for someone you are meeting today.' : `Profiles are ready for ${ready} people you are meeting today.`);
+    renderView();
+  }
 }
 
 let refreshSeq = 0;
@@ -1661,6 +1798,7 @@ async function refresh() {
   if (plannerReady()) await sync(() => pullPlanner(from, to));
   if (plannerReady()) await sync(() => N.pull().catch(err => console.warn('Reading notes failed', err)));
   saveNames();
+  setTimeout(autoFacts, 1500);
   if (seq !== refreshSeq) return;
   if (!dragging) render();
   const time = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
@@ -2043,8 +2181,25 @@ function applyTheme() {
   else delete document.documentElement.dataset.theme;
 }
 
+// The AI services "Get facts" can use. Each needs a key of your own.
+const FACT_PROVIDERS = {
+  google: {
+    choice: 'Google AI · free key', label: 'Google AI key',
+    help: `<li>Open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> and press <b>Create API key</b>.</li>
+      <li>Copy the key, paste it above and press Save. It is kept only in this browser. The key is free.</li>`,
+  },
+  claude: {
+    choice: 'Claude · your own paid key, better results', label: 'Claude (Anthropic) key',
+    help: `<li>Open the <a href="https://platform.claude.com/settings/keys" target="_blank" rel="noopener">Anthropic Console</a> and create an API key.</li>
+      <li>Claude keys are paid: add a little credit in the Console. Each lookup uses a small amount of it.</li>
+      <li>Copy the key, paste it above and press Save. It is kept only in this browser.</li>`,
+  },
+};
+
 function openSettings(msg) {
   const s = state.settings;
+  const keys = { google: s.aiKey || '', claude: s.claudeKey || '' }; // the key box shows the one for the chosen service
+  let provider = FACT_PROVIDERS[s.aiProvider] ? s.aiProvider : 'google';
   const perm = !('Notification' in window) ? 'not available in this browser' : { granted: 'on', denied: 'blocked in browser settings', default: 'off' }[Notification.permission];
   const hours = Array.from({ length: 24 }, (_, h) => [h * 60, fmtTime(h * 60)]);
   dialog(`<form class="dbody">
@@ -2080,11 +2235,11 @@ function openSettings(msg) {
     <h4>AI</h4>
     <div class="rowline"><span class="note">Tidying notes: <b id="aiState">checking…</b></span></div>
     <label>“Ask AI” about a person opens<select name="aiApp">${opts(Object.entries(AI_APPS).map(([k, v]) => [k, v[0]]), s.aiApp)}</select></label>
-    <label><span>Google AI key <i>· optional and free, for “Get facts” about a person</i></span><input name="aiKey" type="password" value="${esc(s.aiKey || '')}" autocomplete="off" spellcheck="false"></label>
-    <details><summary>How to get this key</summary><ol>
-      <li>Open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> and press <b>Create API key</b>.</li>
-      <li>Copy the key, paste it above and press Save. It is kept only in this browser. The key is free.</li>
-    </ol></details>
+    <label>“Get facts” about a person uses<select name="aiProvider">${opts(Object.entries(FACT_PROVIDERS).map(([k, v]) => [k, v.choice]), provider)}</select></label>
+    <label><span id="aiKeyLabel">${FACT_PROVIDERS[provider].label}</span><input name="aiKey" type="password" value="${esc(keys[provider])}" autocomplete="off" spellcheck="false"></label>
+    <details><summary>How to get this key</summary><ol id="aiKeyHelp">${FACT_PROVIDERS[provider].help}</ol></details>
+    <label class="check"><input type="checkbox" name="aiAuto"${s.aiAuto ? ' checked' : ''}>Get facts by itself for the people I’m meeting today</label>
+    <p class="note">With this on, Weftday looks up today’s guests in the background, so their profiles are ready when you open a meeting. Their names go to the AI without you pressing anything. People at your own company are skipped.</p>
     <p class="note">Tidying runs inside your browser, so your notes stay on this device. “Ask AI” and “Get facts” send the person’s name, company and the meeting title to that AI, and only when you press them.</p>
     <h4>Look</h4>
     <label>Theme<select name="theme">${opts([['auto', 'Match this device'], ['light', 'Light'], ['dark', 'Dark']], s.theme)}</select></label>
@@ -2102,8 +2257,12 @@ function openSettings(msg) {
       s.morning = +fd.get('morning');
       s.theme = fd.get('theme');
       s.aiApp = fd.get('aiApp');
-      if (s.aiKey !== fd.get('aiKey').trim()) s.aiFreeSince = 0; // a new key may have Google's own search
-      s.aiKey = fd.get('aiKey').trim();
+      keys[provider] = fd.get('aiKey').trim();
+      if (s.aiKey !== keys.google) s.aiFreeSince = 0; // a new key may have Google's own search
+      s.aiKey = keys.google;
+      s.claudeKey = keys.claude;
+      s.aiProvider = provider;
+      s.aiAuto = fd.get('aiAuto') === 'on';
       const want = fd.get('planner'), share = fd.get('share') === 'on';
       save();
       applyTheme();
@@ -2132,6 +2291,15 @@ function openSettings(msg) {
       link.click();
       URL.revokeObjectURL(link.href);
     },
+  });
+  // The key box follows the chosen AI service.
+  $('[name=aiProvider]', el.dlg).addEventListener('change', e => {
+    const box = $('[name=aiKey]', el.dlg);
+    keys[provider] = box.value.trim();
+    provider = e.target.value;
+    box.value = keys[provider];
+    $('#aiKeyLabel', el.dlg).textContent = FACT_PROVIDERS[provider].label;
+    $('#aiKeyHelp', el.dlg).innerHTML = FACT_PROVIDERS[provider].help;
   });
   AI.status().then(st => {
     const line = $('#aiState', el.dlg);

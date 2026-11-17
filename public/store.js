@@ -12,6 +12,9 @@ const base = () => ({
     aiApp: 'claude',      // which AI app the "Ask AI" link about a person opens
     aiKey: '',            // your own Google AI key, for "Get facts" (kept only in this browser)
     aiFreeSince: 0,       // when this key was last found to have no Google web search (free plan)
+    aiProvider: 'google', // which AI service "Get facts" uses: 'google' or 'claude'
+    claudeKey: '',        // your own Anthropic key, when Claude is chosen (kept only in this browser)
+    aiAuto: false,        // get facts by itself for the people in today's meetings
   },
   accounts: [],     // connected Google accounts
   tasks: [],        // your tasks and time blocks
@@ -21,6 +24,7 @@ const base = () => ({
   goneAccounts: [], // accounts removed here, so other devices drop them too
   notes: {},        // your private notes on meetings (see notes.js)
   names: {},        // full names of people seen in your calendars, by email address
+  factsTried: {},   // when each person was last looked up automatically, by email address
   sharedSeen: false, // the shared account list has been found in Google at least once
 });
 

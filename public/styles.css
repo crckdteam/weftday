@@ -556,3 +556,11 @@ button.nm:hover { color: var(--accent); }
 .fgroup > h4 { font-size: 13px; letter-spacing: 0; text-transform: none; color: var(--text); font-weight: 650; margin: 0; }
 .tags { display: flex; gap: 5px; flex-wrap: wrap; }
 .tags span { font-size: 12px; padding: 2px 9px; border-radius: 99px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: color-mix(in srgb, var(--accent) 70%, var(--text)); }
+.flinks { display: flex; gap: 12px; flex: none; }
+.hintrow { display: flex; gap: 8px; }
+.hintrow input { flex: 1; }
+.bwho { display: flex; gap: 10px; align-items: flex-start; }
+.avatar.sm { width: 32px; height: 32px; font-size: 12px; margin-top: 2px; }
+.bwho .tags { margin-top: 5px; }
+.brief .fsec p i { font-style: normal; color: var(--muted); margin-right: 4px; }
+.brief .fsec { font-size: 13.5px; }
