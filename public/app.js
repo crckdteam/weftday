@@ -111,6 +111,12 @@ function dialog(html, handlers = {}, cls = '') {
   if (f) f.onsubmit = e => { e.preventDefault(); if (!el.dlg.classList.contains('closing')) handlers.submit?.(new FormData(f), f); };
 }
 // Boxes fade out briefly instead of vanishing.
+// A box that shows one thing in full (a meeting, a person, a task, a recording) opens as a panel down
+// the right-hand side, so the calendar stays in view behind it. Called right after dialog().
+function asPanel() {
+  el.dlg.classList.add('panel');
+  el.dlg.insertAdjacentHTML('afterbegin', '<button type="button" class="pclose" data-x="close" aria-label="Close" title="Close (Esc)">✕</button>');
+}
 function closeDialog() {
   if (!el.dlg.open || el.dlg.classList.contains('closing')) return;
   if (calm()) return el.dlg.close();
@@ -402,6 +408,7 @@ function renderBar() {
       : `${a.getDate()} ${month(a)} – ${b.getDate()} ${month(b)} ${b.getFullYear()}`;
   }
   for (const b of document.querySelectorAll('#viewSeg button')) b.classList.toggle('on', b.dataset.view === view);
+  for (const b of document.querySelectorAll('#mainNav button')) b.classList.toggle('on', (b.dataset.nav === 'notes') === (view === 'notes'));
   $('#demoTag').hidden = !DEMO;
   const z2 = state.settings.zone2 && state.settings.zone2 !== TZ ? state.settings.zone2 : '', zb = $('#zoneBtn');
   zb.classList.toggle('on', !!z2);
@@ -920,6 +927,13 @@ function bind() {
   $('#prev').onclick = () => step(-1);
   $('#next').onclick = () => step(1);
   $('#viewSeg').onclick = e => { if (e.target.dataset.view) setView(e.target.dataset.view); };
+  // The two places the app has: the calendar (in the view it was last in) and the notes.
+  $('#mainNav').onclick = e => {
+    const b = e.target.closest('[data-nav]');
+    if (!b) return;
+    document.body.classList.remove('side-open');
+    setView(b.dataset.nav === 'notes' ? 'notes' : VIEWS.includes(state.settings.view) ? state.settings.view : (innerWidth < 760 ? 'day' : 'week'));
+  };
   $('#newEvent').onclick = () => openEventForm(null);
   $('#searchBtn').onclick = e => { e.stopPropagation(); openPalette(); };
   $('#zoneBtn').onclick = openSecondZone;
@@ -1063,6 +1077,7 @@ function openTask(t, isNew = false) {
       toast('Duplicated', { undo: true });
     },
   });
+  asPanel();
   if (isNew) $('input[name=title]', el.dlg).focus();
 }
 
@@ -1494,6 +1509,7 @@ function openPerson(guest, from) {
   firstTip('person');
   showPictures();
   // Your own words save by themselves; the facts found on the web ride along in the same note.
+  asPanel();
   const box = $('[name=about]', el.dlg), saved = $('#aboutState', el.dlg);
   let timer = 0;
   let lastOwn = box.value; // only what you changed in the box is saved, never an old copy over newer text
@@ -1593,6 +1609,7 @@ function openBrief(ev) {
       if (!job.signal.aborted && btn.isConnected) openBrief(ev);
     },
   });
+  asPanel();
   showPictures();
 }
 
@@ -1786,6 +1803,7 @@ function openEvent(ev, writeNotes) { // writeNotes: put the cursor in the notes 
   });
 
   // Notes save by themselves a moment after you stop typing, and when the box closes.
+  asPanel();
   const box = $('[name=note]', el.dlg), saved = $('#noteState', el.dlg);
   E.attach(box); // headings, bullets and tick-boxes; the box itself still holds the plain text
   let timer = 0, beforeTidy = null;
@@ -3255,6 +3273,7 @@ function openToday() {
       if (!job.signal.aborted && btn.isConnected) openToday();
     },
   }, 'wide');
+  asPanel();
   firstTip('today');
   showPictures();
 }
@@ -3326,6 +3345,7 @@ function openCompany(domain, back) {
   });
   showPictures();
   // meetings with the people you know there, newest first (the first few people are enough to find them)
+  asPanel();
   const meetBox = $('#firmMeets', el.dlg);
   Promise.all(emails.slice(0, 6).map(e => meetingsWith(e).catch(() => []))).then(lists => {
     const box = meetBox;
@@ -3384,6 +3404,7 @@ function openPeople(tab = peopleTab) {
   }
   find.addEventListener('input', paint);
   paint();
+  asPanel();
   firstTip('people');
   if (innerWidth >= 760) find.focus();
 }
@@ -4211,6 +4232,7 @@ async function openRecording(id, back) {
       } finally { if (aiJob === job) aiJob = null; }
     },
   }, rec.kind === 'audio' ? '' : 'wide');
+  asPanel();
   const title = $('.rtitle', el.dlg), media = $('.rplay', el.dlg);
   const keep = { from: 0, to: rec.secs || 0 }; // the stretch a trimmed copy would keep
   const showKeep = () => { const span = $('#trimSpan', el.dlg); if (span) span.textContent = `${clock(Math.floor(keep.from))} – ${clock(Math.ceil(keep.to))} (${clock(Math.max(1, Math.round(keep.to - keep.from)))})`; };
@@ -4374,6 +4396,7 @@ async function openRecordings(ev) {
     shot: () => takeShot(ev),
     askall: () => openAskAll(),
   }, 'wide');
+  asPanel();
   el.dlg.addEventListener('close', dropRecUrls, { once: true });
   // videos that have no small picture yet (cut off, or made by an older version) get one now, one at a time
   for (const r of list.filter(x => x.kind === 'video' && !x.thumb)) {

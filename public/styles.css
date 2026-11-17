@@ -1006,3 +1006,59 @@ body.innotes #prev, body.innotes #next, body.innotes #todayBtn, body.innotes #zo
   .ndoc { padding: 14px 16px 10px; }
   .ntitle { font-size: 21px; }
 }
+
+/* ================= the look, second pass =================
+   One idea runs through it: a thing you look at in full (a meeting, a person, a task, a recording)
+   opens as a panel down the right-hand side, with the calendar still in view. Short questions stay
+   small boxes in the middle. The side panel on the left is one calm surface, not a stack of cards. */
+
+/* ---- the panel on the right */
+.pclose { display: none; }
+@media (min-width: 761px) {
+  dialog.panel { margin: 0 0 0 auto; height: 100dvh; max-height: 100dvh; width: min(500px, calc(100vw - 60px)); border: 0; border-left: 1px solid var(--line); border-radius: 0; box-shadow: -24px 0 60px rgba(15, 20, 40, .16); }
+  dialog.panel.wide { width: min(640px, calc(100vw - 60px)); }
+  dialog.panel::backdrop { background: rgba(15, 20, 40, .14); }
+  dialog.panel[open] { animation: slidein .24s var(--ease); }
+  dialog.panel.closing { animation: slideout .16s ease-in forwards; }
+  dialog.panel > .dbody { display: flex; flex-direction: column; min-height: 100%; padding: 26px 26px 0; gap: 13px; animation: none; }
+  dialog.panel > .dbody > * { flex: none; }
+  dialog.panel > .dbody > :first-child { padding-right: 40px; } /* room for the close button */
+  dialog.panel > .dbody > h3 { font-size: 21px; letter-spacing: -.015em; line-height: 1.25; }
+  dialog.panel .actions { margin-top: auto; position: sticky; bottom: 0; background: var(--panel); padding: 12px 0 16px; border-top: 1px solid var(--line2); z-index: 2; }
+  dialog.panel .ed { max-height: none; min-height: 230px; }
+  dialog.panel .rkinds, dialog.panel .rkind { align-self: flex-start; }
+  .pclose { display: grid; place-items: center; position: absolute; top: 18px; right: 18px; z-index: 3; width: 30px; height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-size: 15px; }
+  .pclose:hover { background: var(--line2); color: var(--text); }
+}
+@keyframes slidein { from { transform: translateX(36px); opacity: 0; } }
+@keyframes slideout { to { transform: translateX(28px); opacity: 0; } }
+
+/* ---- the two places: Calendar and Notes */
+#mainNav { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 0 12px 10px; }
+#mainNav button { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 7px 8px; border: 0; border-radius: 9px; background: transparent; color: var(--muted); font-weight: 600; font-size: 13.5px; transition: background .15s, color .15s; }
+#mainNav button svg { width: 16px; height: 16px; flex: none; }
+#mainNav button:hover { background: var(--shade); color: var(--text); }
+#mainNav button.on { background: var(--panel); color: var(--text); box-shadow: var(--lift), 0 0 0 1px var(--line); }
+#mainNav button.on svg { color: var(--accent); }
+body.innotes #viewSeg, body.innotes #newEvent { display: none; }
+
+/* ---- the left side as one calm surface: no boxes inside boxes */
+.card { background: transparent; border: 0; box-shadow: none; padding: 2px 4px 0; }
+.card .ch b { font-size: 13.5px; }
+.prog { height: 4px; margin: 8px 0 6px; }
+.card .btn { margin-top: 9px; height: 34px; }
+.tools { gap: 4px; margin: 12px 0 4px; }
+.tools button { border: 0; box-shadow: none; background: color-mix(in srgb, var(--text) 4%, transparent); border-radius: 11px; }
+.tools button:hover { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.un { background: transparent; border: 0; padding: 7px 6px; border-radius: 9px; }
+.un:not(.none):hover { background: var(--shade); }
+.un.none { border: 0; padding: 4px 6px; }
+.item { background: transparent; border: 0; border-radius: 9px; padding: 7px 6px; margin-bottom: 1px; }
+.item:hover { background: var(--shade); box-shadow: none; transform: none; }
+.item .chk { border-color: var(--tc, var(--muted)); }
+.item .mini { opacity: 0; transition: opacity .12s; }
+.item:hover .mini, .item:focus-within .mini { opacity: 1; }
+@media (hover: none) { .item .mini { opacity: 1; } }
+.sec { margin-top: 18px; }
+.sideFoot { gap: 4px; }
+.sideFoot #connect { box-shadow: none; }

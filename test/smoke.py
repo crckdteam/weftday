@@ -95,6 +95,16 @@ def run(p):
     check('no sideways scrolling on a computer', page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'))
 
     # ---- every tool in the side panel opens its box
+    def shot_of(act, name):
+        page.locator(f'#side [data-act="{act}"]').first.click()
+        page.wait_for_timeout(700)
+        page.screenshot(path=os.path.join(OUT, name))
+        close_dialog(page)
+
+    shot_of('open-today', 'panel-today.png')
+    shot_of('people', 'panel-people.png')
+    check('details open as a panel down the right-hand side', page.evaluate("""(() => { document.querySelector('#side [data-act=people]').click(); const d = document.querySelector('#dlg'), r = d.getBoundingClientRect(); const ok = d.classList.contains('panel') && Math.abs(r.right - innerWidth) < 2 && r.height >= innerHeight - 2 && !!d.querySelector('.pclose'); return ok; })()"""))
+    close_dialog(page)
     for act in ['open-today', 'people', 'free', 'plan', 'record']:
         tile = page.locator(f'#side [data-act="{act}"]').first
         if tile.count() == 0:
@@ -442,7 +452,7 @@ def run(p):
     page.unroute('https://generativelanguage.googleapis.com/**')
 
     # ---- the Notes page: every saved note in a list, the one you pick opens beside it
-    page.locator('#viewSeg [data-view=notes]').click()
+    page.locator('#mainNav [data-nav=notes]').click()
     page.wait_for_selector('#notes .nrow', timeout=8000)
     page.wait_for_timeout(500)
     check('the Notes page lists the saved notes and opens the newest', page.locator('#notes .nrow', has_text='Client call').count() == 1
@@ -470,7 +480,7 @@ def run(p):
     page.locator('#ndocDel').click()
     page.wait_for_timeout(500)
     check('a note of your own can be deleted', page.locator('#notes .nrow', has_text='Ideas for the demo').count() == 0)
-    page.locator('#viewSeg [data-view=week]').click()
+    page.locator('#mainNav [data-nav=calendar]').click()
     page.wait_for_timeout(500)
     check('the calendar comes back from the Notes page', page.locator('#grid').is_visible() and not page.locator('#notes').is_visible())
 
@@ -575,12 +585,17 @@ def run(p):
     pp.screenshot(path=os.path.join(OUT, 'phone-meeting.png'))
     close_dialog(pp)
     pp.evaluate("JSON.parse(localStorage.getItem('planner.demo.v1')) && 0")
-    pp.locator('#viewSeg [data-view=notes]').click()
+    pp.locator('#menu').click()
+    pp.wait_for_timeout(400)
+    pp.locator('#mainNav [data-nav=notes]').click()
     pp.wait_for_timeout(700)
     check('the Notes page fits a phone', pp.evaluate('document.documentElement.scrollWidth <= innerWidth + 1') and pp.locator('#notes .nlist').is_visible())
     pp.screenshot(path=os.path.join(OUT, 'phone-notes.png'))
-    pp.locator('#viewSeg [data-view=day]').click()
+    pp.locator('#menu').click()
     pp.wait_for_timeout(400)
+    pp.screenshot(path=os.path.join(OUT, 'phone-menu.png'))
+    pp.locator('#mainNav [data-nav=calendar]').click()
+    pp.wait_for_timeout(500)
     pp.evaluate("document.querySelector('[data-act=record]').click()")
     pp.wait_for_timeout(600)
     check('the Record box fits a phone', dialog_open(pp) and pp.evaluate('document.documentElement.scrollWidth <= innerWidth + 1')
