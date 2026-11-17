@@ -25,11 +25,12 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const el = {
   side: $('#sideBody'), head: $('#gridHead'), body: $('#gridBody'), grid: $('#grid'),
-  month: $('#month'), list: $('#list'), notes: $('#notes'), hint: $('#quickHint'),
+  month: $('#month'), list: $('#list'), notes: $('#notes'), home: $('#home'), hint: $('#quickHint'),
   title: $('#title'), status: $('#status'), dlg: $('#dlg'), toast: $('#toast'),
 };
 
-let view = VIEWS.includes(state.settings.view) ? state.settings.view : (innerWidth < 760 ? 'day' : 'week');
+const calendarView = () => (VIEWS.includes(state.settings.view) ? state.settings.view : (innerWidth < 760 ? 'day' : 'week')); // the calendar view last used
+let view = 'home'; // the app opens on Home: what is next, today, your tasks and your latest notes
 let cursor = startOfDay(new Date());
 let miniMonth = null;   // month shown in the small sidebar calendar; null = follow the main view
 let renderedDay = '';
@@ -397,7 +398,9 @@ function render() {
 function renderBar() {
   const dates = visibleDates();
   document.body.classList.toggle('innotes', view === 'notes');
+  document.body.classList.toggle('inhome', view === 'home');
   if (view === 'notes') el.title.textContent = 'Notes';
+  else if (view === 'home') el.title.textContent = dayLabel(new Date(), true);
   else if (view === 'day') el.title.textContent = dayLabel(cursor, true);
   else if (view === 'month') el.title.textContent = cursor.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
   else {
@@ -408,7 +411,7 @@ function renderBar() {
       : `${a.getDate()} ${month(a)} – ${b.getDate()} ${month(b)} ${b.getFullYear()}`;
   }
   for (const b of document.querySelectorAll('#viewSeg button')) b.classList.toggle('on', b.dataset.view === view);
-  for (const b of document.querySelectorAll('#mainNav button')) b.classList.toggle('on', (b.dataset.nav === 'notes') === (view === 'notes'));
+  for (const b of document.querySelectorAll('#mainNav button')) b.classList.toggle('on', b.dataset.nav === (view === 'notes' || view === 'home' ? view : 'calendar'));
   $('#demoTag').hidden = !DEMO;
   const z2 = state.settings.zone2 && state.settings.zone2 !== TZ ? state.settings.zone2 : '', zb = $('#zoneBtn');
   zb.classList.toggle('on', !!z2);
@@ -422,7 +425,8 @@ function renderView() {
   el.month.hidden = view !== 'month';
   el.list.hidden = view !== 'list';
   el.notes.hidden = view !== 'notes';
-  if (timeGrid) renderGrid(); else if (view === 'month') renderMonth(); else if (view === 'notes') renderNotes(); else renderList();
+  el.home.hidden = view !== 'home';
+  if (timeGrid) renderGrid(); else if (view === 'month') renderMonth(); else if (view === 'notes') renderNotes(); else if (view === 'home') renderHome(); else renderList();
 }
 
 function itemHtml(t, meta) {
@@ -645,10 +649,10 @@ function scrollToNow(gently) {
 }
 
 // ---------------------------------------------------------------- navigation
-function setView(v) { view = v; if (v !== 'notes') { state.settings.view = v; save(); } nav(); }
+function setView(v) { view = v; if (VIEWS.includes(v)) { state.settings.view = v; save(); } nav(); }
 function nav(dir = 'fade') { smooth(dir, render).then(() => refresh()); }
 function step(n) {
-  if (view === 'notes') return;
+  if (view === 'notes' || view === 'home') return;
   cursor = view === 'month' ? new Date(cursor.getFullYear(), cursor.getMonth() + n, 1) : addDays(cursor, n * (view === 'day' ? 1 : 7));
   miniMonth = null;
   nav(n > 0 ? 'next' : 'prev');
@@ -658,6 +662,7 @@ function goTo(d, v) {
   cursor = startOfDay(d);
   miniMonth = null;
   if (v && v !== view) return setView(v);
+  if (view === 'home' || view === 'notes') return setView(calendarView()); // a day was picked: show it on the calendar
   const after = range()[0].getTime();
   nav(after > before ? 'next' : after < before ? 'prev' : 'fade');
 }
@@ -686,7 +691,7 @@ function onClick(e) {
   if (act) return doAct(act);
   const evEl = e.target.closest('[data-key]');
   if (evEl) { const ev = events.get(evEl.dataset.key); if (ev) openEvent(ev); return; }
-  const taskEl = e.target.closest('.blk.task, .item, .chip.task, .lrow.task, .un.task');
+  const taskEl = e.target.closest('.blk.task, .item, .chip.task, .lrow.task, .un.task, .hrow.task');
   if (taskEl) { const t = getTask(taskEl.dataset.id); if (t) openTask(t); return; }
   const col = e.target.closest('.col');
   if (col) {
@@ -710,6 +715,16 @@ function doAct(btn) {
   if (act === 'undo') return undo();
   if (act === 'reload') return location.reload();
   if (act === 'plan') return openPlan();
+  if (act.startsWith('home-')) { // the buttons on the Home screen
+    const ev = events.get(btn.dataset.ev);
+    if (act === 'home-record' && ev) return quickRecord(ev);
+    if (act === 'home-brief' && ev) return openBrief(ev);
+    if (act === 'home-notes') return setView('notes');
+    if (act === 'home-note') { noteOpen = btn.dataset.note; return setView('notes'); }
+    if (act === 'home-calendar') return setView(calendarView());
+    if (act === 'home-connect') return $('#connect').click();
+    return;
+  }
   if (act === 'open-today') return openToday(); // not 'today': that one is "do this task today" on a task
   if (act === 'people') return openPeople();
   if (act === 'free') return openFreeTimes();
@@ -932,7 +947,7 @@ function bind() {
     const b = e.target.closest('[data-nav]');
     if (!b) return;
     document.body.classList.remove('side-open');
-    setView(b.dataset.nav === 'notes' ? 'notes' : VIEWS.includes(state.settings.view) ? state.settings.view : (innerWidth < 760 ? 'day' : 'week'));
+    setView(b.dataset.nav === 'calendar' ? calendarView() : b.dataset.nav);
   };
   $('#newEvent').onclick = () => openEventForm(null);
   $('#searchBtn').onclick = e => { e.stopPropagation(); openPalette(); };
@@ -3005,7 +3020,7 @@ function morningBrief(now, today) {
 function tick() {
   if (isStale()) return; // another open copy of Weftday has taken over; this one reloads when you return to it
   const now = new Date(), today = ymd(now), nowM = nowMinutes();
-  if (today !== renderedDay) { topUpSeries(); save(); render(); scheduleFlush(); } else { updateNowLine(); renderUpNext(); }
+  if (today !== renderedDay) { topUpSeries(); save(); render(); scheduleFlush(); } else { updateNowLine(); renderUpNext(); if (view === 'home') renderHome(); }
   const due = [];
   const when = (mins, at) => mins > 0 ? `Starts at ${at} (in ${mins} min)` : `Starting now · ${at}`;
   for (const t of state.tasks) {
@@ -4404,6 +4419,68 @@ async function openRecordings(ev) {
     if (!spot) return;
     if (thumb) spot.insertAdjacentHTML('afterbegin', `<img alt="" src="${recUrl(thumb)}">`);
   }
+}
+
+// ---------------------------------------------------------------- Home
+// The place the app opens on: what is next, today's schedule, today's tasks and your latest notes.
+// The calendar and the notes are each one press away.
+async function renderHome() {
+  const now = new Date(), today = startOfDay(now), ds = ymd(today), nowM = nowMinutes();
+  const day = dayItems(today), timed = day.timed.filter(i => i.kind === 'task' || i.ev.selfStatus !== 'declined').sort((a, b) => a.s - b.s);
+  const meets = timed.filter(i => i.kind === 'ev');
+  const running = meets.find(i => i.s <= nowM && i.e > nowM), up = running || meets.find(i => i.s > nowM);
+  const later = up ? null : [...events.values()].filter(ev => !ev.allDay && ev.selfStatus !== 'declined' && enabledEvent(ev) && ev.s > now.getTime()).sort((a, b) => a.s - b.s)[0] || null;
+  const hour = now.getHours(), hello = hour < 5 ? 'Good evening' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+  const name = (knownNames.get((plannerAccount() || state.accounts[0])?.email || '') || '').split(' ')[0];
+  const mine = state.tasks.filter(t => t.date === ds), open = mine.filter(t => !t.done);
+  const carried = state.tasks.filter(t => t.date && t.date < ds && !t.done).length, inbox = state.tasks.filter(t => !t.date && !t.done).length;
+  const left = meets.filter(i => i.e > nowM).length;
+  const sum = [meets.length ? `${left} of ${meets.length} meeting${meets.length === 1 ? '' : 's'} to go` : 'no meetings today', mine.length ? `${open.length} task${open.length === 1 ? '' : 's'} left` : ''].filter(Boolean).join(' · ');
+  const people = ev => outsiders(ev).filter(x => !x.who.self).slice(0, 5).map(x => `<span class="pchip still"><div class="avatar sm" style="--tc:${tagColor(x.who.email)}">${esc(initials(x.who.name))}</div><span>${esc(x.who.name)}</span></span>`).join('');
+  const buttons = ev => `<div class="btnrow">${ev.meet ? `<a class="btn primary" href="${esc(ev.meet)}" target="_blank" rel="noopener">Join video call</a>` : ''}
+      ${R.supported() ? `<button type="button" class="btn" data-act="home-record" data-ev="${esc(ev.key)}">Record</button>` : ''}
+      ${outsiders(ev).length ? `<button type="button" class="btn" data-act="home-brief" data-ev="${esc(ev.key)}">Brief me</button>` : ''}</div>`;
+  let hero;
+  if (up) {
+    const ev = up.ev, mins = up.s - nowM;
+    const chip = running ? `Now · until ${fmtTime(up.e)}` : mins < 60 ? `In ${mins} min` : `At ${fmtTime(up.s)}`;
+    hero = `<section class="hnext" style="--c:${evColor(ev)}"><span class="hchip${running ? ' now' : ''}">${chip}</span>
+      <button type="button" class="hopen" data-key="${esc(ev.key)}"><b>${esc(ev.title)}</b><i>${esc(fmtRange(up.s, up.e))}${ev.location && ev.location.length <= 60 && !/^https?:/i.test(ev.location) ? ` · ${esc(ev.location)}` : ''}</i></button>
+      ${people(ev) ? `<div class="pchips">${people(ev)}</div>` : ''}${buttons(ev)}</section>`;
+  } else if (later) {
+    const s = new Date(later.s), tomorrow = ymd(s) === ymd(addDays(today, 1));
+    hero = `<section class="hnext quiet"><span class="hchip">${meets.length ? 'Done for today' : 'A clear day'}</span>
+      <button type="button" class="hopen" data-key="${esc(later.key)}"><i>Your next meeting</i><b>${esc(later.title)}</b><i>${tomorrow ? 'Tomorrow' : esc(dayLabel(s, true))} · ${esc(fmtTime(s.getHours() * 60 + s.getMinutes()))}</i></button></section>`;
+  } else {
+    hero = `<section class="hnext quiet"><span class="hchip">${state.accounts.length || DEMO ? 'A clear stretch' : 'Welcome'}</span>
+      <div class="hopen"><b>${state.accounts.length || DEMO ? 'No meetings in the next two weeks' : 'See your whole day here'}</b><i>${state.accounts.length || DEMO ? 'A good time for the tasks that need room.' : 'Connect your Google account and your meetings, with who is in them, show up on this page.'}</i></div>
+      ${state.accounts.length || DEMO ? '' : '<div class="btnrow"><button type="button" class="btn primary" data-act="home-connect">Connect Google account</button></div>'}</section>`;
+  }
+  const row = i => {
+    const past = i.e <= nowM, live = i.s <= nowM && i.e > nowM;
+    if (i.kind === 'task') return `<div class="hrow task${i.t.done ? ' done' : ''}${past ? ' past' : ''}" data-id="${esc(i.t.id)}"><span class="ht">${fmtTime(i.s)}</span><button class="chk" data-act="toggle" aria-label="Mark done"></button><span class="hb"><b>${esc(i.t.title)}</b><em>${fmtDur(i.e - i.s)}${i.t.tag ? ` · #${esc(i.t.tag)}` : ''}</em></span></div>`;
+    const who = outsiders(i.ev).filter(x => !x.who.self).map(x => x.who.name.split(' ')[0]);
+    return `<div class="hrow${past ? ' past' : ''}${live ? ' live' : ''}" data-key="${esc(i.ev.key)}"><span class="ht">${fmtTime(i.s)}</span><i class="hbar" style="background:${evColor(i.ev)}"></i><span class="hb"><b>${esc(i.ev.title)}</b><em>${esc(fmtRange(i.s, i.e))}${who.length ? ` · with ${esc(who.slice(0, 3).join(', '))}${who.length > 3 ? ` +${who.length - 3}` : ''}` : ''}</em></span></div>`;
+  };
+  const untimed = mine.filter(t => t.start == null);
+  el.home.innerHTML = `<div class="hwrap">
+    <header class="hhello"><h2>${hello}${name ? `, ${esc(name)}` : ''}</h2><p>${esc(sum.charAt(0).toUpperCase() + sum.slice(1))}</p></header>
+    <div class="hmain">${hero}
+      <section class="hsec"><h4><span>Today</span><button type="button" class="linkbtn" data-act="home-calendar">Open the calendar</button></h4>
+        ${timed.length ? timed.map(row).join('') : '<p class="hnone">Nothing is scheduled today.</p>'}</section>
+    </div>
+    <aside class="hside">
+      <section class="hsec"><h4><span>Tasks today</span><span>${mine.length ? `${mine.length - open.length} of ${mine.length} done` : ''}</span></h4>
+        ${untimed.length || mine.length ? (untimed.length ? untimed : mine).slice(0, 8).map(t => `<div class="hrow task slim${t.done ? ' done' : ''}" data-id="${esc(t.id)}"><button class="chk" data-act="toggle" aria-label="Mark done"></button><span class="hb"><b>${esc(t.title)}</b></span></div>`).join('') : '<p class="hnone">No tasks planned for today.</p>'}
+        <p class="hfoot">${[carried ? `${carried} carried over` : '', inbox ? `${inbox} waiting in your inbox` : ''].filter(Boolean).join(' · ') || 'Nothing carried over.'}</p>
+        <button type="button" class="btn" data-act="plan">Plan my day</button></section>
+      <section class="hsec" id="homeNotes"><h4><span>Latest notes</span><button type="button" class="linkbtn" data-act="home-notes">All notes</button></h4><div class="hnotes"></div></section>
+    </aside></div>`;
+  const docs = (await noteDocs().catch(() => [])).filter(d => d.text).slice(0, 4), spot = $('#homeNotes .hnotes', el.home);
+  if (!spot || view !== 'home') return; // drawn again meanwhile, or left: the newer drawing fills itself in
+  spot.innerHTML = docs.length
+    ? docs.map(d => `<button type="button" class="hnote" data-act="home-note" data-note="${esc(d.id)}"><b>${esc(d.title)}</b><em>${esc(dayLabel(new Date(d.when)))}${d.recorded ? ' · recorded' : ''}</em><span>${esc(noteGist(d.text))}</span></button>`).join('')
+    : '<p class="hnone">Notes you write on a meeting, and notes written for you from a recording, show up here.</p>';
 }
 
 // ---------------------------------------------------------------- the Notes page

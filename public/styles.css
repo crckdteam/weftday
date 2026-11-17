@@ -972,7 +972,7 @@ h3 img.logo { width: 22px; height: 22px; vertical-align: -4px; margin-right: 9px
 .ed .b.todo[data-done] { color: var(--muted); text-decoration: line-through; }
 
 /* ---- the Notes page */
-body.innotes #prev, body.innotes #next, body.innotes #todayBtn, body.innotes #zoneBtn { visibility: hidden; }
+body.innotes #prev, body.innotes #next, body.innotes #todayBtn, body.innotes #zoneBtn { display: none; }
 #notes { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); background: var(--panel); }
 .nlist { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); background: var(--bg); }
 .nhead { display: flex; gap: 8px; padding: 12px; }
@@ -1034,8 +1034,8 @@ body.innotes #prev, body.innotes #next, body.innotes #todayBtn, body.innotes #zo
 @keyframes slideout { to { transform: translateX(28px); opacity: 0; } }
 
 /* ---- the two places: Calendar and Notes */
-#mainNav { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 0 12px 10px; }
-#mainNav button { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 7px 8px; border: 0; border-radius: 9px; background: transparent; color: var(--muted); font-weight: 600; font-size: 13.5px; transition: background .15s, color .15s; }
+#mainNav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; padding: 0 12px 10px; }
+#mainNav button { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 4px; min-width: 0; border: 0; border-radius: 9px; background: transparent; color: var(--muted); font-weight: 600; font-size: 13.5px; transition: background .15s, color .15s; }
 #mainNav button svg { width: 16px; height: 16px; flex: none; }
 #mainNav button:hover { background: var(--shade); color: var(--text); }
 #mainNav button.on { background: var(--panel); color: var(--text); box-shadow: var(--lift), 0 0 0 1px var(--line); }
@@ -1062,3 +1062,54 @@ body.innotes #viewSeg, body.innotes #newEvent { display: none; }
 .sec { margin-top: 18px; }
 .sideFoot { gap: 4px; }
 .sideFoot #connect { box-shadow: none; }
+
+/* ---- Home: the place the app opens on */
+body.inhome #prev, body.inhome #next, body.inhome #todayBtn, body.inhome #zoneBtn { display: none; }
+body.inhome #title, body.innotes #title { margin-left: 4px; }
+body.inhome #viewSeg { display: none; }
+#home { flex: 1; min-height: 0; overflow-y: auto; background: var(--panel); }
+.hwrap { max-width: 1060px; margin: 0 auto; padding: 38px clamp(18px, 4vw, 52px) 70px; display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(250px, 1fr); gap: 30px 52px; align-items: start; }
+.hhello { grid-column: 1 / -1; }
+.hhello h2 { margin: 0; font-size: 31px; font-weight: 680; letter-spacing: -.028em; line-height: 1.15; }
+.hhello p { margin: 6px 0 0; color: var(--muted); font-size: 15px; }
+.hmain, .hside { display: grid; gap: 34px; min-width: 0; }
+.hnext { display: grid; gap: 12px; padding: 22px 24px; border-radius: 18px; background: color-mix(in srgb, var(--c, var(--accent)) 7%, var(--panel)); border: 1px solid color-mix(in srgb, var(--c, var(--accent)) 24%, var(--line)); }
+.hnext.quiet { background: var(--bg); border-color: var(--line); }
+.hchip { justify-self: start; font-size: 12px; font-weight: 650; padding: 3px 10px; border-radius: 99px; background: color-mix(in srgb, var(--c, var(--accent)) 16%, transparent); color: color-mix(in srgb, var(--c, var(--accent)) 72%, var(--text)); }
+.hchip.now { background: var(--now); color: #fff; }
+.hnext.quiet .hchip { background: color-mix(in srgb, var(--muted) 16%, transparent); color: var(--muted); }
+.hopen { display: grid; gap: 3px; text-align: left; border: 0; background: transparent; padding: 0; color: var(--text); min-width: 0; }
+button.hopen { cursor: pointer; }
+.hopen b { font-size: 24px; font-weight: 660; letter-spacing: -.02em; line-height: 1.2; overflow-wrap: anywhere; }
+button.hopen:hover b { text-decoration: underline; text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
+.hopen i { font-style: normal; color: var(--muted); font-size: 14.5px; }
+.pchip.still { cursor: default; }
+.hsec h4 { display: flex; justify-content: space-between; align-items: baseline; margin: 0 0 8px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 650; }
+.hsec h4 span + span { letter-spacing: 0; text-transform: none; font-weight: 500; font-size: 12px; }
+.hsec h4 .linkbtn { text-transform: none; letter-spacing: 0; font-size: 12.5px; }
+.hrow { display: grid; grid-template-columns: 58px 3px minmax(0, 1fr); gap: 12px; align-items: center; padding: 9px 8px; border-radius: 10px; cursor: pointer; }
+.hrow.task { grid-template-columns: 58px 16px minmax(0, 1fr); gap: 12px 9px; }
+.hrow.task.slim { grid-template-columns: 16px minmax(0, 1fr); padding: 6px 8px; }
+.hrow:hover { background: var(--shade); }
+.hrow .ht { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+.hrow .hbar { align-self: stretch; border-radius: 3px; min-height: 30px; }
+.hrow .chk { margin: 0; }
+.hrow .hb { display: grid; min-width: 0; }
+.hrow .hb b { font-weight: 600; font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hrow .hb em { font-style: normal; font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hrow.past { opacity: .5; }
+.hrow.live { background: color-mix(in srgb, var(--now) 7%, transparent); }
+.hrow.done .hb b { text-decoration: line-through; color: var(--muted); }
+.hnone, .hfoot { color: var(--muted); font-size: 13.5px; margin: 0; padding: 4px 8px; }
+.hfoot { font-size: 12.5px; padding: 8px 8px 10px; }
+.hside .btn { width: 100%; height: 36px; }
+.hnote { display: grid; gap: 1px; width: 100%; text-align: left; border: 0; background: transparent; color: var(--text); padding: 9px 8px; border-radius: 10px; }
+.hnote:hover { background: var(--shade); }
+.hnote b { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hnote em { font-style: normal; font-size: 12px; color: var(--muted); }
+.hnote span { font-size: 12.5px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.4; }
+@media (max-width: 860px) {
+  .hwrap { grid-template-columns: 1fr; padding: 22px 16px 90px; gap: 26px; }
+  .hhello h2 { font-size: 25px; }
+  .hopen b { font-size: 21px; }
+}

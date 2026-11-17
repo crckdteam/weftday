@@ -91,6 +91,15 @@ def run(p):
 
     # ---- the main screen
     page = open_app(context)
+    # ---- Home: the place the app opens on
+    check('the app opens on Home, with a greeting and today', page.locator('#home .hhello h2').is_visible() and page.locator('#mainNav [data-nav=home].on').count() == 1
+          and page.locator('#home .hnext').count() == 1 and page.locator('#home .hsec').count() >= 3)
+    check('Home shows today’s tasks and can tick one', page.locator('#home .hrow.task').count() >= 1)
+    page.wait_for_timeout(400)
+    page.screenshot(path=os.path.join(OUT, 'home.png'))
+    page.locator('#home [data-act=home-calendar]').click()
+    page.wait_for_timeout(600)
+    check('the calendar is one press from Home', page.locator('#grid').is_visible() and page.locator('#mainNav [data-nav=calendar].on').count() == 1)
     check('app opens with the sample data', page.locator('#gridBody .ev, #gridBody [data-key]').count() > 0 or page.locator('#grid').is_visible())
     check('no sideways scrolling on a computer', page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'))
 
@@ -371,6 +380,8 @@ def run(p):
     page.wait_for_load_state('networkidle')
     page.wait_for_timeout(700)
     close_dialog(page)
+    page.locator('#mainNav [data-nav=calendar]').click()  # the app opens on Home; these checks use the calendar
+    page.wait_for_timeout(500)
     tasks_before = page.evaluate("JSON.parse(localStorage.getItem('planner.demo.v1')).tasks.length")
     page.locator('#gridBody [data-key]', has_text='Client call').first.click()
     page.wait_for_timeout(600)
@@ -450,6 +461,17 @@ def run(p):
     page.screenshot(path=os.path.join(OUT, 'ask-all.png'))
     close_dialog(page)
     page.unroute('https://generativelanguage.googleapis.com/**')
+
+    # ---- back on Home, the note just written is listed, and opens in Notes
+    page.locator('#mainNav [data-nav=home]').click()
+    page.wait_for_selector('#home .hnote', timeout=8000)
+    check('Home lists the latest notes', 'Client call' in page.locator('#home .hnote').first.inner_text())
+    page.screenshot(path=os.path.join(OUT, 'home-notes.png'))
+    page.locator('#home .hnote').first.click()
+    page.wait_for_selector('#notes .ndoc .ntitle', timeout=8000)
+    check('a note pressed on Home opens in Notes', page.locator('#notes .ndoc .ntitle').input_value() == 'Client call: Acme')
+    page.locator('#mainNav [data-nav=calendar]').click()
+    page.wait_for_timeout(500)
 
     # ---- the Notes page: every saved note in a list, the one you pick opens beside it
     page.locator('#mainNav [data-nav=notes]').click()
@@ -574,6 +596,12 @@ def run(p):
     phone = browser.new_context(viewport={'width': 375, 'height': 812}, is_mobile=True, has_touch=True)
     phone.add_init_script(SEEN + QUIET)
     pp = open_app(phone, 'phone')
+    check('Home fits a phone', pp.locator('#home .hhello h2').is_visible() and pp.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'))
+    pp.screenshot(path=os.path.join(OUT, 'phone-home.png'))
+    pp.locator('#menu').click()
+    pp.wait_for_timeout(400)
+    pp.locator('#mainNav [data-nav=calendar]').click()
+    pp.wait_for_timeout(600)
     check('no sideways scrolling on a phone', pp.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'))
     pp.screenshot(path=os.path.join(OUT, 'phone.png'))
     pp.evaluate("document.querySelector('#viewSeg [data-view=list]')?.click()")  # the list shows the whole week's meetings
