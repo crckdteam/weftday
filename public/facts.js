@@ -42,14 +42,15 @@ const about = (who, meeting, hint) => [
 ].filter(Boolean);
 
 // With a real web search (Google's or Claude's), one question covers everything.
+// who.skipFirm leaves the company out: its facts are already saved from a colleague's profile.
 export function searchQuestion(who, meeting, hint) {
   return ['Use web search to find out who this person is and about their company. I am about to meet them.',
-    ...about(who, meeting, hint), FORMAT, ...PERSON, ...(who.company ? COMPANY : []), CARE].join('\n');
+    ...about(who, meeting, hint), FORMAT, ...PERSON, ...(who.company && !who.skipFirm ? COMPANY : []), CARE].join('\n');
 }
 // Free way with a search key: the searches are done first, and the AI writes from what they returned.
 function resultsQuestion(who, meeting, hint, digest) {
   return ['Below are web search results about a person I am about to meet and their company. Using only these results, tell me who they are.',
-    ...about(who, meeting, hint), FORMAT, ...PERSON, ...(who.company ? COMPANY : []), SOURCES, CARE, '', 'Search results:', digest].join('\n');
+    ...about(who, meeting, hint), FORMAT, ...PERSON, ...(who.company && !who.skipFirm ? COMPANY : []), SOURCES, CARE, '', 'Search results:', digest].join('\n');
 }
 // Free way without a search key: the company's own pages.
 function websiteQuestion(who, meeting, wiki) {
@@ -175,7 +176,7 @@ export async function personFacts(who, meeting, keys, signal, trySearch = true, 
   if (keys.search) {
     const person = `${who.fullName ? `"${who.name}"` : who.name}${who.company ? ` ${who.company}` : ''}${hint ? ` ${hint}` : ''}`;
     const queries = [person, `${person} LinkedIn education career`];
-    if (who.company) queries.push(`${who.company} ${who.domain} funding rounds investors number of employees`, `${who.company} ${who.domain} customers clients leadership team`);
+    if (who.company && !who.skipFirm) queries.push(`${who.company} ${who.domain} funding rounds investors number of employees`, `${who.company} ${who.domain} customers clients leadership team`);
     const found = (await Promise.all(queries.map(q => webSearch(keys.searchKind, q, keys.search, signal)))).flat();
     const pages = [...new Map(found.map(r => [r.url, r])).values()].slice(0, 16);
     if (!pages.length) throw new Error('The search found nothing about this person. Try “Not them?” with a hint.');

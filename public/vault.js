@@ -56,12 +56,17 @@ async function findEntries() {
 
 // ---- merging this device's list with the shared one
 const byE = (a, b) => (a.e < b.e ? -1 : a.e > b.e ? 1 : 0);
+// Your AI and search keys travel with the account list: { t: when they last changed, v: the keys }.
+const KEY_FIELDS = ['aiProvider', 'aiKey', 'claudeKey', 'aiKeys', 'aiModels', 'searchProvider', 'searchKey', 'searchKeys'];
+const pickKeys = from => Object.fromEntries(KEY_FIELDS.filter(k => from[k] !== undefined).map(k => [k, from[k]]));
 const tidy = r => ({
   v: 1,
+  keys: r.keys && r.keys.t && r.keys.v ? { t: r.keys.t, v: pickKeys(r.keys.v) } : null,
   accounts: (r.accounts || []).filter(x => x && x.e && x.r).map(({ e, r: tok, t }) => ({ e, r: tok, t: t || 0 })).sort(byE),
   gone: (r.gone || []).filter(g => g && g.e).map(({ e, t }) => ({ e, t: t || 0 })).sort(byE),
 });
 const mine = () => tidy({
+  keys: state.settings.keysAt ? { t: state.settings.keysAt, v: pickKeys(state.settings) } : null,
   accounts: state.accounts.filter(a => a.refreshToken).map(a => ({ e: a.id, r: a.refreshToken, t: a.t })),
   gone: state.goneAccounts || [],
 });
@@ -74,6 +79,8 @@ function merge(remote) {
     if (g && g.e && now - g.t < KEEP_GONE) gone.set(g.e, Math.max(g.t, gone.get(g.e) || 0));
   }
   const theirs = new Map(remote.accounts.map(x => [x.e, x]));
+  // keys changed on another device more recently than here: take them
+  if (remote.keys && remote.keys.t > (state.settings.keysAt || 0)) Object.assign(state.settings, remote.keys.v, { keysAt: remote.keys.t, aiFreeSince: 0 });
 
   // removed on another device after it was last connected anywhere
   for (const a of [...state.accounts]) {

@@ -594,6 +594,49 @@ input.switch:focus-visible, .segr input:focus-visible + span { outline: 2px soli
   .srow select { max-width: 100%; }
 }
 
+/* ---------- today, people, companies */
+dialog.wide { width: min(640px, calc(100vw - 24px)); }
+.tools { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.tools button {
+  border: 1px solid var(--line); background: var(--panel); border-radius: 9px; padding: 7px 4px; font-weight: 550; font-size: 12.5px;
+  color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: border-color .15s, transform .15s;
+}
+.tools button:hover { border-color: var(--muted); }
+.tools button:active { transform: scale(.96); }
+.tcard { border: 1px solid var(--line); border-radius: 12px; background: var(--bg); padding: 12px 13px; display: grid; gap: 8px; }
+.tcard.now { border-color: color-mix(in srgb, var(--now) 55%, var(--line)); }
+.tcard.done { opacity: .6; }
+.thead { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tsoon { color: var(--accent); font-weight: 600; }
+.tdone { font-weight: 600; }
+.ttitle { border: 0; background: transparent; padding: 0; text-align: left; font-size: 15.5px; font-weight: 650; letter-spacing: -.01em; color: var(--text); overflow-wrap: anywhere; }
+.ttitle:hover { color: var(--accent); }
+.twho { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
+.tperson, .prow2 { border: 0; background: transparent; padding: 3px 4px; border-radius: 9px; display: flex; align-items: center; gap: 9px; text-align: left; color: var(--text); min-width: 0; }
+.tperson:hover, .prow2:hover { background: var(--shade); }
+.tperson .avatar.sm, .prow2 .avatar.sm { margin-top: 0; }
+.tperson span, .prow2 span { display: grid; min-width: 0; }
+.tperson b, .prow2 b { font-weight: 600; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tperson i, .prow2 i { font-style: normal; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 250px; }
+.tline { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 8px; font-size: 13px; line-height: 1.45; }
+.tline > i { font-style: normal; color: var(--muted); font-size: 11px; letter-spacing: .05em; text-transform: uppercase; padding-top: 2px; }
+.tline em, .todo2 em { font-style: normal; color: var(--muted); }
+.tfoot { display: flex; gap: 8px; }
+.tfill { border: 1px dashed var(--line); border-radius: 10px; padding: 8px 10px; }
+.plist3 { display: grid; gap: 1px; }
+.plist3.tall { max-height: min(52vh, 460px); overflow: auto; align-content: start; min-height: 120px; }
+.prow2 { width: 100%; padding: 6px 6px; }
+.clogo { width: 58px; height: 58px; border-radius: 14px; flex: none; display: grid; place-items: center; background: var(--bg); border: 1px solid var(--line); font-weight: 700; font-size: 20px; color: var(--muted); }
+.clogo img.logo { width: 34px; height: 34px; margin: 0; border-radius: 7px; }
+.clogo.sm { width: 32px; height: 32px; border-radius: 9px; font-size: 13px; }
+.clogo.sm img.logo { width: 20px; height: 20px; border-radius: 5px; }
+.ppl h3 { margin-right: auto; }
+.btn img.logo { width: 15px; height: 15px; vertical-align: -2px; margin-right: 6px; }
+@media (max-width: 760px) {
+  .tline { grid-template-columns: 1fr; gap: 1px; }
+  .tperson i, .prow2 i { max-width: 190px; }
+}
+
 /* ---------- meeting prep */
 .btnrow { display: flex; gap: 8px; flex-wrap: wrap; }
 .whos { display: grid; gap: 9px; font-size: 13.5px; }

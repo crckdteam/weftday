@@ -20,6 +20,7 @@ const base = () => ({
     aiModels: {},         // a model you chose yourself for a service; empty means the usual one
     searchProvider: 'tavily', // which search service the search key is for
     searchKeys: {},       // keys for search services other than Tavily, by service name
+    keysAt: 0,            // when the AI and search keys last changed here, so the newest set wins across devices
     aiAuto: false,        // get facts by itself for the people in today's meetings
   },
   accounts: [],     // connected Google accounts
@@ -39,6 +40,8 @@ function load() {
   try {
     const s = JSON.parse(localStorage.getItem(KEY) || 'null');
     if (s) { Object.assign(b, s); b.settings = { ...base().settings, ...(s.settings || {}) }; }
+    const st = b.settings; // keys added before they could travel between devices count as the oldest set
+    if (!st.keysAt && (st.aiKey || st.claudeKey || st.searchKey || Object.keys(st.aiKeys || {}).length || Object.keys(st.searchKeys || {}).length)) st.keysAt = 1;
   } catch { /* start fresh */ }
   return b;
 }

@@ -58,14 +58,15 @@ function enabledEvent(ev) {
   return !!c && c.enabled;
 }
 
-let toastTimer;
+let toastTimer, toastGo = null; // toastGo: what the button on the message does, if it has one
 function toast(msg, o = {}) {
   if (o === true) o = { err: true };
   (el.dlg.open && !el.dlg.classList.contains('closing') ? el.dlg : document.body).append(el.toast);
-  el.toast.innerHTML = `<span>${esc(msg)}</span>${o.undo ? '<button data-act="undo">Undo</button>' : ''}${o.reload ? '<button data-act="reload">Refresh</button>' : ''}`;
+  el.toast.innerHTML = `<span>${esc(msg)}</span>${o.undo ? '<button data-act="undo">Undo</button>' : ''}${o.reload ? '<button data-act="reload">Refresh</button>' : ''}${o.go ? `<button data-act="toast-go">${esc(o.go[0])}</button>` : ''}`;
+  toastGo = o.go ? o.go[1] : null;
   el.toast.className = 'show' + (o.err ? ' err' : '');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.toast.className = ''; }, o.reload ? 30000 : o.err || o.undo ? 6000 : 3200);
+  toastTimer = setTimeout(() => { el.toast.className = ''; }, o.reload ? 30000 : o.go ? 15000 : o.err || o.undo ? 6000 : 3200);
 }
 function setStatus(text, isErr) {
   document.body.classList.toggle('loading', /…$/.test(text));
@@ -421,7 +422,8 @@ function renderSide() {
   const carried = state.tasks.filter(t => t.date && t.date < today && !t.done).sort((a, b) => a.date.localeCompare(b.date));
   const inbox = state.tasks.filter(t => !t.date && !t.done).sort((a, b) => (b.priority === 'high') - (a.priority === 'high') || b.created - a.created);
   const tagOf = t => t.tag ? ` · #${esc(t.tag)}` : '';
-  let h = todayCardHtml() + `<div id="upnext">${upNextHtml()}</div>`;
+  let h = todayCardHtml() + `<div class="tools"><button data-act="today">Today</button><button data-act="people">People</button><button data-act="free">Free times</button></div>`
+    + `<div id="upnext">${upNextHtml()}</div>`;
   if (carried.length) {
     h += `<div class="sec"><h4><span>Carried over</span><span>${carried.length}</span></h4>${carried.map(t =>
       itemHtml(t, `from ${dayLabel(fromYmd(t.date))}${t.start != null ? ' · ' + fmtDur(t.duration) : ''}${tagOf(t)}`)).join('')}</div>`;
@@ -638,6 +640,10 @@ function doAct(btn) {
   if (act === 'undo') return undo();
   if (act === 'reload') return location.reload();
   if (act === 'plan') return openPlan();
+  if (act === 'today') return openToday();
+  if (act === 'people') return openPeople();
+  if (act === 'free') return openFreeTimes();
+  if (act === 'toast-go') { el.toast.className = ''; return toastGo?.(); }
   if (act === 'mini-prev' || act === 'mini-next') {
     const m = miniMonth || monthStart(cursor);
     miniMonth = new Date(m.getFullYear(), m.getMonth() + (act === 'mini-next' ? 1 : -1), 1);
@@ -871,7 +877,7 @@ function bind() {
   addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (view === 'month') renderMonth(); }, 150); });
   addEventListener('offline', () => setStatus('Offline. Changes are kept and sent later.', true));
   addEventListener('online', () => { setStatus(''); scheduleFlush(); refresh(); });
-  el.dlg.addEventListener('close', () => { saveOpenNote(); document.body.append(el.toast); });
+  el.dlg.addEventListener('close', () => { saveOpenNote(); returnTo = null; document.body.append(el.toast); });
   el.dlg.addEventListener('cancel', e => { if (!calm()) { e.preventDefault(); closeDialog(); } }); // Escape fades out too
 }
 
@@ -1022,7 +1028,7 @@ function openPalette() {
     <div id="palList"></div><div class="palfoot">↑ ↓ to move · Enter to open · Esc to close</div></div>`, {}, 'palette');
   const input = $('#palIn', el.dlg), list = $('#palList', el.dlg);
   const cmds = [
-    ['Go to today', goToday], ['Plan my day', openPlan], ['New task', newTaskHere], ['New event', () => openEventForm(null)],
+    ['Go to today', goToday], ['Today: prepare for my meetings', openToday], ['People and companies', () => openPeople()], ['Share my free times', openFreeTimes], ['Plan my day', openPlan], ['New task', newTaskHere], ['New event', () => openEventForm(null)],
     ['Day view', () => setView('day')], ['Week view', () => setView('week')], ['Month view', () => setView('month')], ['List view', () => setView('list')],
     ['Settings', () => openSettings()], ['Set up phone or another device', openDeviceSetup], ['Keyboard shortcuts', openHelp],
   ].map(([label, run]) => ({ kind: 'Go', label, sub: '', run }));
@@ -1317,18 +1323,14 @@ function openPerson(guest, from) {
     ? `https://www.linkedin.com/search/results/people/?keywords=${G.enc(p.name + at)}`
     : `https://www.google.com/search?q=${G.enc(`site:linkedin.com/in ${p.name}${at}`)}`);
   const notes = N.withPeople([p.email], null);
-  const open = [];
-  for (const n of notes) for (const text of AI.actionsIn(n.text)) {
-    const task = state.tasks.find(t => t.title.toLowerCase() === text.toLowerCase());
-    if (!task?.done && !open.includes(text)) open.push(text);
-  }
+  const open = openItems([p.email], null);
   const link = (label, url) => `<a class="btn" href="${esc(url)}" target="_blank" rel="noopener">${label}</a>`;
   dialog(`<div class="dbody">
     <div class="phead">${avatarHtml(p)}
       <div class="pmain"><h3>${esc(p.name)}</h3>
         ${f?.role ? `<div class="prole">${esc(f.role)}</div>` : ''}
         <div class="meta">${esc([f?.location, p.email].filter(Boolean).join(' · '))}</div></div></div>
-    ${canLook ? `<div class="btnrow">${linkedin ? link(f?.linkedin ? 'LinkedIn profile' : 'Find on LinkedIn', linkedin) : ''}${p.company ? link('Website', `https://${p.domain}`) : ''}${link('Ask AI', askAiUrl(p, from?.title))}</div>` : ''}
+    ${canLook ? `<div class="btnrow">${linkedin ? link(f?.linkedin ? 'LinkedIn profile' : 'Find on LinkedIn', linkedin) : ''}${p.company ? `<button type="button" class="btn" data-x="firm">${logoHtml(p.domain)}${esc(p.company)}</button>` : ''}${link('Ask AI', askAiUrl(p, from?.title))}</div>` : ''}
     <div class="facts" id="factsBox">${f ? factsHtml(f, day, p)
       : canLook ? `<div class="fempty"><b>No facts yet</b><span>Weftday can look ${esc(first)} up on the web and fill this in.</span><button type="button" class="btn primary" data-x="facts">Get facts</button></div>`
       : '<div class="fempty"><span>There is not enough to look this person up. A first name alone is too little.</span></div>'}</div>
@@ -1338,10 +1340,12 @@ function openPerson(guest, from) {
     <div class="airow"><span class="sp"></span><span class="saved" id="aboutState"></span></div>
     <h4>Your meetings</h4>
     <div class="plist2" id="metList"><div class="note">Checking your calendar…</div></div>
-    ${open.length ? `<h4>Still open</h4><div class="todo2">${open.slice(0, 12).map(x => `<div>• ${esc(x)}</div>`).join('')}</div>` : ''}
+    ${open.length ? `<h4>Still open with ${esc(first)}</h4><div class="todo2">${open.slice(0, 12).map(o => `<div>• ${openLine(o)}</div>`).join('')}</div>` : ''}
     ${notes.length ? `<h4>Your notes from meetings with them</h4><div class="past">${notes.slice(0, 8).map(n => `<div><b>${esc(n.title || 'Meeting')}</b>${n.when ? ` <i>· ${esc(dayLabel(new Date(n.when)))}</i>` : ''}<div class="desc">${esc(AI.gistOf(n.text, 400))}</div></div>`).join('')}</div>` : ''}
-    <div class="actions">${from ? '<button type="button" class="btn" data-x="back">Back to the meeting</button>' : ''}<span class="sp"></span><button type="button" class="btn primary" data-x="close">Close</button></div></div>`, {
+    <div class="actions">${from ? '<button type="button" class="btn" data-x="back">Back to the meeting</button>' : returnTo ? '<button type="button" class="btn" data-x="ret">Back</button>' : ''}<span class="sp"></span><button type="button" class="btn primary" data-x="close">Close</button></div></div>`, {
     back: () => openEvent(from),
+    ret: () => { commitAbout(true); const go = returnTo; returnTo = null; go(); },
+    firm: () => { commitAbout(true); const back = returnTo; openCompany(p.domain, () => { returnTo = back; openPerson(guest, from); }); },
     photo: () => { commitAbout(true); openPhotoPick(guest, from); },
     // "Not them?": shows a box for a hint, then looks again with it.
     notthem() {
@@ -1475,7 +1479,7 @@ function openBrief(ev) {
   showPictures();
 }
 
-function openEvent(ev) {
+function openEvent(ev, writeNotes) { // writeNotes: put the cursor in the notes box straight away
   const a = acct(ev.accountId), c = a?.calendars.find(c => c.id === ev.calendarId);
   const guests = (ev.att || []).filter(p => !p.resource), everyone = guests.map(person);
   const others = everyone.filter(p => !p.self); // your own reply is shown further down, under "Are you going?"
@@ -1519,6 +1523,7 @@ function openEvent(ev) {
       ${AI.supported() ? '<button type="button" class="mini" data-x="tidy">Tidy my notes</button>' : ''}
       <button type="button" class="mini" data-x="mktasks" hidden>Make tasks</button>
       <button type="button" class="mini" data-x="untidy" hidden>Undo tidy</button>
+      <button type="button" class="mini" data-x="followup" hidden>Follow-up email</button>
       ${AI.supported() ? '' : '<span class="note">Tidying notes with AI works in Chrome on your computer.</span>'}
       <span class="sp"></span><span class="saved" id="noteState"></span></div>
     ${earlier.length ? `<details><summary>All earlier notes with ${others.length === 1 ? esc(others[0].name) : 'these people'} (${earlier.length})</summary>
@@ -1538,6 +1543,21 @@ function openEvent(ev) {
     edit: () => openEventForm(ev),
     person: btn => openPerson(guests.find(g => (g.email || '').toLowerCase() === btn.dataset.email), ev),
     brief: () => openBrief(ev),
+    // Opens a draft in Gmail, written from your notes. Nothing is sent: you read it and press Send yourself.
+    followup() {
+      const text = $('[name=note]', el.dlg).value, to = outsiders(ev).map(x => x.who);
+      const summary = /^Summary\n/.test(text.trim()) ? AI.gistOf(text, 600) : '', agreed = AI.decisionsIn(text), next = AI.actionsIn(text);
+      const sameDay = startOfDay(new Date(ev.s)).getTime() === startOfDay(new Date()).getTime();
+      const lines = [`Hi ${to.slice(0, 3).map(w => w.name.split(' ')[0]).join(', ') || 'there'},`, '', `Thank you for your time ${sameDay ? 'today' : `on ${dayLabel(new Date(ev.s))}`}. A short recap of our conversation:`, ''];
+      if (summary) lines.push(summary, '');
+      if (agreed.length) lines.push('What we agreed:', ...agreed.map(x => `- ${x}`), '');
+      if (next.length) lines.push('Next steps:', ...next.map(x => `- ${x}`), '');
+      if (!summary && !agreed.length && !next.length) lines.push(AI.originalOf(text).trim().slice(0, 1200), '');
+      lines.push('Best regards,');
+      window.open(`https://mail.google.com/mail/?authuser=${G.enc(a?.email || '')}&view=cm&fs=1&to=${G.enc(to.map(w => w.email).join(','))}`
+        + `&su=${G.enc(`Follow-up: ${ev.title}`)}&body=${G.enc(lines.join('\n').slice(0, 1800))}`, '_blank', 'noopener');
+      toast('A draft opened in Gmail. Read it before you send.');
+    },
     // Looks the person up on the web, saves what it finds about them, then shows their page.
     async facts(btn) {
       const guest = guests.find(g => (g.email || '').toLowerCase() === btn.dataset.email), who = person(guest);
@@ -1640,6 +1660,7 @@ function openEvent(ev) {
     const n = AI.actionsIn(box.value).length, b = $('[data-x=mktasks]', el.dlg);
     b.hidden = !n;
     b.textContent = n === 1 ? 'Make 1 task' : `Make ${n} tasks`;
+    $('[data-x=followup]', el.dlg).hidden = !box.value.trim() || ev.s > Date.now() || !outsiders(ev).length;
   };
   showTaskButton();
   const commitNote = () => {
@@ -1652,6 +1673,7 @@ function openEvent(ev) {
   box.addEventListener('input', () => { saved.textContent = ''; showTaskButton(); clearTimeout(timer); timer = setTimeout(commitNote, 600); });
   box.addEventListener('change', commitNote);
   noteCommit = commitNote;
+  if (writeNotes) { box.scrollIntoView({ block: 'center' }); box.focus(); }
 
   // Fill in the history with each of the first few people.
   for (const p of shown) {
@@ -1738,6 +1760,11 @@ function normalize(e, a, c) {
   const self = (e.attendees || []).find(p => p.self);
   const calWritable = ['owner', 'writer'].includes(c.accessRole);
   const entry = (e.conferenceData?.entryPoints || []).find(p => p.entryPointType === 'video' && /^https:\/\//.test(p.uri || ''))?.uri;
+  // Meetings Google makes from an email carry two stock paragraphs, in the language of that Google
+  // account. They are left out, and the link to the email is offered as a button instead.
+  let text = (e.description || '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '');
+  const mail = text.match(/https:\/\/mail\.google\.com\/mail\?extsrc=cal[^\s"'<>]*/)?.[0] || '';
+  if (mail || e.eventType === 'fromGmail') text = text.split(/\n\s*\n/).filter(para => !/g\.co\/calendar|mail\.google\.com\/mail\?extsrc=cal/.test(para)).join('\n\n').trim();
   return {
     key: `${a.id}|${c.id}|${e.id}`, id: e.id, accountId: a.id, calendarId: c.id,
     title: e.summary || '(No title)',
@@ -1745,13 +1772,13 @@ function normalize(e, a, c) {
     e: allDay ? fromYmd(e.end.date).getTime() : Date.parse(e.end.dateTime),
     allDay, location: e.location || '', htmlLink: e.htmlLink || '',
     meet: e.hangoutLink || entry || `${e.location || ''} ${e.description || ''}`.match(VIDEO_RE)?.[0] || '',
-    description: (e.description || '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').slice(0, 2000),
+    description: text.slice(0, 2000),
     att: e.attendees || [], selfStatus: self?.responseStatus || null,
     organizerSelf: !!e.organizer?.self, calWritable,
     canEdit: calWritable && (!!e.organizer?.self || !(e.attendees || []).length),
     nk: N.keyFor(e),
     files: (e.attachments || []).filter(f => /^https:\/\//.test(f.fileUrl || '')).slice(0, 6).map(f => ({ label: f.title || 'Attached file', url: f.fileUrl })),
-    links: noteLinks(`${e.description || ''} ${e.location || ''}`),
+    links: [...(mail ? [{ label: 'Open the email', url: `${mail}&authuser=${G.enc(a.email)}` }] : []), ...noteLinks(`${e.description || ''} ${e.location || ''}`)],
   };
 }
 
@@ -1786,7 +1813,19 @@ async function getFacts(who, meeting, signal, hint = '') {
   const answer = await lookUp(who, meeting, signal, hint);
   return { ...answer, text: answer.text + await photoLines(await photos, savedFacts(who.email), hint) };
 }
-async function lookUp(who, meeting, signal, hint) {
+// What is already saved about the person's company (from a colleague's profile, in the last month) is
+// not searched for again: it is copied in, which saves half the searches.
+const firmLines = f => [f.company && `Company: ${f.company}`, f.teamSize && `Team size: ${f.teamSize}`,
+  f.funding.length && `Funding:\n${f.funding.map(x => `- ${x}`).join('\n')}`, f.people.length && `Key people:\n${f.people.map(x => `- ${x}`).join('\n')}`,
+  f.clients.length && `Clients: ${f.clients.join(', ')}`].filter(Boolean).join('\n');
+async function lookUp(person0, meeting, signal, hint) {
+  const firm = person0.company && !hasFacts(person0.email) ? companyFacts(person0.domain) : null;
+  const canSearch = !!searchKeyOf(searchKind()) || !!S.aiService(state.settings.aiProvider).ownSearch; // not the website-only way, which is all about the company
+  const known = canSearch && firm?.company && firm.when > Date.now() - 30 * 86400000 ? firm : null;
+  const answer = await lookUpWith(known ? { ...person0, skipFirm: true } : person0, meeting, signal, hint);
+  return known ? { ...answer, text: `${answer.text}\n${firmLines(known)}` } : answer;
+}
+async function lookUpWith(who, meeting, signal, hint) {
   const s = state.settings, svc = S.aiService(s.aiProvider);
   if (svc.kind === 'claude') { // Claude with its own web search
     const C = await import('./claude.js');
@@ -2310,6 +2349,7 @@ function openSettings(msg, pane) {
   const keyTag = (value, id) => tag(value ? 'Saved' : 'Not added', value ? 'ok' : '', id);
   const section = (name, title, lead, body) => `<section class="spane" data-pane="${name}"${name === first ? '' : ' hidden'}>
     <h3>${title}</h3>${lead ? `<p class="lead">${lead}</p>` : ''}${body}</section>`;
+  const keysNow = () => JSON.stringify([s.aiProvider, s.aiKey, s.claudeKey, s.aiKeys, s.aiModels, s.searchProvider, s.searchKey, s.searchKeys]);
   const factsState = () => {
     const svc = S.aiService(provider);
     if (!svc.noKey && !keys[provider]) return ['Needs a key', ''];
@@ -2360,7 +2400,7 @@ function openSettings(msg, pane) {
           <h4>Tasks and devices</h4>
           <div class="sgroup">
             ${row('Save my tasks in', 'Kept in a calendar called “Weftday” in that account', select('planner', [['', 'This device only'], ...state.accounts.map(a => [a.id, a.email])], s.plannerAccountId))}
-            ${toggle('share', s.shareAccounts, 'Same accounts on all my devices', 'Keeps your sign-ins, locked, inside the account above. A new device then needs no Google login. Keep that account safe.')}
+            ${toggle('share', s.shareAccounts, 'Same accounts on all my devices', 'Keeps your sign-ins and your AI keys, locked, inside the account above. A new device then needs no Google login and no keys. Keep that account safe.')}
             ${row('Phone, tablet or another computer', '', '<button type="button" class="btn" data-x="device">Set up a device</button>')}
           </div>
           <h4>Other calendars</h4>
@@ -2451,12 +2491,14 @@ function openSettings(msg, pane) {
       s.pictures = fd.get('pictures') === 'on';
       s.aiApp = fd.get('aiApp');
       keep();
+      const keysBefore = keysNow();
       if (s.aiKey !== keys.google) s.aiFreeSince = 0; // a new key may have Google's own search
       const { google, claude, ...otherKeys } = keys, { tavily, ...otherFinders } = findKeys;
       const filled = map => Object.fromEntries(Object.entries(map).filter(([, v]) => v));
       s.aiKey = google; s.claudeKey = claude; s.aiKeys = filled(otherKeys); s.aiModels = filled(models);
       s.searchKey = tavily; s.searchKeys = filled(otherFinders);
       s.aiProvider = provider; s.searchProvider = finder;
+      if (keysNow() !== keysBefore) s.keysAt = Date.now(); // the newest set of keys wins on your other devices
       s.aiAuto = fd.get('aiAuto') === 'on';
       const want = fd.get('planner'), share = fd.get('share') === 'on';
       save();
@@ -2562,10 +2604,28 @@ function openSettings(msg, pane) {
 }
 
 // ---------------------------------------------------------------- reminders
-function notify(title, body) {
-  toast(`${title} · ${body}`);
+// ev is the meeting the reminder is for, if it has guests from outside: its brief is one press away.
+function notify(title, body, ev) {
+  toast(`${title} · ${body}`, ev ? { go: ['Brief me', () => openBrief(ev)] } : {});
   if ('Notification' in window && Notification.permission === 'granted') {
-    try { new Notification(title, { body, icon: 'icon-192.png' }); } catch { /* not supported here */ }
+    try {
+      const note = new Notification(title, { body: ev ? `${body}. Press to see your brief.` : body, icon: 'icon-192.png' });
+      if (ev) note.onclick = () => { window.focus(); note.close(); openBrief(ev); };
+    } catch { /* not supported here */ }
+  }
+}
+// A little after a meeting with outside guests ends, asks once how it went, if you kept no notes.
+function askHowItWent(now, today) {
+  if (el.dlg.open || document.hidden || el.toast.className.includes('show')) return;
+  for (const ev of events.values()) {
+    const since = (now.getTime() - ev.e) / 60000;
+    if (ev.allDay || since < 1 || since > 45 || ev.selfStatus === 'declined' || !enabledEvent(ev)) continue;
+    const key = `${today}:n:${noteKey(ev)}`;
+    if (state.notified[key] || N.has(noteKey(ev)) || !outsiders(ev).length) continue;
+    state.notified[key] = 1;
+    save();
+    toast(`How did “${ev.title}” go?`, { go: ['Add notes', () => openEvent(ev, true)] });
+    return;
   }
 }
 
@@ -2583,7 +2643,7 @@ function morningBrief(now, today) {
   if ('Notification' in window && Notification.permission === 'granted') {
     try { new Notification('Your day', { body: `${meets} meeting${meets === 1 ? '' : 's'} and ${todo} task${todo === 1 ? '' : 's'} today`, icon: 'icon-192.png' }); } catch { /* not supported here */ }
   }
-  openPlan();
+  if (meets) openToday(); else openPlan();
 }
 
 function tick() {
@@ -2602,7 +2662,7 @@ function tick() {
     const mins = Math.round((ev.s - now.getTime()) / 60000);
     if (mins <= rem && mins >= 0) {
       const s = new Date(ev.s);
-      due.push({ key: `${today}:e:${ev.key}:${ev.s}`, title: ev.title, body: when(mins, fmtTime(s.getHours() * 60 + s.getMinutes())) });
+      due.push({ key: `${today}:e:${ev.key}:${ev.s}`, title: ev.title, body: when(mins, fmtTime(s.getHours() * 60 + s.getMinutes())), ev: outsiders(ev).length ? ev : null });
     }
   }
   let changed = false;
@@ -2610,10 +2670,303 @@ function tick() {
   for (const d of due) {
     if (state.notified[d.key]) continue;
     state.notified[d.key] = 1; changed = true;
-    notify(d.title, d.body);
+    notify(d.title, d.body, d.ev);
   }
   if (changed) save();
+  askHowItWent(now, today);
   morningBrief(now, today);
+}
+
+// ---------------------------------------------------------------- your day, people and companies
+// Screens that pull together what Weftday already knows, so you walk into a meeting prepared.
+const myDomains = () => new Set(state.accounts.map(a => a.email.split('@')[1]).filter(d => d && !FREE_MAIL.has(d)));
+// The people in a meeting who are not you and not from your own company.
+const outsiders = ev => (ev.att || []).filter(g => !g.resource).map(g => ({ guest: g, who: person(g) }))
+  .filter(x => !x.who.self && !myDomains().has(x.who.domain));
+// Things you noted as action points with these people that are not ticked off yet: [{ text, when }].
+function openItems(emails, exceptKey) {
+  const out = [];
+  for (const n of N.withPeople(emails, exceptKey)) for (const text of AI.actionsIn(n.text)) {
+    const task = state.tasks.find(t => t.title.toLowerCase() === text.toLowerCase());
+    if (!task?.done && !out.some(o => o.text === text)) out.push({ text, when: n.when || 0 });
+  }
+  return out;
+}
+const ago = when => {
+  const d = Math.round((Date.now() - when) / 86400000);
+  return !when || d < 0 ? '' : d === 0 ? 'today' : d === 1 ? 'yesterday' : d < 14 ? `${d} days ago` : d < 60 ? `${Math.round(d / 7)} weeks ago` : `${Math.round(d / 30)} months ago`;
+};
+const openLine = o => `${esc(o.text)}${ago(o.when) ? ` <em>· ${ago(o.when)}</em>` : ''}`;
+let returnTo = null; // where "Back" on a person's profile goes when it was not opened from a meeting
+
+// "Today": each of today's meetings with who is in it, what happened last time, what is still open
+// and something worth asking. It only uses what is already saved, so it opens at once.
+function openToday() {
+  returnTo = null;
+  const d = startOfDay(new Date()), nowT = Date.now(), nowM = nowMinutes();
+  const meets = dayItems(d).timed.filter(i => i.kind === 'ev' && i.ev.selfStatus !== 'declined').sort((a, b) => a.s - b.s);
+  const tasks = state.tasks.filter(t => t.date === ymd(d) && !t.done);
+  const missing = new Map();
+  const card = i => {
+    const ev = i.ev, out = outsiders(ev), shown = out.slice(0, 4), emails = out.map(x => x.who.email), key = noteKey(ev);
+    const facts = shown.map(x => savedFacts(x.who.email));
+    for (const x of out) if (!hasFacts(x.who.email) && (x.who.fullName || x.who.company) && ev.e > nowT) missing.set(x.who.email, { who: x.who, title: ev.title });
+    const last = emails.length ? N.withPeople(emails, key).find(n => (n.when || 0) < ev.s) : null;
+    const open = emails.length ? openItems(emails, key).slice(0, 2) : [];
+    const idea = facts.map(f => f?.ideas?.[0]).find(Boolean);
+    const when = ev.e <= nowT ? 'done' : ev.s <= nowT ? 'now' : '';
+    const k = `data-ev="${esc(ev.key)}"`; // not data-key: that one opens the meeting from anywhere on the page
+    return `<div class="tcard ${when}">
+      <div class="thead"><span class="ttime">${fmtRange(i.s, i.e)}</span>${when === 'now' ? '<span class="pill">Now</span>' : when === 'done' ? '<span class="tdone">Done</span>' : i.s - nowM <= 60 ? `<span class="tsoon">in ${i.s - nowM} min</span>` : ''}
+        <span class="sp"></span>${ev.meet && when !== 'done' ? `<a class="mini join" href="${esc(ev.meet)}" target="_blank" rel="noopener">Join</a>` : ''}</div>
+      <button type="button" class="ttitle" data-x="open" ${k}>${shown[0]?.who.company ? logoHtml(shown[0].who.domain) : ''}${esc(ev.title)}</button>
+      ${shown.length ? `<div class="twho">${shown.map((x, n) => `<button type="button" class="tperson" data-x="person" ${k} data-email="${esc(x.who.email)}">${avatarHtml(x.who, true)}
+        <span><b>${esc(x.who.name)}</b><i>${esc(facts[n]?.role || x.who.company || x.who.email)}</i></span></button>`).join('')}${out.length > 4 ? `<span class="note">and ${out.length - 4} more</span>` : ''}</div>`
+        : `<div class="note">${(ev.att || []).length > 1 ? 'With your own team' : 'Just you'}</div>`}
+      ${last ? `<div class="tline"><i>Last time</i><span>${esc(AI.gistOf(last.text, 170))}</span></div>` : ''}
+      ${open.map(o => `<div class="tline"><i>Still open</i><span>${openLine(o)}</span></div>`).join('')}
+      ${idea ? `<div class="tline"><i>Worth asking</i><span>${esc(idea)}</span></div>` : ''}
+      ${shown.length && when !== 'done' ? `<div class="tfoot"><button type="button" class="mini" data-x="brief" ${k}>Brief me</button></div>` : ''}</div>`;
+  };
+  const cards = meets.map(card).join('');
+  const left = meets.filter(i => i.ev.e > nowT).length;
+  dialog(`<div class="dbody today">
+    <h3>Today</h3>
+    <div class="meta">${esc(dayLabel(d))} · ${meets.length ? `${left} of ${meets.length} meeting${meets.length === 1 ? '' : 's'} to go` : 'no meetings'} · ${tasks.length} task${tasks.length === 1 ? '' : 's'} · ${fmtDur(freeMinutes(d))} free</div>
+    ${missing.size && factsKey() ? `<div class="rowline tfill"><span class="note">${missing.size === 1 ? 'One person has' : `${missing.size} people have`} no profile yet.</span><button type="button" class="btn" data-x="fill">Look them up</button></div>` : ''}
+    ${cards || '<div class="fempty"><b>No meetings today</b><span>A clear day. Plan your tasks instead.</span></div>'}
+    ${tasks.length ? `<h4>Tasks for today</h4><div class="todo2">${tasks.slice(0, 8).map(t => `<div>• ${esc(t.title)}${t.start != null ? ` <em>· ${fmtTime(t.start)}</em>` : ''}</div>`).join('')}${tasks.length > 8 ? `<div class="note">and ${tasks.length - 8} more</div>` : ''}</div>` : ''}
+    <div class="actions"><button type="button" class="btn" data-x="plan">Plan my day</button><span class="sp"></span><button type="button" class="btn primary" data-x="close">Close</button></div></div>`, {
+    open: x => openEvent(events.get(x.dataset.ev)),
+    brief: x => openBrief(events.get(x.dataset.ev)),
+    person(x) {
+      const ev = events.get(x.dataset.ev);
+      openPerson((ev.att || []).find(g => (g.email || '').toLowerCase() === x.dataset.email), ev);
+    },
+    plan: () => openPlan(),
+    // Looks up everyone in today's meetings who has no profile yet, then shows the day again.
+    async fill(btn) {
+      const job = aiJob = new AbortController(), list = [...missing.values()].slice(0, 8);
+      btn.disabled = true;
+      try {
+        for (let n = 0; n < list.length; n++) {
+          btn.textContent = `Looking up ${list[n].who.name.split(' ')[0]}… (${n + 1} of ${list.length})`;
+          keepFacts(list[n].who, await getFacts(list[n].who, list[n].title, job.signal));
+          if (job.signal.aborted) return;
+        }
+      } catch (err) {
+        if (err.name !== 'AbortError') toast(err.message, true);
+      } finally {
+        if (aiJob === job) aiJob = null;
+      }
+      if (!job.signal.aborted && btn.isConnected) openToday();
+    },
+  }, 'wide');
+  showPictures();
+}
+
+// Everyone Weftday has seen: in your calendars, in your notes and in saved profiles. email -> who.
+function allPeople() {
+  const out = new Map();
+  const add = (email, displayName) => {
+    email = (email || '').toLowerCase();
+    if (!email.includes('@') || out.has(email) || /calendar\.google\.com$|resource\./.test(email)) return;
+    const who = person({ email, displayName });
+    if (!who.self) out.set(email, who);
+  };
+  for (const key of Object.keys(state.notes || {})) if (key.startsWith('person:')) add(key.slice(7), state.notes[key].title);
+  for (const ev of events.values()) for (const g of ev.att || []) if (!g.resource) add(g.email, g.displayName);
+  for (const [email, name] of knownNames) add(email, name);
+  return out;
+}
+const peopleAt = domain => [...allPeople().values()].filter(w => w.domain === domain);
+// What is saved about a company: taken from the profile of whoever there has the most about it.
+function companyFacts(domain) {
+  let best = null, bestScore = 0, bestWhen = 0;
+  for (const [key, n] of Object.entries(state.notes || {})) {
+    if (!key.startsWith('person:') || person({ email: key.slice(7) }).domain !== domain) continue;
+    const raw = F.split(n.text || '').raw;
+    if (!raw) continue;
+    const f = F.parse(raw);
+    const score = (f.company ? 2 : 0) + (f.teamSize ? 1 : 0) + f.funding.length + f.people.length + f.clients.length;
+    if (score > bestScore || (score === bestScore && score && (n.when || 0) > bestWhen)) { best = f; bestScore = score; bestWhen = n.when || 0; }
+  }
+  return best && bestScore ? { ...best, when: bestWhen } : null;
+}
+const firmHtml = f => {
+  const part = (label, items) => (items.length ? `<div class="fsec${items.length > 1 ? ' multi' : ''}"><h5>${label}</h5>${items.map(x => `<p>${esc(x)}</p>`).join('')}</div>` : '');
+  return part('What they do', f.company ? [f.company] : []) + part('Team size', f.teamSize ? [f.teamSize] : []) + part('Funding', f.funding) + part('Key people', f.people)
+    + (f.clients.length ? `<div class="fsec"><h5>Clients</h5><div class="tags">${f.clients.map(x => `<span>${esc(x)}</span>`).join('')}</div></div>` : '');
+};
+const personRow = (who, sub) => `<button type="button" class="prow2" data-x="person" data-email="${esc(who.email)}">
+  ${hasFacts(who.email) ? avatarHtml(who, true) : `<div class="avatar sm" style="--tc:${tagColor(who.email)}">${esc(initials(who.name))}</div>`}
+  <span><b>${esc(who.name)}</b><i>${esc(sub)}</i></span></button>`;
+const roleOf = who => savedFacts(who.email)?.role || '';
+
+// One company: what it does, who you know there, what is open with them and your meetings.
+function openCompany(domain, back) {
+  const people = peopleAt(domain), name = people[0]?.company || cap(domain.split('.')[0]);
+  const emails = people.map(w => w.email), f = companyFacts(domain);
+  const open = openItems(emails, null), notes = N.withPeople(emails, null);
+  people.sort((a, b) => hasFacts(b.email) - hasFacts(a.email) || a.name.localeCompare(b.name));
+  dialog(`<div class="dbody">
+    <div class="phead"><div class="clogo">${logoHtml(domain) || esc(name[0])}</div>
+      <div class="pmain"><h3>${esc(name)}</h3><div class="meta">${esc(domain)} · ${people.length} ${people.length === 1 ? 'person' : 'people'} you know</div></div></div>
+    <div class="btnrow"><a class="btn" href="https://${esc(domain)}" target="_blank" rel="noopener">Website</a>
+      <a class="btn" href="https://www.linkedin.com/search/results/companies/?keywords=${G.enc(name)}" target="_blank" rel="noopener">Find on LinkedIn</a></div>
+    <div class="facts">${f ? `<div class="fgroup">${firmHtml(f)}</div><div class="ffoot"><span>From the web${f.when ? ` · ${esc(ago(f.when))}` : ''}. Check before relying on it.</span></div>`
+      : '<div class="fempty"><b>No facts yet</b><span>Open someone below and press Get facts. What it finds about the company shows here.</span></div>'}</div>
+    <h4>People you know there</h4>
+    <div class="plist3">${people.slice(0, 30).map(w => personRow(w, roleOf(w) || w.email)).join('')}</div>
+    ${open.length ? `<h4>Still open with them</h4><div class="todo2">${open.slice(0, 10).map(o => `<div>• ${openLine(o)}</div>`).join('')}</div>` : ''}
+    <h4>Your meetings</h4>
+    <div class="plist2" id="firmMeets"><div class="note">Checking your calendar…</div></div>
+    ${notes.length ? `<h4>Your notes from meetings with them</h4><div class="past">${notes.slice(0, 6).map(n => `<div><b>${esc(n.title || 'Meeting')}</b>${n.when ? ` <i>· ${esc(dayLabel(new Date(n.when)))}</i>` : ''}<div class="desc">${esc(AI.gistOf(n.text, 300))}</div></div>`).join('')}</div>` : ''}
+    <div class="actions">${back ? '<button type="button" class="btn" data-x="back">Back</button>' : ''}<span class="sp"></span><button type="button" class="btn primary" data-x="close">Close</button></div></div>`, {
+    back: () => back(),
+    person(x) {
+      const w = people.find(p => p.email === x.dataset.email);
+      returnTo = () => openCompany(domain, back);
+      openPerson({ email: w.email, displayName: w.name }, null);
+    },
+  });
+  showPictures();
+  // meetings with the people you know there, newest first (the first few people are enough to find them)
+  Promise.all(emails.slice(0, 6).map(e => meetingsWith(e).catch(() => []))).then(lists => {
+    const box = $('#firmMeets', el.dlg);
+    if (!box) return;
+    const all = [...new Map(lists.flat().map(m => [m.nk, m])).values()].sort((a, b) => b.s - a.s);
+    const now = Date.now(), next = all.filter(m => m.s >= now).reverse(), past = all.filter(m => m.s < now);
+    const row = m => `<div><i>${esc(dayLabel(new Date(m.s)))}</i> ${esc(m.title || '')}${N.has(m.nk) ? ' ✎' : ''}</div>`;
+    box.innerHTML = !all.length ? '<div class="note">No meetings with them in the past year.</div>'
+      : `<div class="note">${past.length ? `Met ${past.length === 1 ? 'once' : `${past.length} times`} in the past year` : 'Not met yet'}${next.length ? ` · ${next.length} coming up` : ''}</div>
+         ${next.slice(0, 3).map(row).join('')}${past.slice(0, 8).map(row).join('')}`;
+  });
+}
+
+// "People": everyone you meet, and the companies they are from, with a search box.
+let peopleTab = 'people';
+function openPeople(tab = peopleTab) {
+  peopleTab = tab;
+  returnTo = null;
+  const mine = myDomains();
+  const everyone = [...allPeople().values()];
+  const outside = everyone.filter(w => !mine.has(w.domain));
+  const firms = new Map();
+  for (const w of outside) if (w.company) firms.set(w.domain, [...(firms.get(w.domain) || []), w]);
+  dialog(`<div class="dbody ppl">
+    <div class="rowline"><h3>People</h3><div class="seg"><button type="button" data-x="tab" data-tab="people" class="${tab === 'people' ? 'on' : ''}">People</button><button type="button" data-x="tab" data-tab="firms" class="${tab === 'firms' ? 'on' : ''}">Companies</button></div></div>
+    <input id="pplFind" placeholder="${tab === 'people' ? 'Search by name, company or email' : 'Search companies'}" autocomplete="off" spellcheck="false">
+    <div class="plist3 tall" id="pplList"></div>
+    <div class="actions"><span class="note" id="pplCount"></span><span class="sp"></span><button type="button" class="btn primary" data-x="close">Close</button></div></div>`, {
+    tab: x => openPeople(x.dataset.tab),
+    person(x) {
+      const w = everyone.find(p => p.email === x.dataset.email);
+      returnTo = () => openPeople('people');
+      openPerson({ email: w.email, displayName: w.name }, null);
+    },
+    firm: x => openCompany(x.dataset.domain, () => openPeople('firms')),
+  }, 'wide');
+  const find = $('#pplFind', el.dlg), list = $('#pplList', el.dlg), count = $('#pplCount', el.dlg);
+  const rank = w => (hasFacts(w.email) ? 2 : 0) + (N.has(N.aboutKey(w.email)) ? 1 : 0);
+  function paint() {
+    const q = find.value.trim().toLowerCase();
+    if (tab === 'people') {
+      const hits = outside.filter(w => !q || `${w.name} ${w.email} ${w.company}`.toLowerCase().includes(q))
+        .sort((a, b) => rank(b) - rank(a) || a.name.localeCompare(b.name));
+      list.innerHTML = hits.slice(0, 60).map(w => personRow(w, [roleOf(w), roleOf(w) ? '' : w.company].filter(Boolean).join('') || w.email)).join('')
+        || '<div class="note">Nobody matches. People appear here once they are in one of your meetings.</div>';
+      count.textContent = hits.length > 60 ? `Showing 60 of ${hits.length}. Search to narrow it down.` : `${hits.length} ${hits.length === 1 ? 'person' : 'people'}`;
+    } else {
+      const hits = [...firms].filter(([domain, ws]) => !q || `${ws[0].company} ${domain}`.toLowerCase().includes(q))
+        .sort((a, b) => b[1].length - a[1].length || a[1][0].company.localeCompare(b[1][0].company));
+      list.innerHTML = hits.slice(0, 60).map(([domain, ws]) => `<button type="button" class="prow2" data-x="firm" data-domain="${esc(domain)}">
+        <div class="clogo sm">${logoHtml(domain) || esc(ws[0].company[0])}</div><span><b>${esc(ws[0].company)}</b><i>${ws.length} ${ws.length === 1 ? 'person' : 'people'} · ${esc(domain)}</i></span></button>`).join('')
+        || '<div class="note">No companies yet. They appear once someone with a company email is in one of your meetings.</div>';
+      count.textContent = `${hits.length} ${hits.length === 1 ? 'company' : 'companies'}`;
+    }
+    showPictures();
+  }
+  find.addEventListener('input', paint);
+  paint();
+  if (innerWidth >= 760) find.focus();
+}
+
+// ---------------------------------------------------------------- share my free times
+// Loads the meetings of some days that may not be on screen.
+async function loadDays(from, to) {
+  if (DEMO) {
+    for (let ws = startOfWeek(from); ws < to; ws = addDays(ws, 7)) for (const ev of demoEvents(ws)) events.set(ev.key, ev);
+    return;
+  }
+  const jobs = [];
+  for (const a of state.accounts.filter(a => !a.needsReconnect)) for (const c of a.calendars) {
+    if (!c.enabled || isPlannerCal(a, c)) continue;
+    jobs.push(G.listEvents(a, c.id, from, to).then(items => {
+      for (const e of items) {
+        if (e.status === 'cancelled' || !e.start || e.eventType === 'workingLocation') continue;
+        const ev = normalize(e, a, c);
+        events.set(ev.key, ev);
+      }
+    }));
+  }
+  await Promise.all(jobs);
+  if (plannerReady()) await sync(() => pullPlanner(from, to)).catch(() => {});
+}
+// The gaps in a working day that are at least minLen minutes long, on the half hour: [[start, end]].
+function freeSlots(d, minLen) {
+  const { dayStart, dayEnd } = state.settings, half = m => Math.ceil(m / 30) * 30;
+  let p = ymd(d) === todayYmd() ? Math.max(dayStart, half(nowMinutes() + 15)) : dayStart;
+  const out = [], add = (s, e) => { s = half(s); e = Math.floor(e / 30) * 30; if (e - s >= minLen) out.push([s, e]); };
+  for (const [s, e] of busyOf(d)) {
+    if (e <= p) continue;
+    if (s >= dayEnd) break;
+    if (s > p) add(p, s);
+    p = Math.max(p, e);
+  }
+  if (p < dayEnd) add(p, dayEnd);
+  return out;
+}
+// A short text with the times you are free across all your calendars, ready to paste into an email.
+function openFreeTimes() {
+  let days = 5, length = 30;
+  const zone = new Date().toLocaleTimeString('en-GB', { timeZoneName: 'short' }).split(' ').pop();
+  const seg = (name, list, cur) => `<div class="seg">${list.map(([v, l]) => `<button type="button" data-x="${name}" data-v="${v}" class="${v === cur ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+  dialog(`<div class="dbody">
+    <h3>Share my free times</h3>
+    <p class="note">The times you are free across all your calendars, inside your working day. Copy them into an email or a chat.</p>
+    <div class="rowline"><span class="note">Look ahead</span><span id="ftDays"></span></div>
+    <div class="rowline"><span class="note">Meeting length</span><span id="ftLen"></span></div>
+    <textarea id="ftText" rows="9" spellcheck="false">Checking your calendars…</textarea>
+    <div class="actions"><span class="note" id="ftNote"></span><span class="sp"></span><button type="button" class="btn ghost" data-x="close">Close</button><button type="button" class="btn primary" data-x="copy">Copy</button></div></div>`, {
+    days(x) { days = +x.dataset.v; paint(true); },
+    len(x) { length = +x.dataset.v; paint(false); },
+    async copy() {
+      const box = $('#ftText', el.dlg);
+      try { await navigator.clipboard.writeText(box.value); toast('Copied. Paste it into your email.'); }
+      catch { box.select(); toast('Press Cmd+C to copy.'); }
+    },
+  });
+  const workDays = () => { // the next working days, starting today
+    const out = [];
+    for (let d = startOfDay(new Date()); out.length < days; d = addDays(d, 1)) if (d.getDay() % 6) out.push(d);
+    return out;
+  };
+  async function paint(load) {
+    $('#ftDays', el.dlg).innerHTML = seg('days', [[3, '3 days'], [5, '5 days'], [10, '2 weeks']], days);
+    $('#ftLen', el.dlg).innerHTML = seg('len', [[30, '30 min'], [45, '45 min'], [60, '1 hour']], length);
+    const list = workDays(), box = $('#ftText', el.dlg);
+    if (load) {
+      try { await loadDays(list[0], addDays(list[list.length - 1], 1)); }
+      catch { if (box.isConnected) { box.value = 'Your calendars could not be read. Check your connection and try again.'; } return; }
+      if (!box.isConnected) return;
+    }
+    const lines = workDays().map(d => [d, freeSlots(d, length)]).filter(([, slots]) => slots.length)
+      .map(([d, slots]) => `• ${dayLabel(d)}: ${slots.map(([s, e]) => (s === 0 && e === 1440 ? 'all day' : `${fmtTime(s)} – ${e === 1440 ? 'midnight' : fmtTime(e)}`)).join(', ')}`);
+    box.value = lines.length ? `Here are some times that work for me (${zone}):\n${lines.join('\n')}` : 'No free time in your working hours on these days.';
+    $('#ftNote', el.dlg).textContent = `${state.accounts.length || 'Sample'} calendar account${state.accounts.length === 1 ? '' : 's'} checked`;
+  }
+  paint(true);
 }
 
 // ---------------------------------------------------------------- sample data (?demo)

@@ -105,13 +105,13 @@ export function gistOf(text, max = 280) {
   return gist.length > max ? `${gist.slice(0, max).replace(/\s+\S*$/, '')}…` : gist;
 }
 
-// The "Action points" list in a note, whether the AI wrote it or you did.
-export function actionsIn(text) {
+// The list under one heading of a note ("Action points", "Decisions"…), whether the AI wrote it or you did.
+function listUnder(text, heading) {
   const out = [];
   let inside = false;
   for (const raw of text.split('\n')) {
     const line = raw.trim();
-    if (/^action (points|items)\s*:?$/i.test(line)) { inside = true; continue; }
+    if (heading.test(line)) { inside = true; continue; }
     if (!inside) continue;
     const item = /^[-*•]\s*(?:\[[ x]?\]\s*)?(.+)$/i.exec(line);
     if (item) out.push(item[1].trim());
@@ -119,3 +119,5 @@ export function actionsIn(text) {
   }
   return out;
 }
+export const actionsIn = text => listUnder(text, /^action (points|items)\s*:?$/i);
+export const decisionsIn = text => listUnder(text, /^decisions\s*:?$/i);
