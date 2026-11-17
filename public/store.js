@@ -9,6 +9,7 @@ const base = () => ({
     clientId: '', clientSecret: '', plannerAccountId: '', plannerCalendarId: '', reminder: 10, view: '',
     theme: 'auto', dayStart: 9 * 60, dayEnd: 18 * 60, morning: 8 * 60, // minutes after midnight; morning -1 = off
     shareAccounts: false, // keep the account list the same on all devices (see vault.js)
+    aiApp: 'claude',      // which AI app the "Ask AI" link about a person opens
   },
   accounts: [],     // connected Google accounts
   tasks: [],        // your tasks and time blocks

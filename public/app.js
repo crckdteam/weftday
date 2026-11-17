@@ -2,6 +2,7 @@ import { state, save, DEMO, loadEventCache, saveEventCache } from './store.js';
 import * as G from './google.js';
 import * as V from './vault.js';
 import * as N from './notes.js';
+import * as AI from './ai.js';
 import { qrSvg } from './qr.js';
 import { PUBLIC_URL } from './config.js';
 import {
@@ -71,7 +72,8 @@ function setStatus(text, isErr) {
 
 let dlgOpenedAt = 0, closeTimer = 0;
 let noteCommit = null; // saves the notes box of the meeting that is open, if any
-function saveOpenNote() { const f = noteCommit; noteCommit = null; if (f) f(); }
+let aiJob = null;      // lets a running "Tidy my notes" be stopped when its box goes away
+function saveOpenNote() { aiJob?.abort(); aiJob = null; const f = noteCommit; noteCommit = null; if (f) f(); }
 function dialog(html, handlers = {}, cls = '') {
   saveOpenNote();
   clearTimeout(closeTimer); // a box that was fading out is taken over by the new one
@@ -1109,10 +1111,23 @@ function person(p) {
 }
 // Links that search for the person. Nothing is sent until you press one. With a full name the search
 // goes to LinkedIn directly; with only a first name it looks for LinkedIn profiles at that company.
-function lookupLinks(who) {
+const AI_APPS = {
+  claude: ['Claude', q => `https://claude.ai/new?q=${G.enc(q)}`],
+  chatgpt: ['ChatGPT', q => `https://chatgpt.com/?hints=search&q=${G.enc(q)}`],
+  perplexity: ['Perplexity', q => `https://www.perplexity.ai/search?q=${G.enc(q)}`],
+};
+// A ready-made question about the person, opened in your own AI app. Sent only when you press it.
+function askAiUrl(who, title) {
+  const where = who.company ? ` at ${who.company} (${who.domain})` : '';
+  const question = `Who is ${who.name}${where}? I have a meeting with them${title ? ` called "${title}"` : ''}. `
+    + 'Search the web and tell me their role, their background, and anything recent worth knowing, with links. Keep it short.';
+  return (AI_APPS[state.settings.aiApp] || AI_APPS.claude)[1](question);
+}
+function lookupLinks(who, title) {
   if (!who.fullName && !who.company) return ''; // a first name alone is not enough to find anyone
   const at = who.company ? ` ${who.company}` : '';
   const links = [
+    ['Ask AI', askAiUrl(who, title)],
     ['LinkedIn', who.fullName
       ? `https://www.linkedin.com/search/results/people/?keywords=${G.enc(who.name + at)}`
       : `https://www.google.com/search?q=${G.enc(`site:linkedin.com/in ${who.name}${at}`)}`],
@@ -1171,7 +1186,7 @@ function openEvent(ev) {
   const extras = [...(ev.links || []), ...(ev.files || []).filter(f => !(ev.links || []).some(l => l.url === f.url))].slice(0, 6);
   const who = (p, lookup) => `<div class="who" data-email="${esc(p.email)}">
       <div><b class="nm">${esc(p.name)}</b>${p.organizer ? ' <i>· organiser</i>' : ''}${STATUS_LABEL[p.status] ? ` <i>· ${STATUS_LABEL[p.status]}</i>` : ''}</div>
-      <div class="wm">${lookup ? '<span class="met">Checking your past meetings…</span>' : ''}<span class="look">${lookupLinks(p)}</span></div></div>`;
+      <div class="wm">${lookup ? '<span class="met">Checking your past meetings…</span>' : ''}<span class="look">${lookupLinks(p, ev.title)}</span></div></div>`;
   dialog(`<div class="dbody">
     <h3>${esc(ev.title)}</h3>
     <div class="meta">${esc(eventWhen(ev))}</div>
@@ -1184,7 +1199,12 @@ function openEvent(ev) {
       ${rest.length ? `<details><summary>${rest.length} more</summary><div class="whos">${rest.map(p => who(p, false)).join('')}</div></details>` : ''}</div>` : ''}
     <label><span>Your notes <i>· only you can see these</i></span>
       <textarea name="note" rows="4" maxlength="${N.MAX_LENGTH}" placeholder="What do you want to cover? What was decided?">${esc(note?.text || '')}</textarea></label>
-    <div class="saved" id="noteState"></div>
+    <div class="airow">
+      ${AI.supported() ? '<button type="button" class="mini" data-x="tidy">Tidy my notes</button>' : ''}
+      <button type="button" class="mini" data-x="mktasks" hidden>Make tasks</button>
+      <button type="button" class="mini" data-x="untidy" hidden>Undo tidy</button>
+      ${AI.supported() ? '' : '<span class="note">Tidying notes with AI works in Chrome on your computer.</span>'}
+      <span class="sp"></span><span class="saved" id="noteState"></span></div>
     ${earlier.length ? `<details><summary>Earlier notes with ${others.length === 1 ? esc(others[0].name) : 'these people'} (${earlier.length})</summary>
       <div class="past">${earlier.map(n => `<div><b>${esc(n.title || 'Meeting')}</b>${n.when ? ` <i>· ${esc(dayLabel(new Date(n.when)))}</i>` : ''}<div class="desc">${esc(n.text)}</div></div>`).join('')}</div></details>` : ''}
     ${ev.description ? `<div class="desc">${esc(ev.description)}</div>` : ''}
@@ -1200,6 +1220,51 @@ function openEvent(ev) {
       <button class="btn${ev.meet ? '' : ' primary'}" data-x="close">Close</button>
     </div></div>`, {
     edit: () => openEventForm(ev),
+    // The browser's own AI turns rough notes into a summary, decisions and action points.
+    async tidy(btn) {
+      const rough = AI.originalOf(box.value).trim();
+      if (rough.length < 15) return toast('Write a few notes first, then press Tidy.');
+      const job = aiJob = new AbortController(), label = btn.textContent;
+      btn.disabled = box.readOnly = true;
+      btn.textContent = 'Tidying…';
+      saved.textContent = 'This can take up to a minute';
+      try {
+        const result = await AI.tidy({ title: ev.title, people: others.map(p => p.name).join(', '), text: rough },
+          { signal: job.signal, onProgress: part => { if (part < 1) saved.textContent = `Getting the AI ready… ${Math.round(part * 100)}%`; } });
+        if (job.signal.aborted || !box.isConnected) return;
+        beforeTidy = box.value;
+        box.value = AI.layout(result, rough);
+        commitNote();
+        saved.textContent = 'Tidied';
+        $('[data-x=untidy]', el.dlg).hidden = false;
+        showTaskButton();
+      } catch (err) {
+        if (err.name !== 'AbortError' && box.isConnected) { saved.textContent = ''; toast(AI.explain(err), true); }
+      } finally {
+        if (aiJob === job) aiJob = null;
+        btn.disabled = box.readOnly = false;
+        btn.textContent = label;
+      }
+    },
+    untidy(btn) {
+      if (beforeTidy == null) return;
+      box.value = beforeTidy;
+      beforeTidy = null;
+      btn.hidden = true;
+      commitNote();
+      showTaskButton();
+    },
+    // Each action point becomes a task in the inbox.
+    mktasks() {
+      const have = new Set(state.tasks.filter(t => !t.done).map(t => t.title.toLowerCase()));
+      const fresh = AI.actionsIn(box.value).filter(a => !have.has(a.toLowerCase()));
+      if (!fresh.length) return toast('These action points are already in your tasks.');
+      commitNote();
+      mark();
+      for (const title of fresh) state.tasks.push(newTask({ title: title.slice(0, 200), notes: `From: ${ev.title} (${dayLabel(new Date(ev.s))})` }));
+      commit();
+      toast(fresh.length === 1 ? 'Task added to your inbox' : `${fresh.length} tasks added to your inbox`, { undo: true });
+    },
     async rsvp(btn) {
       if (DEMO) return toast('This is sample data. Connect a Google account to reply to invites.');
       try {
@@ -1223,7 +1288,13 @@ function openEvent(ev) {
 
   // Notes save by themselves a moment after you stop typing, and when the box closes.
   const box = $('[name=note]', el.dlg), saved = $('#noteState', el.dlg);
-  let timer = 0;
+  let timer = 0, beforeTidy = null;
+  const showTaskButton = () => {
+    const n = AI.actionsIn(box.value).length, b = $('[data-x=mktasks]', el.dlg);
+    b.hidden = !n;
+    b.textContent = n === 1 ? 'Make 1 task' : `Make ${n} tasks`;
+  };
+  showTaskButton();
   const commitNote = () => {
     clearTimeout(timer);
     if (!N.set(key, box.value.trim() ? box.value : '', about)) return;
@@ -1231,7 +1302,7 @@ function openEvent(ev) {
     if (saved.isConnected) saved.textContent = plannerReady() ? 'Saved' : 'Saved on this device';
     renderView(); // shows or hides the small note mark on the meeting
   };
-  box.addEventListener('input', () => { saved.textContent = ''; clearTimeout(timer); timer = setTimeout(commitNote, 600); });
+  box.addEventListener('input', () => { saved.textContent = ''; showTaskButton(); clearTimeout(timer); timer = setTimeout(commitNote, 600); });
   box.addEventListener('change', commitNote);
   noteCommit = commitNote;
 
@@ -1242,7 +1313,7 @@ function openEvent(ev) {
       if (!row) return;
       row.querySelector('.met').textContent = metLine(list, key);
       const better = person(guests.find(g => (g.email || '').toLowerCase() === p.email)); // a fuller name may have turned up
-      if (better.name !== p.name) { row.querySelector('.nm').textContent = better.name; row.querySelector('.look').innerHTML = lookupLinks(better); }
+      if (better.name !== p.name) { row.querySelector('.nm').textContent = better.name; row.querySelector('.look').innerHTML = lookupLinks(better, ev.title); }
       saveNames();
     }).catch(() => {});
   }
@@ -1804,6 +1875,10 @@ function openSettings(msg) {
       <label>Remind me<select name="reminder">${reminderOptions(s.reminder, false)}</select></label>
     </div>
     <div class="rowline"><span class="note">Notifications on this device: <b>${perm}</b></span>${perm === 'off' ? '<button type="button" class="btn" data-x="notif">Turn on</button>' : ''}</div>
+    <h4>AI</h4>
+    <div class="rowline"><span class="note">Tidying notes: <b id="aiState">checking…</b></span></div>
+    <label>“Ask AI” about a person opens<select name="aiApp">${opts(Object.entries(AI_APPS).map(([k, v]) => [k, v[0]]), s.aiApp)}</select></label>
+    <p class="note">Tidying runs inside your browser, so your notes stay on this device. “Ask AI” opens that app with a question about the person, and only when you press it.</p>
     <h4>Look</h4>
     <label>Theme<select name="theme">${opts([['auto', 'Match this device'], ['light', 'Light'], ['dark', 'Dark']], s.theme)}</select></label>
     <h4>Your data</h4>
@@ -1819,6 +1894,7 @@ function openSettings(msg) {
       s.dayStart = +fd.get('dayStart'); s.dayEnd = +fd.get('dayEnd');
       s.morning = +fd.get('morning');
       s.theme = fd.get('theme');
+      s.aiApp = fd.get('aiApp');
       const want = fd.get('planner'), share = fd.get('share') === 'on';
       save();
       applyTheme();
@@ -1847,6 +1923,10 @@ function openSettings(msg) {
       link.click();
       URL.revokeObjectURL(link.href);
     },
+  });
+  AI.status().then(st => {
+    const line = $('#aiState', el.dlg);
+    if (line) line.textContent = { ready: 'ready on this device', download: 'needs a one-time download, which starts the first time you use it', no: 'not available here (it works in Chrome on a computer)' }[st];
   });
 }
 
