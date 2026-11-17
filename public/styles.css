@@ -551,3 +551,8 @@ button.nm:hover { color: var(--accent); }
 .sk.w40 { width: 40%; } .sk.w60 { width: 60%; } .sk.w80 { width: 80%; }
 @keyframes shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
 .dbody textarea[name="about"] { min-height: 70px; }
+.fgroup { display: grid; gap: 10px; }
+.fgroup + .fgroup { border-top: 1px solid var(--line); padding-top: 12px; }
+.fgroup > h4 { font-size: 13px; letter-spacing: 0; text-transform: none; color: var(--text); font-weight: 650; margin: 0; }
+.tags { display: flex; gap: 5px; flex-wrap: wrap; }
+.tags span { font-size: 12px; padding: 2px 9px; border-radius: 99px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: color-mix(in srgb, var(--accent) 70%, var(--text)); }

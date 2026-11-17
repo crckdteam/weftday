@@ -13,11 +13,17 @@ const READ_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-3.6-fl
 export const MARK = '— Facts from the web'; // what follows this line in a note is replaced on the next run
 
 const BRIEF = [
-  'Write a short brief in plain text. No markdown, no asterisks. Use exactly these labels, each starting its own line, and leave out a label when you found nothing for it:',
+  'Write a brief in plain text. No markdown, no asterisks. Use exactly these labels, each starting its own line, and leave a label out completely when you found nothing for it:',
   'Role: their current job title and company, in a few words.',
   'Location: the city or country they are based in.',
   'Background: two or three short lines on their career and what they are known for, each on its own line starting with "- ".',
+  'Education: where they studied and what, in one line.',
+  'Expertise: three to six short topics they are an expert in, separated by commas.',
   'Company: one line on what the company does.',
+  'Team size: roughly how many people work at the company, with the year if known.',
+  'Funding: the company\'s funding rounds, most recent first, each on its own line starting with "- ", with the round, amount, year and lead investors when known. If it is bootstrapped, public or part of a larger company, say that in one line instead.',
+  'Key people: up to five other senior people at the company with their roles, each on its own line starting with "- ".',
+  'Clients: notable customers or clients of the company, separated by commas.',
   'Recent: up to three recent, relevant things (news, posts, launches), each on its own line starting with "- ".',
   'Ideas: up to two short things worth asking them about in this meeting, based only on what you found, each on its own line starting with "- ".',
   'LinkedIn: the address of their LinkedIn profile, if you find it.',
@@ -34,19 +40,28 @@ function searchQuestion(who, meeting) {
 }
 
 function readQuestion(who, meeting) {
-  const words = `${who.fullName ? `"${who.name}"` : who.name}${who.company ? ` ${who.company}` : ''}`;
-  const results = extra => `https://html.duckduckgo.com/html/?q=${encodeURIComponent(words + extra)}`;
+  const person = `${who.fullName ? `"${who.name}"` : who.name}${who.company ? ` ${who.company}` : ''}`;
+  const results = words => `https://html.duckduckgo.com/html/?q=${encodeURIComponent(words)}`;
+  const pages = [
+    `Search results about the person: ${results(person)}`,
+    `Search results for their profile: ${results(`${person} linkedin`)}`,
+    `Search results for their education and career: ${results(`${person} education career background`)}`,
+  ];
+  if (who.company) pages.push(
+    `The company's website: https://${who.domain}`,
+    `Search results for the company's funding: ${results(`${who.company} ${who.domain} funding rounds investors raised`)}`,
+    `Search results for the company's team: ${results(`${who.company} ${who.domain} founders leadership team number of employees`)}`,
+    `Search results for the company's clients: ${results(`${who.company} ${who.domain} customers clients case studies`)}`,
+  );
   return [
-    'Read these pages, then tell me who this person is. I am about to meet them.',
-    `Search results: ${results('')}`,
-    `Search results for their profile: ${results(' linkedin')}`,
-    who.company ? `Their company's website: https://${who.domain}` : '',
+    'Read these pages, then tell me who this person is and about their company. I am about to meet them.',
+    ...pages,
     ...about(who, meeting),
     ...BRIEF,
-    'Sources: up to three web addresses you relied on. Give the real site addresses (for example linkedin.com/in/...), never a duckduckgo.com address.',
+    'Sources: up to four web addresses you relied on. Give the real site addresses (for example linkedin.com/in/...), never a duckduckgo.com address.',
     CARE,
     'If none of the pages could be read, answer with exactly: COULD NOT READ',
-  ].filter(Boolean).join('\n');
+  ].join('\n');
 }
 
 // Google's reply is a list of steps. The answer text and its sources are picked out wherever they sit,
@@ -139,30 +154,44 @@ export function split(note) {
 }
 export const join = (own, raw, day) => `${own.trim()}${raw ? `${own.trim() ? '\n\n' : ''}${MARK} · ${day} —\n${raw}` : ''}`;
 
-const LABELS = { role: 'role', location: 'location', background: 'background', company: 'company', recent: 'recent', ideas: 'ideas', linkedin: 'linkedin', sources: 'sources' };
+// Label (lower case, spaces removed) -> where it goes in the parsed facts.
+const LABELS = {
+  role: 'role', location: 'location', background: 'background', education: 'education', expertise: 'expertise',
+  company: 'company', teamsize: 'teamSize', team: 'teamSize', employees: 'teamSize', funding: 'funding',
+  keypeople: 'people', people: 'people', leadership: 'people', clients: 'clients', customers: 'clients',
+  recent: 'recent', ideas: 'ideas', linkedin: 'linkedin', sources: 'sources',
+};
+const TAG_LISTS = ['expertise', 'clients']; // shown as small tags, so a comma-separated line is split up
 const asLink = text => {
   const found = /(https?:\/\/)?((?:[\w-]+\.)+[a-z]{2,}(?:\/[^\s,;)]*)?)/i.exec(text);
   if (!found) return null;
   const url = `https://${found[2].replace(/[.,;]+$/, '')}`;
   try { return { url, host: new URL(url).hostname.replace(/^www\./, '') }; } catch { return null; }
 };
-// { role, location, company, linkedin, background: [], recent: [], ideas: [], sources: [{ url, host }], other: [] }
+// { role, location, education, company, teamSize, linkedin,
+//   background: [], expertise: [], funding: [], people: [], clients: [], recent: [], ideas: [], sources: [{ url, host }], other: [] }
 export function parse(raw) {
-  const out = { role: '', location: '', company: '', linkedin: '', background: [], recent: [], ideas: [], sources: [], other: [] };
+  const out = {
+    role: '', location: '', education: '', company: '', teamSize: '', linkedin: '',
+    background: [], expertise: [], funding: [], people: [], clients: [], recent: [], ideas: [], sources: [], other: [],
+  };
   let section = 'other';
   for (const line0 of raw.split('\n')) {
     let line = line0.trim();
     if (!line) continue;
-    const label = /^([A-Za-z]+)\s*:\s*(.*)$/.exec(line);
-    if (label && LABELS[label[1].toLowerCase()]) { section = LABELS[label[1].toLowerCase()]; line = label[2].trim(); if (!line) continue; }
+    const label = /^([A-Za-z][A-Za-z ]{1,18}?)\s*:\s*(.*)$/.exec(line);
+    const known = label && LABELS[label[1].toLowerCase().replace(/\s+/g, '')];
+    if (known) { section = known; line = label[2].trim(); if (!line) continue; }
     line = line.replace(/^[-•*]\s*/, '').trim();
-    if (!line || /^(none|n\/a|not found|unknown)\.?$/i.test(line)) continue;
+    if (!line || /^(none|n\/a|not found|unknown|not available|no information( available| found)?)\.?$/i.test(line)) continue;
     if (section === 'sources') {
       const link = asLink(line);
       if (link && !/duckduckgo\.com$/.test(link.host) && !out.sources.some(x => x.url === link.url)) out.sources.push(link);
     } else if (section === 'linkedin') {
       const link = asLink(line);
       if (link && /linkedin\.com$/.test(link.host)) out.linkedin = link.url;
+    } else if (TAG_LISTS.includes(section)) {
+      for (const tag of line.split(/[,;]| and (?=[A-Z])/)) { const t = tag.trim().replace(/\.$/, ''); if (t && out[section].length < 10) out[section].push(t); }
     } else if (Array.isArray(out[section])) out[section].push(line);
     else out[section] = out[section] ? `${out[section]} ${line}` : line;
   }

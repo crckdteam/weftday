@@ -1215,14 +1215,20 @@ function aboutLine(email) {
 }
 const initials = name => name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('') || '?';
 
-// The facts found on the web, laid out as a card.
-function factsHtml(f, day) {
+// The facts found on the web, laid out as a card: first the person, then their company.
+function factsHtml(f, day, who) {
   const part = (label, items) => (items.length ? `<div class="fsec${items.length > 1 ? ' multi' : ''}"><h5>${label}</h5>${items.map(x => `<p>${esc(x)}</p>`).join('')}</div>` : '');
-  return `${part('Background', f.background)}${part('Company', f.company ? [f.company] : [])}${part('Recently', f.recent)}${part('Worth asking', f.ideas)}${part('Also', f.other)}
+  const tags = (label, items) => (items.length ? `<div class="fsec"><h5>${label}</h5><div class="tags">${items.map(x => `<span>${esc(x)}</span>`).join('')}</div></div>` : '');
+  const one = (label, text) => part(label, text ? [text] : []);
+  const them = part('Background', f.background) + one('Education', f.education) + tags('Expertise', f.expertise);
+  const firm = one('What they do', f.company) + one('Team size', f.teamSize) + part('Funding', f.funding) + part('Key people', f.people) + tags('Clients', f.clients);
+  return `${them ? `<div class="fgroup"><h4>About ${esc(who.name.split(' ')[0])}</h4>${them}</div>` : ''}
+    ${firm ? `<div class="fgroup"><h4>${esc(who.company || 'Their company')}</h4>${firm}</div>` : ''}
+    ${f.recent.length || f.ideas.length || f.other.length ? `<div class="fgroup"><h4>For this meeting</h4>${part('Recently', f.recent)}${part('Worth asking', f.ideas)}${part('Also', f.other)}</div>` : ''}
     ${f.sources.length ? `<div class="chips2">${f.sources.map(x => `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.host)}</a>`).join('')}</div>` : ''}
     <div class="ffoot"><span>From the web${day ? ` · ${esc(day)}` : ''}. Check before relying on it.</span><button type="button" class="linkbtn" data-x="facts">Refresh</button></div>`;
 }
-const FACTS_LOADING = `<div class="note">Reading the web. This takes a few seconds…</div>
+const FACTS_LOADING = `<div class="note">Reading the web about them and their company. This takes up to half a minute…</div>
   <div class="sk w40"></div><div class="sk"></div><div class="sk w80"></div><div class="sk w60"></div>`;
 
 // Everything Weftday knows about one person: facts from the web, what you wrote about them, your
@@ -1248,7 +1254,7 @@ function openPerson(guest, from) {
         ${f?.role ? `<div class="prole">${esc(f.role)}</div>` : ''}
         <div class="meta">${esc([f?.location, p.email].filter(Boolean).join(' · '))}</div></div></div>
     ${canLook ? `<div class="btnrow">${linkedin ? link(f?.linkedin ? 'LinkedIn profile' : 'Find on LinkedIn', linkedin) : ''}${p.company ? link('Website', `https://${p.domain}`) : ''}${link('Ask AI', askAiUrl(p, from?.title))}</div>` : ''}
-    <div class="facts" id="factsBox">${f ? factsHtml(f, day)
+    <div class="facts" id="factsBox">${f ? factsHtml(f, day, p)
       : canLook ? `<div class="fempty"><b>No facts yet</b><span>Weftday can look ${esc(first)} up on the web and fill this in.</span><button type="button" class="btn primary" data-x="facts">Get facts</button></div>`
       : '<div class="fempty"><span>There is not enough to look this person up. A first name alone is too little.</span></div>'}</div>
     <div class="note" id="searched" hidden></div>
