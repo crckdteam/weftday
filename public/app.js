@@ -1657,7 +1657,7 @@ function openEvent(ev, writeNotes) { // writeNotes: put the cursor in the notes 
     edit: () => openEventForm(ev),
     person: btn => openPerson(guests.find(g => (g.email || '').toLowerCase() === btn.dataset.email), ev),
     brief: () => openBrief(ev),
-    record: () => openRecordSetup(ev),
+    record: () => quickRecord(ev),
     recs: () => openRecordings(ev),
     // Opens a draft in Gmail, written from your notes. Nothing is sent: you read it and press Send yourself.
     followup() {
@@ -2999,7 +2999,7 @@ function tick() {
     if (state.notified[d.key]) continue;
     state.notified[d.key] = 1; changed = true;
     if (d.rec) {
-      toast(`“${d.title}” is starting`, { go: ['Record it', () => openRecordSetup(d.rec)] });
+      toast(`“${d.title}” is starting`, { go: ['Record it', () => quickRecord(d.rec)] });
       systemNote(d.title, 'Starting now. Press to record it and get the notes written.', () => openRecordSetup(d.rec));
     } else notify(d.title, d.body, d.ev);
   }
@@ -3709,26 +3709,76 @@ function endRecViews() {
 }
 addEventListener('beforeunload', e => { if (R.current()) { e.preventDefault(); e.returnValue = ''; } }); // do not lose a running recording by accident
 
-// ---- before recording: the one question, what to record. ev is the meeting it belongs to, if any.
+// ---- starting a recording. ev is the meeting it belongs to, if any.
+// o = { what: 'sound' | 'video' | 'camera' | 'mic', mic, cam, micId, camId, corner, size, auto, preview }
+// Asks the browser for what is needed, starts, shows the bar and opens the notes. Throws what the browser throws.
+async function beginRecording(ev, o) {
+  const wantMic = o.what === 'mic' || o.what === 'camera' || !!o.mic;
+  // Asking for the screen comes first, straight from the press: the browser insists on that.
+  const streams = await R.ask({ screen: o.what === 'sound' || o.what === 'video', mic: wantMic, micId: o.micId, cam: !!o.cam && !o.preview, camId: o.camId });
+  if (o.cam && o.preview) streams.cam = o.preview; // the camera already open in the box carries on into the recording
+  const now = new Date();
+  const session = await R.start(streams, {
+    keepVideo: o.what === 'video', camera: { corner: o.corner, size: o.size },
+    key: ev ? noteKey(ev) : '', title: ev ? ev.title : `Recording, ${dayLabel(now)} ${fmtTime(now.getHours() * 60 + now.getMinutes())}`,
+    onTick: secs => { for (const v of recViews()) { const t = $('.rtime', v); if (t) t.textContent = clock(secs); } },
+    onProblem: () => toast('This browser ran out of room, so the recording was stopped. What was recorded so far is kept.', true),
+    onEnd: rec => {
+      endRecViews();
+      if (o.auto && rec.pieceMime && rec.secs >= 5) return autoNotes(rec);
+      toast(`Recording saved · ${clock(rec.secs)}`, { go: ['Open it', () => openRecording(rec.id)] });
+    },
+  });
+  closeDialog();
+  showRecBar(session);
+  openFloat(session, true);
+  if (ev) openEvent(ev, true); // the meeting's own notes, ready to type in while it records
+  const heard = session.rec.heard;
+  if (streams.noSystemSound && heard.length < 2) toast('No sound is coming from what you shared. Stop, then share again with the sound switch on: “Share with tab audio” for a tab, “Share with system audio” for Entire screen.', true);
+  else if (streams.micFailed) toast('Your microphone could not be used, so your own voice is not being recorded.', true);
+  else if (streams.camFailed || (o.cam && !session.cam)) toast('Your camera could not be used, so the recording goes on without it.', true);
+  else toast(`Recording${heard.length === 1 ? ` ${heard[0]} only` : ''}. Remember to tell everyone that it is being recorded.`);
+  return session;
+}
+const recStartFailed = err => {
+  if (err.name === 'NotAllowedError' || err.name === 'AbortError') toast('Nothing was chosen, so nothing is being recorded.');
+  else toast(err.kind === 'nosound' ? err.message : 'The recording could not start. Check that this browser may use your screen, microphone and camera.', true);
+};
+// One press, for a meeting: listen to it and write the notes, the way it was set up last time.
+// The first time (and whenever something has to be chosen) the Record box is shown instead.
+function quickRecord(ev) {
+  const prefs = recPrefs();
+  if (R.current()) return toast('A recording is already running. Stop it first.');
+  if (!prefs.seen || !R.canCaptureScreen()) return openRecordSetup(ev);
+  beginRecording(ev, { what: 'sound', mic: !prefs.micOff, micId: prefs.micId, auto: !!state.settings.aiKey && prefs.auto !== false }).catch(recStartFailed);
+}
+
+// The Record box: what to record, in one row, and little else.
+const REC_KINDS = {
+  sound: ['Meeting', 'Listens to the meeting and writes your notes. No bot joins the call.'],
+  video: ['Screen video', 'A video of your screen with its sound, to watch again or pass on.'],
+  camera: ['Camera', 'You, talking to the camera.'],
+  mic: ['Voice only', 'For a meeting in the same room: records through your microphone.'],
+};
 function openRecordSetup(ev) {
   if (R.current()) return toast('A recording is already running. Stop it first.');
   if (!R.supported()) return toast('This browser cannot record. Use Chrome on a computer.', true);
-  const screen = R.canCaptureScreen(), drawCam = screen && R.canDrawCamera(), prefs = recPrefs();
+  const screen = R.canCaptureScreen(), drawCam = screen && R.canDrawCamera(), prefs = recPrefs(), hasKey = !!state.settings.aiKey;
+  const kinds = Object.keys(REC_KINDS).filter(k => screen || k === 'camera' || k === 'mic'), first = kinds[0];
   let preview = null, opening = 0; // the camera, shown while this box is open
   const stopPreview = () => { preview?.getTracks().forEach(t => t.stop()); preview = null; };
-  const tile = (value, title, text, on) => `<label><input type="radio" name="what" value="${value}"${on ? ' checked' : ''}><span><b>${title}</b><i>${text}</i></span></label>`;
   const corner = (value, label) => `<label title="${label}"><input type="radio" name="corner" value="${value}"${(prefs.corner || 'br') === value ? ' checked' : ''}><span></span></label>`;
   const size = (value, label) => `<label><input type="radio" name="size" value="${value}"${(prefs.size || 'medium') === value ? ' checked' : ''}><span>${label}</span></label>`;
   dialog(`<form class="dbody rsetup">
     <h3>${ev ? 'Record this meeting' : 'Record'}</h3>
     ${ev ? `<div class="meta">${esc(ev.title)}</div>` : ''}
-    <div class="rchoice">
-      ${screen ? tile('sound', 'The meeting’s sound', 'Small file. Best for notes.', true) + tile('video', 'Screen and sound', 'A video to watch again.') : ''}
-      ${tile('camera', 'My camera', 'You, talking to camera.')}
-      ${tile('mic', 'Only my microphone', 'A meeting in the room.', !screen)}
-    </div>
-    <label class="check" id="recMicRow"><input type="checkbox" name="mic"${prefs.micOff ? '' : ' checked'}>Also record my own voice (microphone)</label>
-    <label class="check" id="recCamRow" hidden><input type="checkbox" name="cam"${prefs.camOn ? ' checked' : ''}>Show my camera in a corner of the video</label>
+    <div class="segr rkind">${kinds.map(k => `<label><input type="radio" name="what" value="${k}"${k === first ? ' checked' : ''}><span>${REC_KINDS[k][0]}</span></label>`).join('')}</div>
+    <p class="note" id="recWhy"></p>
+    ${hasKey
+    ? `<label class="check" id="recAutoRow"><input type="checkbox" name="auto"${prefs.auto === false ? '' : ' checked'}><span>Write the notes for me when it ends<i class="rsub">Google’s AI, with your own key, is sent the sound, who was in the meeting and your notes.</i></span></label>`
+    : '<p class="note" id="recAutoRow">To have the notes written for you, <button type="button" class="linkbtn" data-x="aikey">add the free Google AI key</button>.</p>'}
+    <label class="check" id="recMicRow"><input type="checkbox" name="mic"${prefs.micOff ? '' : ' checked'}>Record my own voice too</label>
+    <label class="check" id="recCamRow" hidden><input type="checkbox" name="cam"${prefs.camOn ? ' checked' : ''}>Show my camera in a corner</label>
     <div class="rcamset" id="recCamSet" hidden>
       <video class="rcam" muted playsinline></video>
       <div class="rcamopts" id="recCamOpts">
@@ -3736,54 +3786,25 @@ function openRecordSetup(ev) {
         <div><span class="rlbl">Size</span><div class="segr">${size('small', 'Small')}${size('medium', 'Medium')}${size('large', 'Large')}</div></div>
       </div>
     </div>
-    ${state.settings.aiKey
-    ? `<label class="check" id="recAutoRow"><input type="checkbox" name="auto"${prefs.auto ? ' checked' : ''}><span>Write the notes for me when it ends<i class="rsub">Sends the sound, who was in the meeting, your notes and what was open from last time to Google’s AI, with your own key.</i></span></label>`
-    : '<p class="note" id="recAutoRow">To have the notes written for you, <button type="button" class="linkbtn" data-x="aikey">add the free Google AI key</button>.</p>'}
     <details class="rmore"><summary>Choose the microphone or camera</summary>
       <div class="grid2"><label>Microphone<select name="micId"><option value="">The usual one</option></select></label>
       <label>Camera<select name="camId"><option value="">The usual one</option></select></label></div>
     </details>
-    ${screen ? '<p class="note" id="recHow">Chrome will ask what to share. For a meeting in the browser, pick its <b>tab</b> and leave <b>“Share with tab audio”</b> on. For Zoom, Teams or any other app, pick <b>Entire screen</b> and switch on <b>“Share with system audio”</b>.</p>' : ''}
+    ${screen ? '<p class="note" id="recHow">Next, Chrome asks what to share. Pick the meeting’s <b>tab</b> with “Share with tab audio” on. For Zoom or Teams, pick <b>Entire screen</b> with “Share with system audio” on.</p>' : ''}
     <p class="note warn2">Tell everyone in the meeting that you are recording. In many places that is the law.</p>
-    <p class="note">It stays in this browser. Nothing is sent anywhere unless you later press “Make notes”.</p>
     <div class="actions">${screen ? '<button type="button" class="btn ghost" data-x="shot">Take a screenshot instead</button>' : ''}<span class="sp"></span><button type="button" class="btn ghost" data-x="close">Cancel</button><button class="btn primary">Start recording</button></div></form>`, {
     shot: () => { stopPreview(); takeShot(ev); },
     aikey: () => { stopPreview(); openSettings('Making notes from a recording needs the free Google AI key. Add it here.', 'ai'); },
     async submit(fd, form) {
       const what = fd.get('what'), btn = $('button.primary', form);
       const wantCam = what === 'camera' || (what === 'video' && drawCam && fd.get('cam') === 'on');
-      const wantMic = what === 'mic' || what === 'camera' || fd.get('mic') === 'on';
-      saveRecPrefs({ auto: fd.get('auto') === 'on', micOff: fd.get('mic') !== 'on', camOn: fd.get('cam') === 'on', corner: fd.get('corner'), size: fd.get('size'), micId: fd.get('micId'), camId: fd.get('camId') });
+      saveRecPrefs({ seen: 1, auto: hasKey ? fd.get('auto') === 'on' : prefs.auto, micOff: fd.get('mic') !== 'on', camOn: fd.get('cam') === 'on', corner: fd.get('corner'), size: fd.get('size'), micId: fd.get('micId'), camId: fd.get('camId') });
       btn.disabled = true;
       try {
-        // Asking for the screen comes first, straight from this press: the browser insists on that.
-        const streams = await R.ask({ screen: what === 'sound' || what === 'video', mic: wantMic, micId: fd.get('micId'), cam: wantCam && !preview, camId: fd.get('camId') });
-        if (wantCam && preview) { streams.cam = preview; preview = null; } // the camera already open in this box carries on into the recording
-        const session = await R.start(streams, {
-          keepVideo: what === 'video', camera: { corner: fd.get('corner'), size: fd.get('size') },
-          key: ev ? noteKey(ev) : '', title: ev ? ev.title : `Recording, ${dayLabel(new Date())} ${fmtTime(new Date().getHours() * 60 + new Date().getMinutes())}`,
-          onTick: secs => { for (const v of recViews()) { const t = $('.rtime', v); if (t) t.textContent = clock(secs); } },
-          onProblem: () => toast('This browser ran out of room, so the recording was stopped. What was recorded so far is kept.', true),
-          onEnd: rec => {
-            endRecViews();
-            if (fd.get('auto') === 'on' && rec.pieceMime && rec.secs >= 5) return autoNotes(rec);
-            toast(`Recording saved · ${clock(rec.secs)}`, { go: ['Open it', () => openRecording(rec.id)] });
-          },
-        });
-        closeDialog();
-        showRecBar(session);
-        openFloat(session, true);
-        if (ev) openEvent(ev, true); // the meeting's own notes, ready to type in while it records
-        const heard = session.rec.heard;
-        if (streams.noSystemSound && heard.length < 2) toast('No sound is coming from what you shared. Stop, then share again with the sound switch on: “Share with tab audio” for a tab, “Share with system audio” for Entire screen.', true);
-        else if (streams.micFailed) toast('Your microphone could not be used, so your own voice is not being recorded.', true);
-        else if (streams.camFailed || (wantCam && !session.cam)) toast('Your camera could not be used, so the recording goes on without it.', true);
-        else toast(heard.length === 2 ? 'Recording the meeting and your microphone.' : heard.length ? `Recording ${heard[0]} only.` : 'Recording without sound.');
-      } catch (err) {
-        btn.disabled = false;
-        if (err.name === 'NotAllowedError' || err.name === 'AbortError') toast('Nothing was chosen, so nothing is being recorded.');
-        else toast(err.kind === 'nosound' ? err.message : 'The recording could not start. Check that this browser may use your screen, microphone and camera.', true);
-      }
+        const held = wantCam ? preview : null;
+        const session = await beginRecording(ev, { what, mic: fd.get('mic') === 'on', cam: wantCam, micId: fd.get('micId'), camId: fd.get('camId'), corner: fd.get('corner'), size: fd.get('size'), auto: hasKey && fd.get('auto') === 'on', preview: held });
+        if (held && session.cam === held) preview = null; // it lives on in the recording
+      } catch (err) { btn.disabled = false; recStartFailed(err); }
     },
   });
   const form = $('form', el.dlg), f = name => form.elements[name];
@@ -3820,6 +3841,7 @@ function openRecordSetup(ev) {
   };
   const sync = () => {
     const what = f('what').value;
+    $('#recWhy', form).textContent = REC_KINDS[what][1];
     $('#recMicRow', form).hidden = what === 'mic' || what === 'camera';
     $('#recCamRow', form).hidden = what !== 'video' || !drawCam;
     const how = $('#recHow', form);
@@ -4018,6 +4040,21 @@ async function autoNotes(rec) {
 // ---- afterwards: one recording, and the library of them all
 const recLine = l => `[${clock(Math.floor(l.t))}] ${l.who ? `${l.who}: ` : ''}${l.text}`; // one line of what was said, as it is written down
 const REC_SPEEDS = [1, 1.25, 1.5, 2];
+// Notes as they are read: headings, lists and the next step, instead of one block of text.
+const NOTE_HEADS = /^(Summary|Decisions|Action points|Waiting on others|Open questions|Also noted)$/;
+function notesHtml(text) {
+  let html = '', list = false;
+  for (const raw of text.split('\n')) {
+    const row = raw.trim(), item = /^[-*•]\s+(.+)$/.exec(row);
+    if (item) { html += `${list ? '' : '<ul>'}<li>${esc(item[1])}</li>`; list = true; continue; }
+    if (list) { html += '</ul>'; list = false; }
+    if (!row) continue;
+    if (NOTE_HEADS.test(row)) html += `<h5>${esc(row)}</h5>`;
+    else if (/^Next:\s/.test(row)) html += `<p class="rnext"><b>Next</b>${esc(row.replace(/^Next:\s*/, ''))}</p>`;
+    else html += `<p>${esc(row)}</p>`;
+  }
+  return html + (list ? '</ul>' : '');
+}
 const recKind = r => (r.kind === 'shot' ? 'Screenshot' : r.kind === 'video' ? 'Video' : 'Sound');
 const recFileName = r => `${r.title.replace(/[^\w -]+/g, '').trim() || 'recording'}.${r.mime === 'image/png' ? 'png' : r.mime.includes('mp4') ? (r.kind === 'audio' ? 'm4a' : 'mp4') : 'webm'}`;
 // One recording: play it, name it, get notes from it, save it as a file, or delete it.
@@ -4036,28 +4073,29 @@ async function openRecording(id, back) {
     <input class="rtitle" name="title" value="${esc(rec.title)}" maxlength="120" aria-label="Name of this ${shot ? 'screenshot' : 'recording'}" title="Press to rename">
     <div class="meta">${esc(facts.filter(Boolean).join(' · '))}</div>
     ${stage}
-    ${url && !shot ? `<div class="rspeed"><span class="rlbl">Speed</span><div class="seg">${REC_SPEEDS.map(s => `<button type="button" data-x="speed" data-v="${s}" class="${s === 1 ? 'on' : ''}">${s}×</button>`).join('')}</div><span class="note">Space plays and pauses · ← → jump 5 seconds</span></div>` : ''}
     <div class="btnrow">
-      ${canNote ? `<button type="button" class="btn primary" data-x="notes">${rec.notes ? 'Make the notes again' : 'Make notes'}</button>` : ''}
+      ${canNote ? `<button type="button" class="btn primary" data-x="notes">${rec.notes ? 'Write the notes again' : 'Write the notes'}</button>` : ''}
       ${rec.notes && AI.actionsIn(rec.notes).length ? '<button type="button" class="btn" data-x="mktasks">Make tasks</button>' : ''}
       ${shot && url ? '<button type="button" class="btn primary" data-x="copy">Copy</button>' : ''}
-      ${url ? `<a class="btn" href="${url}" download="${esc(recFileName(rec))}">Save as a file</a>` : ''}
-      ${url && R.canTrim(rec) && rec.secs >= 6 ? '<button type="button" class="btn" data-x="trim">Trim</button>' : ''}
+      ${shot && url ? `<a class="btn" href="${url}" download="${esc(recFileName(rec))}">Save as a file</a>` : ''}
       ${ev ? '<button type="button" class="btn" data-x="meeting">Open the meeting</button>' : ''}
     </div>
-    <div class="rtrim" id="recTrim" hidden>
-      <div class="rtrimrow"><button type="button" class="btn" data-x="trimfrom">Start here</button><button type="button" class="btn" data-x="trimto">End here</button>
-        <span class="rkeep">Keeping <b id="trimSpan"></b></span><span class="sp"></span><button type="button" class="btn primary" data-x="trimsave">Save trimmed copy</button></div>
-      <p class="note">Move the player to where it should begin and press “Start here”, then to where it should stop and press “End here”. The original stays as it is; the cut lands within two seconds of the spot.</p>
-    </div>
     <div class="note" id="recSay" hidden></div>
-    ${rec.notes ? `<h4>Notes</h4><div class="desc rtext">${esc(AI.originalOf(rec.notes) === rec.notes ? rec.notes : rec.notes.slice(0, rec.notes.indexOf(AI.ORIGINAL_MARK)).trim())}</div>` : ''}
-    ${rec.chapters?.length ? `<h4>Chapters</h4><div class="rchaps">${rec.chapters.map(c => `<button type="button" data-x="jump" data-t="${+c.t}"><em>${clock(Math.floor(c.t))}</em>${esc(c.title)}</button>`).join('')}</div>` : ''}
+    ${rec.notes ? `<div class="rnotes">${notesHtml(AI.originalOf(rec.notes) === rec.notes ? rec.notes : rec.notes.slice(0, rec.notes.indexOf(AI.ORIGINAL_MARK)).trim())}</div>` : ''}
     ${rec.transcript ? `<form class="rask"><input name="q" maxlength="300" autocomplete="off" placeholder="Ask about this ${ev ? 'meeting' : 'recording'}: what did we agree on price?" aria-label="Ask about this recording"><button class="btn">Ask</button></form>
-    <div class="desc rtext ranswer" id="recAnswer" hidden></div>
-    <details${rec.lines?.length ? ' open' : ''}><summary>What was said${rec.lines?.length ? ' · press a line to hear it' : ' (the full text)'}</summary>${rec.lines?.length
+    <div class="desc rtext ranswer" id="recAnswer" hidden></div>` : ''}
+    ${rec.chapters?.length > 1 ? `<details class="rfold"><summary>Chapters</summary><div class="rchaps">${rec.chapters.map(c => `<button type="button" data-x="jump" data-t="${+c.t}"><em>${clock(Math.floor(c.t))}</em>${esc(c.title)}</button>`).join('')}</div></details>` : ''}
+    ${rec.transcript ? `<details class="rfold"><summary>What was said</summary>${rec.lines?.length
     ? `<div class="rlines">${rec.lines.map(l => `<button type="button" class="rline" data-x="jump" data-t="${+l.t}"><em>${clock(Math.floor(l.t))}</em><span>${l.who ? `<b>${esc(l.who)}</b> ` : ''}${esc(l.text)}</span></button>`).join('')}</div>`
     : `<div class="desc rtext">${esc(rec.transcript)}</div>`}</details>` : ''}
+    ${url && !shot ? `<details class="rfold"><summary>Speed, save as a file${R.canTrim(rec) && rec.secs >= 6 ? ', trim' : ''}</summary>
+      <div class="rspeed"><span class="rlbl">Speed</span><div class="seg">${REC_SPEEDS.map(v => `<button type="button" data-x="speed" data-v="${v}" class="${v === 1 ? 'on' : ''}">${v}×</button>`).join('')}</div></div>
+      <div class="btnrow"><a class="btn" href="${url}" download="${esc(recFileName(rec))}">Save as a file</a>${R.canTrim(rec) && rec.secs >= 6 ? '<button type="button" class="btn" data-x="trim">Trim</button>' : ''}</div>
+      <div class="rtrim" id="recTrim" hidden>
+        <div class="rtrimrow"><button type="button" class="btn" data-x="trimfrom">Start here</button><button type="button" class="btn" data-x="trimto">End here</button>
+          <span class="rkeep">Keeping <b id="trimSpan"></b></span><span class="sp"></span><button type="button" class="btn primary" data-x="trimsave">Save trimmed copy</button></div>
+        <p class="note">Move the player to where it should begin and press “Start here”, then to where it should stop and press “End here”. The original stays as it is; the cut lands within two seconds of the spot.</p>
+      </div></details>` : ''}
     <div class="actions"><button type="button" class="btn danger" data-x="del">Delete</button>${back ? '<button type="button" class="btn" data-x="back">Back</button>' : ''}<span class="sp"></span><button type="button" class="btn ghost" data-x="close">Close</button></div></div>`, {
     back: () => back(),
     meeting: () => openEvent(ev),

@@ -60,9 +60,9 @@ const STEPS = [
       <div class="note"><b>Summary</b><p class="mut">Jane accepted the price. Legal still has to check the contract.</p>
         <b style="margin-top:5px">Action points</b><p>– Get legal to check the contract by Friday</p><p>– Book the demo</p></div>
       <div class="row" style="flex-wrap:wrap;gap:6px"><span class="mini">Tidy my notes</span><span class="mini go">Make 2 tasks</span><span class="mini">Follow-up email</span></div></div>` },
-  { name: 'Record', title: 'Record it, and let the notes write themselves',
-    say: '<b>Record</b> keeps a meeting’s sound, your screen, or you on camera, with your face in a corner if you like. Everything stays in your browser. Afterwards, <b>Make notes</b> turns the recording into a summary, decisions and action points.',
-    tip: 'The small bar has Pause, Stop and a still-picture button, and it can float on top of your other windows. Screenshots go into the same library.',
+  { name: 'Record', title: 'Let the meeting write its own notes',
+    say: 'Press <b>Record</b> on a meeting. Weftday listens (no bot joins the call) while you jot a few words. When it ends, the notes are written for you: a summary, decisions, what you owe and what others owe you, with who said what.',
+    tip: 'Ask any recording a question, or ask all your meetings at once. Record can also keep a video of your screen, with your camera in a corner, and screenshots.',
     art: `<div class="wf"><div style="position:relative;height:150px;border-radius:10px;background:color-mix(in srgb,var(--text) 86%,transparent);overflow:hidden">
         <span class="bar" style="position:absolute;left:14px;top:16px;width:40%;opacity:.5"></span><span class="bar" style="position:absolute;left:14px;top:32px;width:62%;opacity:.3"></span><span class="bar" style="position:absolute;left:14px;top:48px;width:50%;opacity:.3"></span>
         <span class="ava" style="position:absolute;right:12px;bottom:12px;width:46px;height:46px;font-size:13px;box-shadow:0 0 0 2px #fff">You</span></div>

@@ -923,3 +923,16 @@ h3 img.logo { width: 22px; height: 22px; vertical-align: -4px; margin-right: 9px
 .rkeep { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .rkeep b { color: var(--text); font-weight: 600; }
 .ranswer.tall { max-height: min(46vh, 420px); }
+.rkind { justify-self: start; flex-wrap: wrap; }
+.rkind span { padding: 6px 14px; font-size: 13.5px; }
+#recWhy { color: var(--text); margin-top: -4px; }
+.rnotes { display: grid; gap: 3px; font-size: 14px; line-height: 1.5; }
+.rnotes h5 { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 650; margin: 10px 0 1px; }
+.rnotes h5:first-child { margin-top: 0; }
+.rnotes p { margin: 0; }
+.rnotes ul { margin: 0; padding-left: 18px; display: grid; gap: 2px; }
+.rnotes .rnext { margin-top: 4px; padding: 7px 10px; border-radius: 9px; background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.rnotes .rnext b { font-weight: 650; color: var(--accent); margin-right: 8px; font-size: 12px; letter-spacing: .03em; }
+.rfold { border-top: 1px solid var(--line2); padding-top: 9px; }
+.rfold > summary { color: var(--text); font-weight: 600; font-size: 13.5px; }
+.rfold > :not(summary) { margin-top: 9px; }
