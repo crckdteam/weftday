@@ -8,6 +8,8 @@ Run it with the server started for you:
 or by hand, with the test server already running on port 4322:
     .venv/bin/python test/smoke.py
 """
+import datetime
+import json
 import os
 import sys
 from playwright.sync_api import sync_playwright
@@ -248,8 +250,98 @@ def run(p):
     check('a recording can be deleted', len(recordings(page)) == total - 1)
     close_dialog(page)
 
+    # ---- the meeting flow: record a meeting, type notes, and the notes write themselves (the AI is pretend)
+    def pretend_ai(route):
+        body = route.request.post_data or ''
+        if 'inline_data' in body:
+            text = 'Speaker 1: We agreed the price is 40 dollars a seat.\nSpeaker 2: I will send the contract by Friday.'
+        elif 'Answer with JSON only' in body:
+            text = json.dumps({'title': 'Acme pricing agreed', 'kind': 'sales call', 'summary': 'The price was agreed at 40 dollars a seat.',
+                               'next': 'Send the contract.', 'decisions': ['Price is 40 dollars a seat'], 'mine': ['Send the contract by Friday'],
+                               'theirs': ['Ravi: send the security questionnaire by Wednesday'], 'questions': [], 'facts': ['50 seats'], 'settled': []})
+            seen['rough'] = 'ask about the pilot' in body
+            seen['people'] = 'Ravi Menon' in body
+        else:
+            text = 'The price agreed was 40 dollars a seat.'
+        # Google answers in two shapes: one for listening to sound, one for plain questions
+        reply = {'outputs': [{'type': 'text', 'text': text}]} if '/interactions' in route.request.url else {'candidates': [{'content': {'parts': [{'text': text}]}}]}
+        route.fulfill(status=200, content_type='application/json', body=json.dumps(reply))
+
+    seen = {}
+    page.route('https://generativelanguage.googleapis.com/**', pretend_ai)
+    page.evaluate("""() => { const s = JSON.parse(localStorage.getItem('planner.demo.v1')); s.settings.aiKey = 'pretend-key-for-tests'; localStorage.setItem('planner.demo.v1', JSON.stringify(s)); }""")
+    page.reload()
+    page.wait_for_load_state('networkidle')
+    page.wait_for_timeout(700)
+    close_dialog(page)
+    tasks_before = page.evaluate("JSON.parse(localStorage.getItem('planner.demo.v1')).tasks.length")
+    page.locator('#gridBody [data-key]', has_text='Client call').first.click()
+    page.wait_for_timeout(600)
+    page.locator('#dlg [data-x=record]').click()
+    page.wait_for_timeout(500)
+    page.locator('#dlg input[name=what][value=mic]').check()
+    page.locator('#dlg input[name=auto]').check()
+    page.screenshot(path=os.path.join(OUT, 'record-meeting.png'))
+    page.locator('#dlg button.primary').click()
+    page.wait_for_selector('#recBar', timeout=20000)
+    page.wait_for_timeout(700)
+    box = page.locator('#dlg textarea[name=note]')
+    check('the meeting’s notes open by themselves while it records', box.count() == 1 and page.locator('#recBar [data-r=notes]').count() == 1)
+    box.fill('ask about the pilot')
+    page.wait_for_timeout(5600)
+    page.screenshot(path=os.path.join(OUT, 'meeting-recording.png'))
+    page.locator('#recBar [data-r=stop]').click()
+    try:
+        wait_until(page, "document.querySelector('#toast').innerText.includes('Notes written')", 30000)
+        written = box.input_value()
+        check('notes are written by themselves when the recording ends', 'Summary' in written and 'Send the contract by Friday' in written, written[:200])
+        check('what you typed is blended in and kept', seen.get('rough') and written.rstrip().endswith('ask about the pilot'), written[-120:])
+        check('the AI is told who was in the meeting', seen.get('people'))
+        check('notes separate my action points from what others owe, and name the next step',
+              'Waiting on others\n- Ravi: send the security questionnaire' in written and 'Next: Send the contract.' in written, written[:400])
+        page.screenshot(path=os.path.join(OUT, 'meeting-notes-written.png'))
+        page.locator('#toast [data-act=toast-go]').click()
+        page.wait_for_timeout(600)
+        tasks_after = page.evaluate("JSON.parse(localStorage.getItem('planner.demo.v1')).tasks.length")
+        check('only my own action point becomes a task', tasks_after == tasks_before + 1, f'{tasks_before} -> {tasks_after}')
+        made = page.evaluate("JSON.parse(localStorage.getItem('planner.demo.v1')).tasks.at(-1)")
+        check('the task carries the day that was meant', made['title'].startswith('Send the contract') and bool(made.get('date')), str(made)[:200])
+    except Exception as err:  # noqa: BLE001
+        said = page.evaluate("document.querySelector('#toast').innerText")
+        check('notes are written by themselves when the recording ends', False, f'{str(err)[:120]} | toast: {said}')
+        page.screenshot(path=os.path.join(OUT, 'auto-notes-failed.png'))
+    close_dialog(page)
+    newest = recordings(page)[0]
+    page.locator('#gridBody [data-key]', has_text='Client call').first.click()
+    page.wait_for_timeout(600)
+    page.locator('#dlg #recsBtn').click()
+    page.wait_for_selector('#dlg .rcard', timeout=8000)
+    page.locator(f'#dlg .rcard[data-id="{newest["id"]}"]').click()
+    page.wait_for_selector('#dlg .rask', timeout=8000)
+    page.locator('#dlg .rask input').fill('what price did we agree?')
+    page.locator('#dlg .rask button').click()
+    wait_until(page, "document.querySelector('#recAnswer').textContent.includes('40 dollars')", 15000)
+    check('a question about the meeting is answered from the recording', True)
+    page.screenshot(path=os.path.join(OUT, 'ask-recording.png'))
+    close_dialog(page)
+    page.unroute('https://generativelanguage.googleapis.com/**')
+
     page.screenshot(path=os.path.join(OUT, 'desktop.png'))
     page.close()
+
+    # ---- as a meeting begins, Weftday offers to record it (the clock is set to the start of a sample meeting)
+    monday = datetime.date.today() - datetime.timedelta(days=datetime.date.today().weekday())
+    early = browser.new_context(viewport={'width': 1440, 'height': 860})
+    early.add_init_script(SEEN + QUIET)
+    early.clock.install(time=datetime.datetime.combine(monday, datetime.time(14, 0, 20)))
+    ep = open_app(early, 'meeting start')
+    ep.wait_for_timeout(600)
+    said = ep.evaluate("document.querySelector('#toast').innerText")
+    check('a starting meeting offers “Record it”', 'is starting' in said and 'Record it' in said, said)
+    ep.locator('#toast [data-act=toast-go]').click()
+    ep.wait_for_timeout(500)
+    check('“Record it” opens the Record box for that meeting', 'Record this meeting' in ep.locator('#dlg').inner_text())
+    ep.close()
 
     # ---- a phone
     phone = browser.new_context(viewport={'width': 375, 'height': 812}, is_mobile=True, has_touch=True)

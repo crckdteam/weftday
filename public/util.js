@@ -160,6 +160,7 @@ export function parseQuick(text, now = new Date()) {
   }
 
   out.title = s.replace(/\s+/g, ' ').trim();
+  if (out.date || out.start != null) out.title = out.title.replace(/\s+(by|before|until|on|at)$/i, '') || out.title; // "send it by Friday" leaves no dangling "by"
   // A time with no day means today, or tomorrow if that time has already passed.
   if (out.start != null && !out.date) {
     const nowM = now.getHours() * 60 + now.getMinutes();

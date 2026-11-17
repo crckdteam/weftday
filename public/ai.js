@@ -90,12 +90,12 @@ export function explain(err) {
 
 // ---- the tidy layout, shared by every device (also read back to make tasks)
 export const ORIGINAL_MARK = '— Your notes —';
-const SECTIONS = [['decisions', 'Decisions'], ['actions', 'Action points'], ['questions', 'Open questions'], ['info', 'Also noted']];
+const SECTIONS = [['decisions', 'Decisions'], ['actions', 'Action points'], ['waiting', 'Waiting on others'], ['questions', 'Open questions'], ['info', 'Also noted']];
 
 export function layout(r, original) {
   const parts = [];
   if (r.summary) parts.push(`Summary\n${r.summary}`);
-  for (const [key, heading] of SECTIONS) if (r[key].length) parts.push(`${heading}\n${r[key].map(x => `- ${x}`).join('\n')}`);
+  for (const [key, heading] of SECTIONS) if (r[key]?.length) parts.push(`${heading}\n${r[key].map(x => `- ${x}`).join('\n')}`);
   return `${parts.join('\n\n')}\n\n${ORIGINAL_MARK}\n${original.trim()}`;
 }
 
@@ -128,3 +128,4 @@ function listUnder(text, heading) {
 }
 export const actionsIn = text => listUnder(text, /^action (points|items)\s*:?$/i);
 export const decisionsIn = text => listUnder(text, /^decisions\s*:?$/i);
+export const waitingIn = text => listUnder(text, /^waiting on others\s*:?$/i);

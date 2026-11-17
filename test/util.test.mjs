@@ -93,3 +93,9 @@ test('only real web addresses become links, only colour codes become colours', (
   assert.equal(hue('red;background:url(//evil.example)'), '#888');
   assert.equal(hue('#fff" onmouseover="x'), '#888');
 });
+
+test('a deadline word leaves no dangling “by”', () => {
+  const t = quick('Send the contract by Friday');
+  assert.deepEqual([t.title, t.date], ['Send the contract', '2026-11-20']);
+  assert.equal(quick('Stand by for the call').title, 'Stand by for the call'); // no date was read: nothing is cut
+});
