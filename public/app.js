@@ -1114,7 +1114,7 @@ function openPalette() {
     <div id="palList"></div><div class="palfoot">↑ ↓ to move · Enter to open · Esc to close</div></div>`, {}, 'palette');
   const input = $('#palIn', el.dlg), list = $('#palList', el.dlg);
   const cmds = [
-    ['Go to today', goToday], ['Today: prepare for my meetings', openToday], ['People and companies', () => openPeople()], ['Share my free times', () => openFreeTimes()], ['Record a meeting or my screen', () => openRecordSetup(null)], ['Recordings', () => openRecordings(null)], ['Show me around (tour)', () => setTimeout(startTour, 250)], ['Show a second time zone', openSecondZone], ['Plan my day', openPlan], ['New task', newTaskHere], ['New event', () => openEventForm(null)],
+    ['Go to today', goToday], ['Today: prepare for my meetings', openToday], ['People and companies', () => openPeople()], ['Share my free times', () => openFreeTimes()], ['Record a meeting or my screen', () => openRecordSetup(null)], ['Recordings', () => openRecordings(null)], ['Take a screenshot', () => takeShot(null)], ['Show me around (tour)', () => setTimeout(startTour, 250)], ['Show a second time zone', openSecondZone], ['Plan my day', openPlan], ['New task', newTaskHere], ['New event', () => openEventForm(null)],
     ['Day view', () => setView('day')], ['Week view', () => setView('week')], ['Month view', () => setView('month')], ['List view', () => setView('list')],
     ['Settings', () => openSettings()], ['Set up phone or another device', openDeviceSetup], ['Keyboard shortcuts', openHelp],
   ].map(([label, run]) => ({ kind: 'Go', label, sub: '', run }));
@@ -3580,70 +3580,248 @@ function openFreeTimes(keep = {}) {
 
 // ---------------------------------------------------------------- the recorder
 // Weftday's own recorder (recorder.js does the capturing and the storing). Here: the screens around
-// it, the small bar shown while it runs, and turning a recording into meeting notes with your AI key.
+// it, the small bar shown while it runs, the floating controls, the library of what was recorded,
+// and turning a recording into meeting notes with your AI key.
 const clock = secs => { const h = Math.floor(secs / 3600), m = Math.floor(secs % 3600 / 60), s = secs % 60; return `${h ? `${h}:${pad(m)}` : m}:${pad(s)}`; };
 const fmtSize = bytes => (bytes >= 1048576 ? `${(bytes / 1048576).toFixed(bytes >= 10485760 ? 0 : 1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);
 const eventFor = key => [...events.values()].find(ev => noteKey(ev) === key) || null;
-let recBar = null;
+const ricon = d => `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const REC_ICON = {
+  cam: ricon('<path d="M3 7.500A1.500 1.500 0 0 1 4.500 6h9A1.500 1.500 0 0 1 15 7.500v9a1.500 1.500 0 0 1-1.500 1.500h-9A1.500 1.500 0 0 1 3 16.500z"/><path d="M15 10.500l6-3.500v10l-6-3.500"/>'),
+  snap: ricon('<path d="M4 8h3l1.500-2h7L17 8h3v11H4z"/><circle cx="12" cy="13.200" r="3.200"/>'),
+  float: ricon('<rect x="3" y="5" width="18" height="14" rx="2"/><rect x="12" y="11.500" width="6.500" height="5" rx="1" fill="currentColor" stroke="none"/>'),
+  sound: ricon('<path d="M4 10v4M8 6v12M12 9v6M16 4v16M20 10v4"/>'),
+};
+// What was chosen here last time: which microphone and camera, and where the camera sits. Kept on this device only.
+const recPrefs = () => { try { return JSON.parse(localStorage.getItem('weftday.rec') || '{}') || {}; } catch { return {}; } };
+const saveRecPrefs = p => { try { localStorage.setItem('weftday.rec', JSON.stringify(p)); } catch { /* private window */ } };
+// Pictures and recordings are shown through short-lived addresses; they are given back when the box goes away.
+const recUrls = [];
+const recUrl = blob => { const u = URL.createObjectURL(blob); recUrls.push(u); return u; };
+const dropRecUrls = () => { for (const u of recUrls.splice(0)) URL.revokeObjectURL(u); };
+
+// ---- while a recording runs: the bar at the bottom, and the same controls floating over other windows
+let recBar = null, recFloat = null, recMeter = 0;
+const recViews = () => [recBar, recFloat && !recFloat.closed ? recFloat.document.body : null].filter(Boolean);
+function syncRec(session) {
+  for (const v of recViews()) {
+    v.classList.toggle('paused', session.state === 'paused');
+    const p = $('[data-r=pause]', v), c = $('[data-r=cam]', v);
+    if (p) p.textContent = session.state === 'paused' ? 'Resume' : 'Pause';
+    if (c) { c.classList.toggle('off', !session.look.on); c.setAttribute('aria-pressed', String(session.look.on)); }
+  }
+}
+async function recAct(session, what, btn) {
+  if (what === 'stop') {
+    for (const v of recViews()) for (const b of $$('button', v)) b.disabled = true;
+    btn.textContent = 'Saving…';
+    return session.stop();
+  }
+  if (what === 'pause') { if (session.state === 'recording') session.pause(); else session.resume(); return syncRec(session); }
+  if (what === 'cam') { session.setCamera({ on: !session.look.on }); return syncRec(session); }
+  if (what === 'float') return openFloat(session);
+  if (what === 'snap') {
+    btn.disabled = true;
+    try { const still = await session.snap(); if (still) toast('Still picture kept.', { go: ['Open it', () => openRecording(still.id)] }); }
+    catch { toast('The still picture could not be taken.', true); }
+    btn.disabled = false;
+  }
+}
 function showRecBar(session) {
   recBar ||= Object.assign(document.createElement('div'), { id: 'recBar' });
-  recBar.innerHTML = `<span class="rdot"></span><b id="recTime">0:00</b><span class="rname">${esc(session.rec.title)}</span>
+  recBar.className = '';
+  recBar.innerHTML = `${session.cam ? '<video class="rface" muted playsinline></video>' : '<span class="rdot"></span>'}
+    <b class="rtime">0:00</b>${session.rec.heard.length ? '<span class="rlevel" title="How loud it is right now"><i></i></span>' : ''}<span class="rname">${esc(session.rec.title)}</span>
+    ${session.camera ? `<button type="button" class="ricon" data-r="cam" aria-pressed="true" title="Show or hide your camera in the recording" aria-label="Show or hide your camera">${REC_ICON.cam}</button>` : ''}
+    ${session.video ? `<button type="button" class="ricon" data-r="snap" title="Keep a still picture of this moment" aria-label="Keep a still picture">${REC_ICON.snap}</button>` : ''}
+    ${'documentPictureInPicture' in window ? `<button type="button" class="ricon" data-r="float" title="Keep these controls on top of your other windows" aria-label="Float the controls">${REC_ICON.float}</button>` : ''}
     <button type="button" data-r="pause">Pause</button><button type="button" class="stop" data-r="stop">Stop</button>`;
-  recBar.onclick = async e => {
-    const b = e.target.closest('[data-r]');
-    if (!b) return;
-    e.stopPropagation();
-    if (b.dataset.r === 'stop') { b.disabled = true; b.textContent = 'Saving…'; return session.stop(); }
-    if (session.state === 'recording') { session.pause(); b.textContent = 'Resume'; recBar.classList.add('paused'); }
-    else { session.resume(); b.textContent = 'Pause'; recBar.classList.remove('paused'); }
-  };
+  const face = $('.rface', recBar);
+  if (face) { face.srcObject = session.cam; face.play().catch(() => {}); }
+  recBar.onclick = e => { const b = e.target.closest('[data-r]'); if (b) { e.stopPropagation(); recAct(session, b.dataset.r, b); } };
   (el.dlg.open && !el.dlg.classList.contains('closing') ? el.dlg : document.body).append(recBar); // not into a box that is on its way out
+  const level = $('.rlevel i', recBar);
+  const draw = () => {
+    if (!recBar?.isConnected || session.state === 'stopped') return;
+    if (level) level.style.width = `${Math.round(session.level() * 100)}%`;
+    recMeter = requestAnimationFrame(draw);
+  };
+  cancelAnimationFrame(recMeter);
+  draw();
+}
+// The same controls in a small window that stays on top, for when you are in another tab or app.
+async function openFloat(session, quiet) {
+  if (!('documentPictureInPicture' in window)) return;
+  if (recFloat && !recFloat.closed) return recFloat.focus();
+  let win = null;
+  try { win = await documentPictureInPicture.requestWindow({ width: 330, height: session.cam ? 190 : 100 }); }
+  catch { if (!quiet) toast('The floating controls could not be opened here.', true); return; }
+  recFloat = win;
+  const css = getComputedStyle(document.documentElement), v = n => css.getPropertyValue(n).trim();
+  win.document.title = 'Weftday is recording';
+  win.document.head.innerHTML = `<style>
+    body { margin: 0; height: 100vh; display: grid; place-items: center; overflow: hidden; background: ${v('--panel')}; color: ${v('--text')};
+      font: 14px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif; }
+    .f { display: grid; justify-items: center; gap: 10px; }
+    .row { display: flex; align-items: center; gap: 9px; }
+    .d { width: 10px; height: 10px; border-radius: 50%; background: ${v('--now')}; animation: p 1.4s ease-in-out infinite; }
+    .paused .d { animation: none; opacity: .4; }
+    b { font-variant-numeric: tabular-nums; font-size: 17px; font-weight: 650; min-width: 50px; }
+    button { font: inherit; font-weight: 600; border-radius: 99px; padding: 6px 14px; border: 1px solid ${v('--line')}; background: ${v('--bg')}; color: inherit; cursor: pointer; }
+    button:disabled { opacity: .6; }
+    .stop { background: ${v('--now')}; border-color: ${v('--now')}; color: #fff; }
+    video { width: 78px; height: 78px; border-radius: 50%; object-fit: cover; transform: scaleX(-1); background: #000; }
+    @keyframes p { 50% { opacity: .35; } }
+  </style>`;
+  win.document.body.innerHTML = `<div class="f">${session.cam ? '<video muted playsinline></video>' : ''}
+    <div class="row"><span class="d"></span><b class="rtime">${clock(session.seconds())}</b><button type="button" data-r="pause">Pause</button><button type="button" class="stop" data-r="stop">Stop</button></div></div>`;
+  const face = win.document.querySelector('video');
+  if (face) { face.srcObject = session.cam; face.play().catch(() => {}); }
+  win.document.body.onclick = e => { const b = e.target.closest('[data-r]'); if (b) recAct(session, b.dataset.r, b); };
+  win.addEventListener('pagehide', () => { if (recFloat === win) recFloat = null; });
+  syncRec(session);
+}
+function endRecViews() {
+  cancelAnimationFrame(recMeter);
+  recBar?.remove();
+  if (recFloat && !recFloat.closed) recFloat.close();
+  recFloat = null;
 }
 addEventListener('beforeunload', e => { if (R.current()) { e.preventDefault(); e.returnValue = ''; } }); // do not lose a running recording by accident
 
-// The one question before recording: what to record. ev is the meeting it belongs to, if any.
+// ---- before recording: the one question, what to record. ev is the meeting it belongs to, if any.
 function openRecordSetup(ev) {
   if (R.current()) return toast('A recording is already running. Stop it first.');
-  const screen = R.canCaptureScreen();
   if (!R.supported()) return toast('This browser cannot record. Use Chrome on a computer.', true);
-  dialog(`<form class="dbody">
+  const screen = R.canCaptureScreen(), drawCam = screen && R.canDrawCamera(), prefs = recPrefs();
+  let preview = null, opening = 0; // the camera, shown while this box is open
+  const stopPreview = () => { preview?.getTracks().forEach(t => t.stop()); preview = null; };
+  const tile = (value, title, text, on) => `<label><input type="radio" name="what" value="${value}"${on ? ' checked' : ''}><span><b>${title}</b><i>${text}</i></span></label>`;
+  const corner = (value, label) => `<label title="${label}"><input type="radio" name="corner" value="${value}"${(prefs.corner || 'br') === value ? ' checked' : ''}><span></span></label>`;
+  const size = (value, label) => `<label><input type="radio" name="size" value="${value}"${(prefs.size || 'medium') === value ? ' checked' : ''}><span>${label}</span></label>`;
+  dialog(`<form class="dbody rsetup">
     <h3>${ev ? 'Record this meeting' : 'Record'}</h3>
     ${ev ? `<div class="meta">${esc(ev.title)}</div>` : ''}
     <div class="rchoice">
-      ${screen ? `<label><input type="radio" name="what" value="sound" checked><span><b>The meeting’s sound</b><i>Small file. Best for getting notes afterwards.</i></span></label>
-      <label><input type="radio" name="what" value="video"><span><b>Screen and sound</b><i>A video you can watch again. Much larger.</i></span></label>` : ''}
-      <label><input type="radio" name="what" value="mic"${screen ? '' : ' checked'}><span><b>Only my microphone</b><i>For a meeting in the same room.</i></span></label>
+      ${screen ? tile('sound', 'The meeting’s sound', 'Small file. Best for notes.', true) + tile('video', 'Screen and sound', 'A video to watch again.') : ''}
+      ${tile('camera', 'My camera', 'You, talking to camera.')}
+      ${tile('mic', 'Only my microphone', 'A meeting in the room.', !screen)}
     </div>
-    <label class="check" id="recMicRow"${screen ? '' : ' hidden'}><input type="checkbox" name="mic" checked>Also record my own voice (microphone)</label>
+    <label class="check" id="recMicRow"><input type="checkbox" name="mic"${prefs.micOff ? '' : ' checked'}>Also record my own voice (microphone)</label>
+    <label class="check" id="recCamRow" hidden><input type="checkbox" name="cam"${prefs.camOn ? ' checked' : ''}>Show my camera in a corner of the video</label>
+    <div class="rcamset" id="recCamSet" hidden>
+      <video class="rcam" muted playsinline></video>
+      <div class="rcamopts" id="recCamOpts">
+        <div><span class="rlbl">Corner</span><div class="rcorners">${corner('tl', 'Top left')}${corner('tr', 'Top right')}${corner('bl', 'Bottom left')}${corner('br', 'Bottom right')}</div></div>
+        <div><span class="rlbl">Size</span><div class="segr">${size('small', 'Small')}${size('medium', 'Medium')}${size('large', 'Large')}</div></div>
+      </div>
+    </div>
+    <details class="rmore"><summary>Choose the microphone or camera</summary>
+      <div class="grid2"><label>Microphone<select name="micId"><option value="">The usual one</option></select></label>
+      <label>Camera<select name="camId"><option value="">The usual one</option></select></label></div>
+    </details>
     ${screen ? '<p class="note" id="recHow">Chrome will ask what to share. Pick the <b>tab your meeting is in</b> and leave <b>“Also share tab audio”</b> switched on.</p>' : ''}
     <p class="note warn2">Tell everyone in the meeting that you are recording. In many places that is the law.</p>
-    <p class="note">The recording stays in this browser. Nothing is sent anywhere unless you later press “Make notes”.</p>
-    <div class="actions"><span class="sp"></span><button type="button" class="btn ghost" data-x="close">Cancel</button><button class="btn primary">Start recording</button></div></form>`, {
+    <p class="note">It stays in this browser. Nothing is sent anywhere unless you later press “Make notes”.</p>
+    <div class="actions">${screen ? '<button type="button" class="btn ghost" data-x="shot">Take a screenshot instead</button>' : ''}<span class="sp"></span><button type="button" class="btn ghost" data-x="close">Cancel</button><button class="btn primary">Start recording</button></div></form>`, {
+    shot: () => { stopPreview(); takeShot(ev); },
     async submit(fd, form) {
       const what = fd.get('what'), btn = $('button.primary', form);
+      const wantCam = what === 'camera' || (what === 'video' && drawCam && fd.get('cam') === 'on');
+      const wantMic = what === 'mic' || what === 'camera' || fd.get('mic') === 'on';
+      saveRecPrefs({ micOff: fd.get('mic') !== 'on', camOn: fd.get('cam') === 'on', corner: fd.get('corner'), size: fd.get('size'), micId: fd.get('micId'), camId: fd.get('camId') });
       btn.disabled = true;
       try {
-        const streams = await R.ask({ screen: what !== 'mic', mic: what === 'mic' || fd.get('mic') === 'on' });
+        // Asking for the screen comes first, straight from this press: the browser insists on that.
+        const streams = await R.ask({ screen: what === 'sound' || what === 'video', mic: wantMic, micId: fd.get('micId'), cam: wantCam && !preview, camId: fd.get('camId') });
+        if (wantCam && preview) { streams.cam = preview; preview = null; } // the camera already open in this box carries on into the recording
         const session = await R.start(streams, {
-          keepVideo: what === 'video', key: ev ? noteKey(ev) : '', title: ev ? ev.title : `Recording, ${dayLabel(new Date())}`,
-          onTick: secs => { const t = $('#recTime'); if (t) t.textContent = clock(secs); },
+          keepVideo: what === 'video', camera: { corner: fd.get('corner'), size: fd.get('size') },
+          key: ev ? noteKey(ev) : '', title: ev ? ev.title : `Recording, ${dayLabel(new Date())} ${fmtTime(new Date().getHours() * 60 + new Date().getMinutes())}`,
+          onTick: secs => { for (const v of recViews()) { const t = $('.rtime', v); if (t) t.textContent = clock(secs); } },
+          onProblem: () => toast('This browser ran out of room, so the recording was stopped. What was recorded so far is kept.', true),
           onEnd: rec => {
-            recBar?.remove();
+            endRecViews();
             toast(`Recording saved · ${clock(rec.secs)}`, { go: ['Open it', () => openRecording(rec.id)] });
           },
         });
         closeDialog();
         showRecBar(session);
-        toast(session.rec.heard.length === 2 ? 'Recording the meeting and your microphone.' : `Recording ${session.rec.heard[0]} only.`);
+        openFloat(session, true);
+        const heard = session.rec.heard;
+        if (streams.noSystemSound && heard.length < 2) toast('No sound is coming from what you shared. To record the meeting’s sound, share the browser tab it is in and leave “Also share tab audio” on.', true);
+        else if (streams.micFailed) toast('Your microphone could not be used, so your own voice is not being recorded.', true);
+        else if (streams.camFailed || (wantCam && !session.cam)) toast('Your camera could not be used, so the recording goes on without it.', true);
+        else toast(heard.length === 2 ? 'Recording the meeting and your microphone.' : heard.length ? `Recording ${heard[0]} only.` : 'Recording without sound.');
       } catch (err) {
         btn.disabled = false;
         if (err.name === 'NotAllowedError' || err.name === 'AbortError') toast('Nothing was chosen, so nothing is being recorded.');
-        else toast(err.kind === 'nosound' ? err.message : 'The recording could not start. Check that this browser may use your screen and microphone.', true);
+        else toast(err.kind === 'nosound' ? err.message : 'The recording could not start. Check that this browser may use your screen, microphone and camera.', true);
       }
     },
   });
-  const sync = () => { const v = $('[name=what]:checked', el.dlg).value; $('#recMicRow', el.dlg).hidden = v === 'mic'; const how = $('#recHow', el.dlg); if (how) how.hidden = v === 'mic'; };
-  for (const r of $$('[name=what]', el.dlg)) r.addEventListener('change', sync);
+  const form = $('form', el.dlg), f = name => form.elements[name];
+  const names = async () => { // the lists of microphones and cameras (their names show once the browser may use them)
+    const { mics, cams } = await R.devices();
+    for (const [sel, list, keep] of [[f('micId'), mics, prefs.micId], [f('camId'), cams, prefs.camId]]) {
+      if (!sel.isConnected) return;
+      const now = sel.value || keep || '';
+      sel.innerHTML = `<option value="">The usual one</option>${list.map(d => `<option value="${esc(d.id)}">${esc(d.label)}</option>`).join('')}`;
+      sel.value = list.some(d => d.id === now) ? now : '';
+    }
+  };
+  const showCamera = async () => {
+    const what = f('what').value, need = what === 'camera' || (what === 'video' && drawCam && f('cam').checked);
+    $('#recCamSet', form).hidden = !need;
+    $('#recCamOpts', form).hidden = what === 'camera';
+    if (!need) return stopPreview();
+    if (preview) return;
+    const mine = ++opening;
+    try {
+      const got = (await R.ask({ cam: true, camId: f('camId').value })).cam;
+      if (mine !== opening || !form.isConnected || $('#recCamSet', form).hidden) return got.getTracks().forEach(t => t.stop()); // no longer wanted
+      preview = got;
+      const video = $('.rcam', form);
+      video.srcObject = preview;
+      video.play().catch(() => {});
+      names();
+    } catch {
+      if (mine !== opening || !form.isConnected) return;
+      f('cam').checked = false;
+      $('#recCamSet', form).hidden = true;
+      toast('The camera could not be opened. Check that this browser may use it.', true);
+    }
+  };
+  const sync = () => {
+    const what = f('what').value;
+    $('#recMicRow', form).hidden = what === 'mic' || what === 'camera';
+    $('#recCamRow', form).hidden = what !== 'video' || !drawCam;
+    const how = $('#recHow', form);
+    if (how) how.hidden = what === 'mic' || what === 'camera';
+    f('camId').closest('label').hidden = what === 'sound' || what === 'mic';
+    showCamera();
+  };
+  form.addEventListener('change', e => {
+    if (e.target.name === 'camId') stopPreview(); // another camera was picked: open that one
+    if (['what', 'cam', 'camId'].includes(e.target.name)) sync();
+  });
+  el.dlg.addEventListener('close', stopPreview, { once: true });
+  names();
+  sync();
+}
+
+// One screenshot: Chrome asks what to show, a single picture is kept, and sharing ends at once.
+async function takeShot(ev) {
+  if (!R.canCaptureScreen()) return toast('This browser cannot take a screenshot. Use Chrome on a computer.', true);
+  try {
+    const now = new Date();
+    const rec = await R.shot({ key: ev ? noteKey(ev) : '', title: `Screenshot, ${dayLabel(now)} ${fmtTime(now.getHours() * 60 + now.getMinutes())}` });
+    openRecording(rec.id);
+    toast('Screenshot kept.');
+  } catch (err) {
+    if (err.name === 'NotAllowedError' || err.name === 'AbortError') toast('Nothing was chosen, so no screenshot was taken.');
+    else toast('The screenshot could not be taken.', true);
+  }
 }
 
 // What is said in each piece of the recording, then the notes written from all of it.
@@ -3694,19 +3872,31 @@ async function notesFromRecording(rec, signal, say) {
   return { transcript, notes };
 }
 
-// One recording: play it, get notes from it, save it as a file, or delete it.
+// ---- afterwards: one recording, and the library of them all
+const REC_SPEEDS = [1, 1.25, 1.5, 2];
+const recKind = r => (r.kind === 'shot' ? 'Screenshot' : r.kind === 'video' ? 'Video' : 'Sound');
+const recFileName = r => `${r.title.replace(/[^\w -]+/g, '').trim() || 'recording'}.${r.mime === 'image/png' ? 'png' : r.mime.includes('mp4') ? (r.kind === 'audio' ? 'm4a' : 'mp4') : 'webm'}`;
+// One recording: play it, name it, get notes from it, save it as a file, or delete it.
 async function openRecording(id, back) {
   const rec = await R.get(id);
   if (!rec) return toast('That recording is no longer here.', true);
-  const blob = await R.file(id), url = blob ? URL.createObjectURL(blob) : '';
-  const ev = eventFor(rec.key);
+  dropRecUrls();
+  const blob = await R.file(id), url = blob ? recUrl(blob) : '';
+  const ev = eventFor(rec.key), shot = rec.kind === 'shot', canNote = !shot && !!rec.pieceMime;
+  const facts = shot ? [dayLabel(new Date(rec.at)), rec.w ? `${rec.w} × ${rec.h}` : '', fmtSize(rec.size)]
+    : [dayLabel(new Date(rec.at)), clock(rec.secs), fmtSize(rec.size), rec.heard?.length ? `heard ${rec.heard.join(' and ')}` : 'no sound', rec.cam && rec.surface ? 'with your camera' : '', rec.cut ? 'cut short' : ''];
+  const stage = !url ? '<p class="note">This recording has no playable part.</p>'
+    : shot ? `<div class="rstage"><img class="rshot" alt="${esc(rec.title)}" src="${url}"></div>`
+      : rec.kind === 'video' ? `<div class="rstage"><video class="rplay" controls playsinline src="${url}"></video></div>` : `<audio class="rplay" controls src="${url}"></audio>`;
   dialog(`<div class="dbody">
-    <h3>${esc(rec.title)}</h3>
-    <div class="meta">${esc(dayLabel(new Date(rec.at)))} · ${clock(rec.secs)} · ${fmtSize(rec.size)}${rec.heard?.length ? ` · heard ${esc(rec.heard.join(' and '))}` : ''}${rec.cut ? ' · cut short' : ''}</div>
-    ${url ? (rec.kind === 'video' ? `<video class="rplay" controls src="${url}"></video>` : `<audio class="rplay" controls src="${url}"></audio>`) : '<p class="note">This recording has no playable part.</p>'}
+    <input class="rtitle" name="title" value="${esc(rec.title)}" maxlength="120" aria-label="Name of this ${shot ? 'screenshot' : 'recording'}" title="Press to rename">
+    <div class="meta">${esc(facts.filter(Boolean).join(' · '))}</div>
+    ${stage}
+    ${url && !shot ? `<div class="rspeed"><span class="rlbl">Speed</span><div class="seg">${REC_SPEEDS.map(s => `<button type="button" data-x="speed" data-v="${s}" class="${s === 1 ? 'on' : ''}">${s}×</button>`).join('')}</div><span class="note">Space plays and pauses · ← → jump 5 seconds</span></div>` : ''}
     <div class="btnrow">
-      <button type="button" class="btn primary" data-x="notes">${rec.notes ? 'Make the notes again' : 'Make notes'}</button>
-      <a class="btn" href="${url}" download="${esc(rec.title.replace(/[^\w -]+/g, '').trim() || 'recording')}.${rec.mime.includes('mp4') ? 'mp4' : 'webm'}">Save as a file</a>
+      ${canNote ? `<button type="button" class="btn primary" data-x="notes">${rec.notes ? 'Make the notes again' : 'Make notes'}</button>` : ''}
+      ${shot && url ? '<button type="button" class="btn primary" data-x="copy">Copy</button>' : ''}
+      ${url ? `<a class="btn" href="${url}" download="${esc(recFileName(rec))}">Save as a file</a>` : ''}
       ${ev ? '<button type="button" class="btn" data-x="meeting">Open the meeting</button>' : ''}
     </div>
     <div class="note" id="recSay" hidden></div>
@@ -3715,10 +3905,19 @@ async function openRecording(id, back) {
     <div class="actions"><button type="button" class="btn danger" data-x="del">Delete</button>${back ? '<button type="button" class="btn" data-x="back">Back</button>' : ''}<span class="sp"></span><button type="button" class="btn ghost" data-x="close">Close</button></div></div>`, {
     back: () => back(),
     meeting: () => openEvent(ev),
+    speed(x) {
+      const media = $('.rplay', el.dlg);
+      if (media) media.playbackRate = +x.dataset.v;
+      for (const b of $$('[data-x=speed]', el.dlg)) b.classList.toggle('on', b === x);
+    },
+    async copy() {
+      try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); toast('Copied. Paste it anywhere.'); }
+      catch { toast('It could not be copied here. Use “Save as a file” instead.', true); }
+    },
     async del() {
-      if (!confirm('Delete this recording? It cannot be brought back.')) return;
+      if (!confirm(`Delete this ${shot ? 'screenshot' : 'recording'}? It cannot be brought back.`)) return;
       await R.remove(id);
-      toast('Recording deleted');
+      toast(shot ? 'Screenshot deleted' : 'Recording deleted');
       if (back) back(); else closeDialog();
     },
     async notes(btn) {
@@ -3738,21 +3937,65 @@ async function openRecording(id, back) {
         else toast(err.message || 'The notes could not be made. Please try again.', true);
       } finally { if (aiJob === job) aiJob = null; }
     },
+  }, rec.kind === 'audio' ? '' : 'wide');
+  const title = $('.rtitle', el.dlg), media = $('.rplay', el.dlg);
+  title.addEventListener('change', async () => {
+    const name = title.value.replace(/\s+/g, ' ').trim() || rec.title;
+    title.value = rec.title = name;
+    await R.update(id, { title: name });
   });
-  el.dlg.addEventListener('close', () => URL.revokeObjectURL(url), { once: true });
+  title.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); title.blur(); } });
+  // A recording made by a browser that cannot say how long its file is: a jump to the end finds out.
+  if (media) media.addEventListener('loadedmetadata', () => {
+    if (Number.isFinite(media.duration)) return;
+    media.addEventListener('durationchange', () => { if (Number.isFinite(media.duration)) media.currentTime = 0; }, { once: true });
+    media.currentTime = 1e7;
+  }, { once: true });
+  const keys = e => {
+    const m = $('.rplay', el.dlg);
+    if (!m || e.metaKey || e.ctrlKey || e.altKey || e.target.closest('input, textarea, select, button, a, audio, video')) return;
+    const jump = { ArrowLeft: -5, ArrowRight: 5, j: -10, l: 10 }[e.key];
+    if (e.key === ' ' || e.key === 'k') { if (m.paused) m.play(); else m.pause(); }
+    else if (jump) m.currentTime = clamp(m.currentTime + jump, 0, Number.isFinite(m.duration) ? m.duration : 1e7);
+    else if (e.key === 'm') m.muted = !m.muted;
+    else if (e.key === 'f' && m.requestFullscreen) m.requestFullscreen().catch(() => {});
+    else return;
+    e.preventDefault();
+  };
+  el.dlg.addEventListener('keydown', keys);
+  el.dlg.addEventListener('close', () => { el.dlg.removeEventListener('keydown', keys); dropRecUrls(); }, { once: true });
 }
-// The recordings kept in this browser: for one meeting (ev), or all of them.
+
+// Everything recorded and kept in this browser: for one meeting (ev), or all of it.
+let recShow = 'all';
 async function openRecordings(ev) {
-  const list = ev ? await R.forMeeting(noteKey(ev)) : await R.all(), total = list.reduce((n, r) => n + (r.size || 0), 0);
+  const every = ev ? await R.forMeeting(noteKey(ev)) : await R.all(), total = every.reduce((n, r) => n + (r.size || 0), 0);
+  const kinds = [['all', 'All'], ['video', 'Videos'], ['audio', 'Sound'], ['shot', 'Screenshots']].filter(([k]) => k === 'all' || every.some(r => r.kind === k));
+  if (!kinds.some(([k]) => k === recShow)) recShow = 'all';
+  const list = every.filter(r => recShow === 'all' || r.kind === recShow);
+  dropRecUrls();
+  const card = r => `<button type="button" class="rcard" data-x="open" data-id="${esc(r.id)}">
+    <span class="rthumb ${r.kind}">${r.thumb ? `<img alt="" loading="lazy" src="${recUrl(r.thumb)}">` : (r.kind === 'audio' ? REC_ICON.sound : '')}${r.kind === 'shot' ? '' : `<em>${clock(r.secs)}</em>`}</span>
+    <b>${esc(r.title)}</b><i>${esc(dayLabel(new Date(r.at)))} · ${fmtSize(r.size)}${r.notes ? ' · notes made' : ''}${r.cut ? ' · cut short' : ''}</i></button>`;
   dialog(`<div class="dbody">
     <h3>${ev ? 'Recordings of this meeting' : 'Recordings'}</h3>
-    <p class="note">${list.length ? `${list.length} kept in this browser, ${fmtSize(total)} in all. They are not copied to your other devices.` : 'Nothing recorded yet. Recordings are kept in this browser only.'}</p>
-    <div class="plist3 tall">${list.map(r => `<button type="button" class="prow2" data-x="open" data-id="${esc(r.id)}">
-      <div class="clogo sm rk">${r.kind === 'video' ? '▶' : '♪'}</div><span><b>${esc(r.title)}</b><i>${esc(dayLabel(new Date(r.at)))} · ${clock(r.secs)} · ${fmtSize(r.size)}${r.notes ? ' · notes made' : ''}</i></span></button>`).join('')}</div>
-    <div class="actions"><button type="button" class="btn" data-x="rec">Record${ev ? ' again' : ''}</button><span class="sp"></span><button type="button" class="btn primary" data-x="close">Close</button></div></div>`, {
+    ${every.length ? `<p class="note">${every.length} kept in this browser, ${fmtSize(total)} in all. They stay on this device and are not copied to your other ones.</p>` : ''}
+    ${kinds.length > 2 ? `<div class="seg rkinds">${kinds.map(([k, l]) => `<button type="button" data-x="kind" data-v="${k}" class="${k === recShow ? 'on' : ''}">${l}</button>`).join('')}</div>` : ''}
+    ${every.length ? `<div class="rgrid">${list.map(card).join('')}</div>`
+    : `<div class="rempty">${REC_ICON.snap}<b>Nothing recorded yet</b><span>Record a meeting to get its notes written for you, record your screen to show someone how something works, or keep a screenshot.</span></div>`}
+    <div class="actions">${R.supported() ? `<button type="button" class="btn" data-x="rec">Record${ev && every.length ? ' again' : ''}</button>` : ''}${R.canCaptureScreen() ? '<button type="button" class="btn" data-x="shot">Screenshot</button>' : ''}<span class="sp"></span><button type="button" class="btn primary" data-x="close">Close</button></div></div>`, {
     open: x => openRecording(x.dataset.id, () => openRecordings(ev)),
+    kind: x => { recShow = x.dataset.v; openRecordings(ev); },
     rec: () => openRecordSetup(ev),
-  });
+    shot: () => takeShot(ev),
+  }, 'wide');
+  el.dlg.addEventListener('close', dropRecUrls, { once: true });
+  // videos that have no small picture yet (cut off, or made by an older version) get one now, one at a time
+  for (const r of list.filter(x => x.kind === 'video' && !x.thumb)) {
+    const thumb = await R.makeThumb(r.id).catch(() => null), spot = $(`.rcard[data-id="${CSS.escape(r.id)}"] .rthumb`, el.dlg);
+    if (!spot) return;
+    if (thumb) spot.insertAdjacentHTML('afterbegin', `<img alt="" src="${recUrl(thumb)}">`);
+  }
 }
 
 // ---------------------------------------------------------------- showing people around

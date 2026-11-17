@@ -35,13 +35,20 @@ node serve.mjs
 
 Then open http://localhost:4321. Add `?demo` to the address to try it with sample data.
 
-## Publishing a change
+## The recorder
 
-The website is the `public` folder, published from the `gh-pages` branch:
+**Record** (in the side panel, and on every meeting) keeps a meeting's sound, your screen, or your camera, with your face in a corner of the screen if you like. It also takes single screenshots. Everything is stored in the browser (IndexedDB) and never uploaded. **Make notes** sends only the sound of one recording, in short pieces, to Google's AI with your own key and writes the summary into the meeting's notes.
 
-```bash
-sh tools/publish.sh
+It needs Chrome or Edge on a computer. A phone can record the microphone and camera only. On a Mac, the sound of a meeting can be captured when the meeting runs in a browser tab, not from the Zoom or Teams desktop apps.
+
+## Checking and publishing a change
+
 ```
+sh tools/check.sh      # logic tests, then the real app in Chrome with sample data and a pretend camera, microphone and screen
+sh tools/publish.sh    # refuses to publish if anything looks like a private key, or if a check fails
+```
+
+The browser check needs Python's Playwright once: `python3 -m venv .venv && .venv/bin/pip install playwright` (it uses the Chrome that is already installed). Before publishing, raise the version in `public/sw.js` (`planner-shell-vN`) so every device picks up the new files. The rules for working on this project are in `CLAUDE.md`.
 
 ## Home page and guide
 

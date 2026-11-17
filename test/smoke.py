@@ -49,6 +49,17 @@ def open_app(context, label='app', path='/?demo'):
     return page
 
 
+def wait_until(page, expression, timeout=15000):
+    """Waits for something to become true on the page (the page's safety policy forbids the built-in way)."""
+    waited = 0
+    while waited < timeout:
+        if page.evaluate(expression):
+            return
+        page.wait_for_timeout(150)
+        waited += 150
+    raise TimeoutError(f'still not true after {timeout} ms: {expression}')
+
+
 def dialog_open(page):
     return page.evaluate("document.querySelector('#dlg').open && !document.querySelector('#dlg').classList.contains('closing')")
 
@@ -128,60 +139,114 @@ def run(p):
         check('a meeting opens', dialog_open(page))
         close_dialog(page)
 
-    # ---- the recorder: microphone only
-    page.locator('#side [data-act="record"]').first.click()
-    page.wait_for_timeout(400)
-    page.locator('#dlg input[name=what][value=mic]').check()
-    page.locator('#dlg button.primary').click()
-    try:
-        page.wait_for_selector('#recBar', timeout=15000)
-    except Exception:  # noqa: BLE001
-        page.screenshot(path=os.path.join(OUT, 'mic-recording-failed.png'))
-        print('   toast:', page.evaluate("document.querySelector('#toast').innerText"), '| bar in page:', page.locator('#recBar').count(),
-              '| box:', page.evaluate("document.querySelector('#dlg').innerText.slice(0, 200)"))
-        raise
-    check('recording starts (microphone)', page.locator('#recBar').is_visible())
-    page.wait_for_timeout(3200)
-    page.locator('#recBar [data-r=stop]').click()
-    page.wait_for_selector('#recBar', state='detached', timeout=20000)
-    recs = recordings(page)
-    mic = recs[0] if recs else {}
-    check('recording is saved', bool(recs) and mic.get('done') and mic.get('size', 0) > 1000 and mic.get('secs', 0) >= 2, str(mic))
-
-    # ---- the recorder: a tab with its picture (the pretend screen is this very tab)
-    if page.evaluate("!!navigator.mediaDevices.getDisplayMedia"):
+    # ---- the recorder
+    def record(kind, seconds, camera=False, shot_name=None, during=None):
+        """Starts a recording of the given kind from the Record box, lets it run, stops it, and returns it."""
+        before = {r['id'] for r in recordings(page)}
         page.locator('#side [data-act="record"]').first.click()
         page.wait_for_timeout(400)
-        page.locator('#dlg input[name=what][value=video]').check()
+        page.locator(f'#dlg input[name=what][value={kind}]').check()
+        if camera:
+            page.locator('#dlg input[name=cam]').check()
+            wait_until(page, "document.querySelector('#dlg .rcam')?.readyState >= 2", 15000)
+            page.locator('#dlg input[name=corner][value=tl]').check(force=True)
+            page.locator('#dlg input[name=size][value=large]').check(force=True)
+        if kind == 'camera':
+            wait_until(page, "document.querySelector('#dlg .rcam')?.readyState >= 2", 15000)
+        if shot_name:
+            page.wait_for_timeout(300)
+            page.screenshot(path=os.path.join(OUT, shot_name))
         page.locator('#dlg button.primary').click()
         try:
             page.wait_for_selector('#recBar', timeout=20000)
-            page.wait_for_timeout(4200)
-            page.locator('#recBar [data-r=stop]').click()
-            page.wait_for_selector('#recBar', state='detached', timeout=30000)
-            recs = recordings(page)
-            vid = next((r for r in recs if r['kind'] == 'video'), {})
-            check('screen recording is saved as a video', vid.get('done') and vid.get('size', 0) > 20000, str(vid))
-        except Exception as err:  # noqa: BLE001
-            check('screen recording is saved as a video', False, str(err)[:200])
-            page.screenshot(path=os.path.join(OUT, 'screen-recording-failed.png'))
+        except Exception:  # noqa: BLE001
+            page.screenshot(path=os.path.join(OUT, f'{kind}-recording-failed.png'))
+            print('   toast:', page.evaluate("document.querySelector('#toast').innerText"))
             close_dialog(page)
+            return {}
+        if during:
+            during()
+        page.wait_for_timeout(int(seconds * 1000))
+        page.locator('#recBar [data-r=stop]').click()
+        page.wait_for_selector('#recBar', state='detached', timeout=30000)
+        return next((r for r in recordings(page) if r['id'] not in before and r['kind'] != 'shot'), {})
 
-    # ---- the recordings list, one recording, and delete
-    recs = recordings(page)
-    if recs:
-        page.locator('#searchBtn').click()
-        page.wait_for_timeout(300)
-        page.keyboard.type('recordings')
-        page.wait_for_timeout(300)
-        page.keyboard.press('Enter')
+    mic = record('mic', 3)
+    check('microphone recording is saved', mic.get('done') and mic.get('kind') == 'audio' and mic.get('size', 0) > 1000 and mic.get('secs', 0) >= 2, str(mic))
+
+    sound = record('sound', 3)
+    check('a meeting’s sound is saved without the picture', sound.get('done') and sound.get('kind') == 'audio' and sound.get('size', 0) > 1000, str(sound))
+
+    def bar_tools():
+        page.wait_for_timeout(1800)
+        page.screenshot(path=os.path.join(OUT, 'recording-bar.png'))
+        check('the bar shows the camera, a level and the tools', page.locator('#recBar .rface').count() == 1
+              and page.locator('#recBar [data-r=snap]').count() == 1 and page.locator('#recBar [data-r=cam]').count() == 1)
+        page.locator('#recBar [data-r=snap]').click()
+        page.wait_for_timeout(1200)
+        page.locator('#recBar [data-r=pause]').click()
         page.wait_for_timeout(600)
-        check('the recordings list opens', dialog_open(page) and page.locator('#dlg [data-id]').count() >= 1)
-        page.locator('#dlg [data-id]').first.click()
-        page.wait_for_timeout(900)
-        check('a recording opens with a player', page.locator('#dlg .rplay').count() == 1)
-        page.screenshot(path=os.path.join(OUT, 'recording.png'))
-        close_dialog(page)
+        check('pause and resume work', page.locator('#recBar.paused').count() == 1 and page.locator('#recBar [data-r=pause]').inner_text() == 'Resume')
+        page.locator('#recBar [data-r=pause]').click()
+
+    video = record('video', 3, camera=True, shot_name='record-setup.png', during=bar_tools)
+    check('screen recording with the camera in a corner is saved', video.get('done') and video.get('kind') == 'video' and video.get('cam')
+          and video.get('thumb') and video.get('size', 0) > 20000, str(video))
+    check('a still picture taken while recording is kept', any(r['kind'] == 'shot' for r in recordings(page)))
+
+    cam = record('camera', 3)
+    check('camera-only recording is saved', cam.get('done') and cam.get('kind') == 'video' and cam.get('size', 0) > 10000, str(cam))
+
+    # ---- a screenshot
+    shots = sum(1 for r in recordings(page) if r['kind'] == 'shot')
+    page.locator('#searchBtn').click()
+    page.wait_for_timeout(300)
+    page.keyboard.type('take a screenshot')
+    page.wait_for_timeout(300)
+    page.keyboard.press('Enter')
+    try:
+        page.wait_for_selector('#dlg .rshot', timeout=15000)
+        page.wait_for_timeout(300)
+        page.screenshot(path=os.path.join(OUT, 'screenshot-view.png'))
+        check('a screenshot is taken and shown', sum(1 for r in recordings(page) if r['kind'] == 'shot') == shots + 1)
+    except Exception as err:  # noqa: BLE001
+        check('a screenshot is taken and shown', False, str(err)[:160])
+    close_dialog(page)
+
+    # ---- the library, one recording, renaming, speed, delete
+    page.locator('#searchBtn').click()
+    page.wait_for_timeout(300)
+    page.keyboard.type('recordings')
+    page.wait_for_timeout(300)
+    page.keyboard.press('Enter')
+    page.wait_for_selector('#dlg .rgrid', timeout=8000)
+    page.wait_for_timeout(500)
+    total = len(recordings(page))
+    check('the library lists everything', page.locator('#dlg .rcard').count() == total, f"{page.locator('#dlg .rcard').count()} of {total}")
+    check('videos and screenshots have a small picture', page.locator('#dlg .rthumb.video img, #dlg .rthumb.shot img').count() >= 3)
+    page.screenshot(path=os.path.join(OUT, 'library.png'))
+    page.locator('#dlg .rkinds [data-v=video]').click()
+    page.wait_for_timeout(400)
+    check('the library can show videos only', page.locator('#dlg .rcard').count() == 2)
+    page.locator(f'#dlg .rcard[data-id="{video["id"]}"]').click()
+    page.wait_for_selector('#dlg video.rplay', timeout=8000)
+    wait_until(page, "Number.isFinite(document.querySelector('#dlg video.rplay').duration)", 8000)
+    length = page.evaluate("document.querySelector('#dlg video.rplay').duration")
+    check('the video knows its own length', 2 <= length <= 12, str(length))
+    page.locator('#dlg [data-x=speed][data-v="1.5"]').click()
+    check('playback speed can be changed', page.evaluate("document.querySelector('#dlg video.rplay').playbackRate") == 1.5)
+    page.locator('#dlg .rtitle').fill('Demo for the team')
+    page.locator('#dlg .rtitle').press('Enter')
+    page.wait_for_timeout(400)
+    check('a recording can be renamed', any(r['title'] == 'Demo for the team' for r in recordings(page)))
+    page.evaluate("document.querySelector('#dlg video.rplay').currentTime = 2")
+    page.wait_for_timeout(700)
+    page.screenshot(path=os.path.join(OUT, 'recording.png'))
+    page.once('dialog', lambda d: d.accept())
+    page.locator('#dlg [data-x=del]').click()
+    page.wait_for_timeout(700)
+    check('a recording can be deleted', len(recordings(page)) == total - 1)
+    close_dialog(page)
 
     page.screenshot(path=os.path.join(OUT, 'desktop.png'))
     page.close()
@@ -192,9 +257,22 @@ def run(p):
     pp = open_app(phone, 'phone')
     check('no sideways scrolling on a phone', pp.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'))
     pp.screenshot(path=os.path.join(OUT, 'phone.png'))
+    pp.evaluate("document.querySelector('[data-act=record]').click()")
+    pp.wait_for_timeout(600)
+    check('the Record box fits a phone', dialog_open(pp) and pp.evaluate('document.documentElement.scrollWidth <= innerWidth + 1')
+          and pp.evaluate("document.querySelector('#dlg').getBoundingClientRect().width <= innerWidth"))
+    pp.screenshot(path=os.path.join(OUT, 'phone-record.png'))
+    close_dialog(pp)
     pp.close()
 
     # ---- the other pages
+    guide = open_app(context, 'guide', '/guide.html#8')
+    check('the guide shows the Record step and moves on', 'Record it' in guide.locator('body').inner_text())
+    guide.locator('#next').click()
+    guide.wait_for_timeout(400)
+    check('the guide’s buttons work', 'Share when you are free' in guide.locator('body').inner_text())
+    guide.screenshot(path=os.path.join(OUT, 'guide-record.png'))
+    guide.close()
     for path in ['/home.html', '/guide.html', '/about.html', '/privacy.html']:
         other = open_app(context, path, path)
         check(f'{path} opens', other.locator('body').inner_text().strip() != '')

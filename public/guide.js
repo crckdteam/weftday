@@ -60,6 +60,14 @@ const STEPS = [
       <div class="note"><b>Summary</b><p class="mut">Jane accepted the price. Legal still has to check the contract.</p>
         <b style="margin-top:5px">Action points</b><p>– Get legal to check the contract by Friday</p><p>– Book the demo</p></div>
       <div class="row" style="flex-wrap:wrap;gap:6px"><span class="mini">Tidy my notes</span><span class="mini go">Make 2 tasks</span><span class="mini">Follow-up email</span></div></div>` },
+  { name: 'Record', title: 'Record it, and let the notes write themselves',
+    say: '<b>Record</b> keeps a meeting’s sound, your screen, or you on camera, with your face in a corner if you like. Everything stays in your browser. Afterwards, <b>Make notes</b> turns the recording into a summary, decisions and action points.',
+    tip: 'The small bar has Pause, Stop and a still-picture button, and it can float on top of your other windows. Screenshots go into the same library.',
+    art: `<div class="wf"><div style="position:relative;height:150px;border-radius:10px;background:color-mix(in srgb,var(--text) 86%,transparent);overflow:hidden">
+        <span class="bar" style="position:absolute;left:14px;top:16px;width:40%;opacity:.5"></span><span class="bar" style="position:absolute;left:14px;top:32px;width:62%;opacity:.3"></span><span class="bar" style="position:absolute;left:14px;top:48px;width:50%;opacity:.3"></span>
+        <span class="ava" style="position:absolute;right:12px;bottom:12px;width:46px;height:46px;font-size:13px;box-shadow:0 0 0 2px #fff">You</span></div>
+      <div class="row"><i class="dotc" style="background:var(--now);border-radius:50%"></i><b>12:48</b><span class="sp"></span><span class="mini">Pause</span><span class="mini go">Stop</span></div>
+      <div class="row" style="flex-wrap:wrap;gap:5px"><span class="chip ok">Stays in your browser</span><span class="chip">Make notes</span><span class="chip plain">Screenshot</span></div></div>` },
   { name: 'Free times', title: 'Share when you are free',
     say: '<b>Free times</b> writes out your open slots across every calendar, ready to paste into an email, in any time zone you pick. The <b>globe</b> in the top bar shows a second time zone next to your own on the calendar.',
     tip: 'When you write for another zone, Weftday keeps only their daytime, so you never offer someone 4am.',
