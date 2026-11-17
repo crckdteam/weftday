@@ -2022,7 +2022,13 @@ async function refresh() {
   }
   await Promise.all(jobs);
   // A calendar that is gone from an account: read that account's list again, so it drops out by itself.
-  for (const a of new Set(failed.filter(x => [404, 410].includes(x.err.status)).map(x => x.a))) await G.refreshCalendars(a).catch(() => {});
+  let healed = false;
+  for (const a of new Set(failed.filter(x => [404, 410].includes(x.err.status)).map(x => x.a))) {
+    const before = a.calendars.map(c => c.id).join('|');
+    await G.refreshCalendars(a).catch(() => {});
+    healed ||= a.calendars.map(c => c.id).join('|') !== before;
+  }
+  if (healed) { renderSide(); setTimeout(refresh, 400); } // the list was out of date: read the right calendars straight away
   const ws = startOfWeek(today).getTime(), we = addDays(startOfWeek(today), 7).getTime();
   saveEventCache(ymd(startOfWeek(today)), [...events.values()].filter(ev => ev.e > ws && ev.s < we));
   const noGoogle = failed.length > 0 && failed.every(x => x.err.kind === 'unreachable'); // nothing answered: no point in waiting on more
