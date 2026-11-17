@@ -301,7 +301,7 @@ function quickHint() {
   if (p.repeat) bits.push({ daily: 'every day', weekdays: 'Mon – Fri', weekly: 'every week' }[p.repeat]);
   if (p.tag) bits.push('#' + p.tag);
   if (p.priority === 'high') bits.push('high priority');
-  el.hint.textContent = '↵  ' + bits.join(' · ');
+  el.hint.textContent = '↵  ' + bits.join(' · ') + (v.trim().split(/\s+/).length >= 6 ? '   ·   ✨ several tasks at once' : '');
   el.hint.hidden = false;
 }
 
@@ -848,9 +848,13 @@ function newTaskHere() {
 
 function bind() {
   const input = $('#quickInput');
-  $('#quick').addEventListener('submit', e => { e.preventDefault(); quickAdd(); });
+  $('#quick').addEventListener('submit', e => { e.preventDefault(); if (!planJob) quickAdd(); });
   input.addEventListener('input', quickHint);
-  input.addEventListener('keydown', e => { if (e.key === 'Escape') { input.value = ''; quickHint(); input.blur(); } });
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { if (planJob) return planJob.abort(); input.value = ''; quickHint(); input.blur(); }
+    if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); quickPlan(); } // Shift+Enter: let AI work it out
+  });
+  $('#quickAi').onclick = quickPlan;
   $('#todayBtn').onclick = goToday;
   $('#prev').onclick = () => step(-1);
   $('#next').onclick = () => step(1);
@@ -2515,12 +2519,14 @@ function openSettings(msg, pane) {
             ${row('Teams or Outlook calendar', 'View-only, through a small helper in your Google account', '<button type="button" class="btn" data-x="teams">Add</button>')}
           </div>`)}
 
-        ${section('ai', 'AI', 'Three optional helpers for your meetings. Each is a button you press; here is what they do.', `
+        ${section('ai', 'AI', 'Four optional helpers. Each is a button you press; here is what they do.', `
           <h4>Tidy my notes</h4>
           <p class="gintro">A button under your notes in a meeting. It turns rough notes into a short summary, decisions and action points.</p>
           <div class="sgroup">
             ${row('Runs on this device', 'Inside your browser, so your notes are never sent anywhere. No key needed.', tag('Checking…', '', 'aiState'))}
           </div>
+          <h4>Add tasks in your own words</h4>
+          <p class="gintro">The ✨ button in “Add a task”. Type a sentence such as “call Priya tomorrow morning, gym at 6 and send the deck on Friday” and it becomes separate tasks at the right times. You see them before anything is added. It uses the AI service chosen below, and only what you typed is sent.</p>
           <h4>Get facts about a person ${tag(...factsState(), 'factsState')}</h4>
           <p class="gintro">A button on a person’s profile. It looks them up on the web and fills in their profile inside Weftday: role, background, company and photo. It needs a key of your own.</p>
           <div class="sgroup">
@@ -2822,6 +2828,129 @@ function tick() {
   if (!DEMO && Date.now() - refreshedAt > 12 * 60000 && navigator.onLine !== false) refresh(); // also in a background tab, so reminders know about new meetings
   askHowItWent(now, today);
   morningBrief(now, today);
+}
+
+// ---------------------------------------------------------------- add tasks in your own words
+// The ✨ button in "Add a task": a sentence such as "call Priya tomorrow morning, gym at 6 and send
+// the deck on Friday" is handed to your AI service, which answers with separate tasks. Only what you
+// typed is sent. You see the tasks before anything is added.
+const PLAN_SCHEMA = {
+  type: 'object',
+  properties: { tasks: { type: 'array', items: {
+    type: 'object',
+    properties: { title: { type: 'string' }, date: { type: 'string' }, start: { type: 'string' }, minutes: { type: 'integer' }, flexible: { type: 'boolean' } },
+    required: ['title', 'date', 'start', 'minutes', 'flexible'], additionalProperties: false,
+  } } },
+  required: ['tasks'], additionalProperties: false,
+};
+function planQuestion(text) {
+  const now = new Date(), { dayStart, dayEnd } = state.settings;
+  const dayName = d => d.toLocaleDateString('en-GB', { weekday: 'long' });
+  const week = Array.from({ length: 8 }, (_, i) => addDays(startOfDay(now), i)).map(d => `${dayName(d)} ${ymd(d)}`).join(', ');
+  return [
+    'You turn what a person typed into tasks for their planner. Answer with JSON only, no other words:',
+    '{"tasks":[{"title":"…","date":"YYYY-MM-DD","start":"HH:MM","minutes":30,"flexible":false}]}',
+    `Now it is ${dayName(now)} ${ymd(now)}, ${hhmm(nowMinutes())}. The coming days: ${week}. Their working day is ${hhmm(dayStart)} to ${hhmm(Math.min(dayEnd, 1439))}. Weeks start on Monday.`,
+    'Rules:',
+    '- One entry for each separate thing to do. Never add tasks they did not mention.',
+    '- title: short and clear, without the day and time words. Keep names and details.',
+    '- date: the day they meant. Use "" if they gave no day and no time.',
+    '- start: 24-hour time. An exact time is kept as given ("at 6" in the evening context is 18:00; "7am" is 07:00). For a part of the day use: early morning 07:00, morning 09:00, late morning 11:00, noon or lunch 12:30, after lunch 14:00, afternoon 15:00, evening 18:00, night 20:00, and set flexible to true. Use "" if they gave no time at all.',
+    '- A time with no day means today, or tomorrow if that time has already passed today.',
+    '- minutes: the length they gave, or 0 if they gave none.',
+    '- flexible: true only when the time came from a part of the day; false for exact times and for no time.',
+    '- "then" or "after that" means straight after the task before it.',
+    `What they typed: """${text.slice(0, 1500)}"""`,
+  ].join('\n');
+}
+// Reads the AI's answer into tasks, checks every part, and finds real free time for the loose ones.
+function readPlan(raw) {
+  const found = /\{[\s\S]*\}/.exec(String(raw || ''));
+  let list = [];
+  try { list = JSON.parse(found?.[0] || '{}').tasks || []; } catch { list = []; }
+  const today = todayYmd(), taken = new Map(), out = [];
+  for (const x of Array.isArray(list) ? list.slice(0, 12) : []) {
+    const title = String(x?.title || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+    if (!title) continue;
+    let date = /^\d{4}-\d{2}-\d{2}$/.test(x.date || '') && !isNaN(fromYmd(x.date)) ? x.date : null;
+    const clock = /^(\d{1,2}):(\d{2})$/.exec(x.start || '');
+    let start = clock && +clock[1] < 24 && +clock[2] < 60 ? Math.round((+clock[1] * 60 + +clock[2]) / SNAP) * SNAP : null;
+    const duration = +x.minutes >= 5 ? clamp(Math.round(+x.minutes / SNAP) * SNAP, SNAP, 720) : 30;
+    if (date && date < today) date = today;
+    if (start != null && !date) date = start < nowMinutes() ? ymd(addDays(new Date(), 1)) : today;
+    if (start != null) {
+      start = Math.min(start, 1440 - duration);
+      // a loose time ("in the morning"), or one that would sit on top of another new task, moves to the next gap
+      const busy = [...(x.flexible ? busyOf(fromYmd(date)) : []), ...(taken.get(date) || [])].sort((a, b) => a[0] - b[0]);
+      let s = date === today && x.flexible ? Math.max(start, Math.ceil((nowMinutes() + 1) / SNAP) * SNAP) : start;
+      for (const [bs, be] of busy) { if (be <= s) continue; if (bs >= s + duration) break; s = Math.ceil(be / SNAP) * SNAP; }
+      if (s + duration <= 1440) start = s;
+      taken.set(date, [...(taken.get(date) || []), [start, start + duration]]);
+    }
+    out.push({ title, date, start, duration });
+  }
+  return out;
+}
+async function askForTasks(text, signal) {
+  const s = state.settings, svc = S.aiService(s.aiProvider), question = planQuestion(text);
+  if (svc.kind === 'claude' && s.claudeKey) return readPlan(await (await import('./claude.js')).plain(question, s.claudeKey, signal));
+  const usable = svc.kind === 'google' || (svc.kind === 'chat' && svc.base);
+  if (usable && factsKey()) return readPlan(await F.askPlain(question, { provider: svc.id, key: aiKeyOf(svc.id), model: s.aiModels?.[svc.id] || '', google: s.aiKey }, signal));
+  if (s.aiKey) return readPlan(await F.askPlain(question, { provider: 'google', google: s.aiKey }, signal)); // the chosen service cannot do this: your Google key can
+  if (AI.supported() && await AI.status() !== 'no') return readPlan(await AI.ask(question, PLAN_SCHEMA, signal)); // no key: the browser's own AI
+  throw Object.assign(new Error('nokey'), { kind: 'nokey' });
+}
+let planJob = null;
+async function quickPlan() {
+  const input = $('#quickInput'), btn = $('#quickAi'), text = input.value.trim();
+  if (planJob) { planJob.abort(); return; } // pressed again while thinking: stop
+  if (text.split(/\s+/).length < 2) { input.focus(); return toast('Type what you want to do, in your own words, then press ✨.'); }
+  if (DEMO) return toast('This is sample data. Open the app without “?demo” to plan with AI.');
+  const job = planJob = new AbortController();
+  btn.classList.add('busy'); input.readOnly = true;
+  el.hint.textContent = '✨  Working out your tasks…'; el.hint.hidden = false;
+  try {
+    const tasks = await askForTasks(text, job.signal);
+    if (job.signal.aborted) return;
+    if (!tasks.length) return toast('The AI found no tasks in that. Try saying it differently.', true);
+    openPlanned(tasks, text);
+  } catch (err) {
+    if (err.name === 'AbortError' || job.signal.aborted) return;
+    if (err.kind === 'nokey') openSettings('To add tasks in your own words, add a free AI key here (Google AI takes about a minute).', 'ai');
+    else toast(err.message || 'The AI could not work that out. Please try again.', true);
+  } finally {
+    if (planJob === job) planJob = null;
+    btn.classList.remove('busy'); input.readOnly = false;
+    quickHint();
+  }
+}
+// Shows what the AI made of the sentence. Nothing is added until you say so.
+function openPlanned(tasks, text) {
+  const when = t => [t.date ? relDay(t.date) : 'Inbox', t.start != null ? fmtRange(t.start, t.start + t.duration) : t.date ? 'any time' : '', t.start == null ? fmtDur(t.duration) : ''].filter(Boolean).join(' · ');
+  dialog(`<form class="dbody">
+    <h3>Add ${tasks.length === 1 ? 'this task' : `these ${tasks.length} tasks`}?</h3>
+    <p class="note">From: “${esc(text.length > 160 ? `${text.slice(0, 160)}…` : text)}”</p>
+    <div class="plist aiplan">${tasks.map((t, i) => `<label class="prow"><input type="checkbox" name="pick" value="${i}" checked>
+      <span class="pt">${esc(t.title)}</span><span class="pd">${esc(when(t))}</span></label>`).join('')}</div>
+    <p class="note">Untick anything that is wrong. You can move or change a task after it is added.</p>
+    <div class="actions"><span class="sp"></span><button type="button" class="btn ghost" data-x="close">Cancel</button><button class="btn primary" id="planAdd">Add</button></div></form>`, {
+    submit(fd) {
+      const picked = fd.getAll('pick').map(i => tasks[+i]);
+      if (!picked.length) return closeDialog();
+      mark();
+      const made = picked.map(p => newTask({ title: p.title, date: p.date, start: p.start, duration: p.duration }));
+      state.tasks.push(...made);
+      $('#quickInput').value = '';
+      quickHint();
+      closeDialog();
+      commit();
+      const firstDay = made.map(t => t.date).filter(Boolean).sort()[0];
+      if (firstDay && !visibleDates().some(d => ymd(d) === firstDay) && made.length === 1) goTo(fromYmd(firstDay));
+      for (const t of made) flash(t.id, 'born');
+      toast(made.length === 1 ? 'Task added' : `${made.length} tasks added`, { undo: true });
+    },
+  });
+  $('#planAdd', el.dlg).focus();
 }
 
 // ---------------------------------------------------------------- your day, people and companies

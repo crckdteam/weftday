@@ -52,7 +52,20 @@ a { color: var(--accent); }
 .brand { display: flex; align-items: center; gap: 8px; padding: 14px 16px 10px; font-weight: 650; font-size: 16px; }
 .brand #closeSide { margin-left: auto; }
 #demoTag { font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 99px; background: var(--task); border: 1px solid var(--task-line); }
-#quick { padding: 0 12px 8px; }
+#quick { padding: 0 12px 8px; position: relative; }
+#quickInput { padding-right: 38px !important; }
+#quickAi {
+  position: absolute; top: 4px; right: 17px; width: 30px; height: 30px; border: 0; border-radius: 8px; background: transparent;
+  color: var(--muted); display: grid; place-items: center; transition: color .15s, background .15s, transform .15s;
+}
+#quickAi:hover, #quickInput:focus + #quickAi { color: var(--accent); }
+#quickAi:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+#quickAi:active { transform: scale(.92); }
+#quickAi.busy { color: var(--accent); animation: think 1.1s ease-in-out infinite; }
+@keyframes think { 50% { transform: scale(1.18) rotate(18deg); opacity: .55; } }
+.aiplan { max-height: min(46vh, 340px); }
+.aiplan .prow { padding: 7px 6px; }
+.aiplan .pd { white-space: nowrap; }
 #quickInput {
   width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line);
   background: var(--panel); outline: none; box-shadow: var(--lift);

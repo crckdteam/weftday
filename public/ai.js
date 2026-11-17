@@ -73,6 +73,13 @@ export async function tidy({ title, people, text }, { signal, onProgress } = {})
   } finally { session.destroy(); }
 }
 
+// One question to the browser's own model, answered in a fixed shape (a JSON schema). Returns the text.
+export async function ask(question, schema, signal) {
+  const session = await self.LanguageModel.create({ ...LANG, signal });
+  try { return await session.prompt(question, { responseConstraint: schema, signal }); }
+  finally { session.destroy(); }
+}
+
 // A plain sentence for when something goes wrong.
 export function explain(err) {
   if (err?.name === 'NotSupportedError' || err?.name === 'NotAllowedError') return 'The built-in AI is not available in this browser.';

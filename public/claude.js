@@ -45,14 +45,30 @@ export async function personFacts(who, meeting, key, signal, hint = '') {
     throw new Error('Claude did not finish in time. Please try again.');
   } catch (err) {
     if (signal?.aborted || err instanceof Anthropic.APIUserAbortError) throw new DOMException('Stopped', 'AbortError');
-    if (err instanceof Anthropic.AuthenticationError) throw new Error('Anthropic did not accept that Claude key. Check it in Settings.');
+    if (err instanceof Anthropic.AuthenticationError) throw Object.assign(new Error('Anthropic did not accept that Claude key. Check it in Settings.'), { kind: 'key' });
     if (err instanceof Anthropic.PermissionDeniedError) throw new Error('This Claude key is not allowed to do that. Check the key in the Anthropic Console.');
     if (err instanceof Anthropic.RateLimitError) throw new Error('This Claude key has reached its limit for now. Try again in a minute.');
-    if (err instanceof Anthropic.APIConnectionError) throw new Error('Could not reach Claude. Check your connection and try again.');
+    if (err instanceof Anthropic.APIConnectionError) throw Object.assign(new Error('Could not reach Claude. Check your connection and try again.'), { kind: 'offline' });
     if (err instanceof Anthropic.APIError) {
       const said = String(err.error?.error?.message || err.message || '').slice(0, 200);
       throw new Error(/credit|billing/i.test(said) ? 'This Claude key has no credit. Add credit in the Anthropic Console, then try again.' : `Claude could not answer: ${said}`);
     }
     throw err;
+  }
+}
+
+// A plain question with no web search, for small jobs such as turning a sentence into tasks.
+// A small, fast model is enough for that.
+export async function plain(input, key, signal) {
+  Anthropic ||= (await import('./vendor/anthropic-sdk.js')).default;
+  const client = new Anthropic({ apiKey: key, dangerouslyAllowBrowser: true, maxRetries: 1, timeout: 60000 });
+  try {
+    const response = await client.messages.create({ model: 'claude-haiku-5-5', max_tokens: 2000, messages: [{ role: 'user', content: input }] }, { signal });
+    return response.content.filter(block => block.type === 'text').map(block => block.text).join('\n');
+  } catch (err) {
+    if (signal?.aborted) throw new DOMException('Stopped', 'AbortError');
+    if (err instanceof Anthropic.AuthenticationError) throw Object.assign(new Error('Claude did not accept that key. Check it in Settings.'), { kind: 'key' });
+    if (err instanceof Anthropic.APIConnectionError) throw Object.assign(new Error('Could not reach Claude. Check your connection and try again.'), { kind: 'offline' });
+    throw new Error('Claude could not answer. Please try again.');
   }
 }

@@ -213,6 +213,14 @@ export function mergeInto(existing, answer, dayText) {
   return `${own ? `${own}\n\n` : ''}${lines.join('\n')}`;
 }
 
+// A plain question to the chosen AI service, with no web search. Returns the answer as text.
+export async function askPlain(input, keys, signal) {
+  const svc = aiService(keys.provider);
+  if (svc.kind === 'google') return (await firstThatAnswers(READ_MODELS, m => ask(m, input, '', keys.google, signal))).text;
+  if (svc.kind === 'chat' && svc.base) return (await chat(svc, keys.key, keys.model, input, signal)).text;
+  throw Object.assign(new Error(`${svc.name} cannot be used for this.`), { kind: 'noplain' });
+}
+
 // ---- photos found on the web
 // Puts the pictures a search returned in order, most likely to be this person first, and marks the
 // ones with real evidence (their name in the picture's caption or address) as "sure". A picture is
