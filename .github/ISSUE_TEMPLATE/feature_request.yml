@@ -1,0 +1,43 @@
+name: Suggest a feature
+description: An idea that would make Weftday better.
+title: "[Idea] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for the idea. A few things shape what Weftday can take on: it has no server, no build step and no dependencies, it must stay free to run, and everything stays in the person's browser or their own Google account.
+
+        Anyone can read issues, so please leave out keys and private calendar details.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do
+      description: Describe the situation, not the solution. What is hard or missing today?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
+      description: Describe what you would like Weftday to do, in plain words.
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: What you do today
+      description: Any workaround or other tool you use for this now.
+  - type: checkboxes
+    id: fit
+    attributes:
+      label: Does it fit
+      description: Tick what is true as far as you know. It is fine to leave these empty.
+      options:
+        - label: It needs no server and no paid service.
+        - label: Nothing would leave the person's device without them pressing a button or switching on a setting.
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: Sketches and examples are welcome.

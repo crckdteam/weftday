@@ -1,0 +1,92 @@
+name: Report a problem
+description: Something in Weftday is broken or not working the way it should.
+title: "[Problem] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for taking the time to report this.
+
+        **Anyone can read issues.** Please do not paste API keys, sign-in tokens, client secrets, setup links or codes, and leave out private calendar details such as real names, email addresses and meeting titles. Use `?demo` sample data in pictures where you can.
+
+        **Found a security problem?** Do not report it here. Use **Security → Report a vulnerability** on the repository.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: Describe what you saw. Include the exact words of any message the app showed.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: What should have happened?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to make it happen
+      description: The shortest list of steps that leads to the problem.
+      placeholder: |
+        1. Open ...
+        2. Press ...
+        3. See ...
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where does it happen
+      options:
+        - The published app (crckdteam.github.io/planner)
+        - The sample data (?demo)
+        - My own hosted copy
+        - On my computer (node serve.mjs)
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and version
+      placeholder: Chrome, Edge, Safari or Firefox, with its version number
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and system
+      placeholder: Mac, Windows or Linux computer, iPhone or Android phone
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of Weftday
+      options:
+        - Calendar and tasks
+        - Connecting a Google account
+        - Meeting notes
+        - Recorder
+        - AI notes and Ask your meetings
+        - Share links
+        - People and company pages
+        - Teams calendar helper
+        - Setting up another device
+        - Something else
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: Pictures help. Check them for private details before you add them.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you send
+      options:
+        - label: I have left out keys, tokens, setup links and private calendar details.
+          required: true
+        - label: I looked for an existing issue about this and did not find one.
+          required: true

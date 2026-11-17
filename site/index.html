@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Weftday: free, open-source meeting notes, recorder and calendar in your browser</title>
+<meta name="description" content="Weftday is one calm place for your calendar, your meetings and your notes. Press Record and the notes write themselves. Free, open source, no server, no bot.">
+<link rel="canonical" href="https://weftday.crckd.live/">
+<meta name="theme-color" content="#0f3d2e">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Weftday">
+<meta property="og:title" content="Weftday: your day, woven together">
+<meta property="og:description" content="Calendar, meeting recorder and notes that write themselves. Free, open source, and it runs in your own browser. No server, no bot.">
+<meta property="og:url" content="https://weftday.crckd.live/">
+<meta property="og:image" content="https://weftday.crckd.live/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preload" href="fonts/bricolage.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/figtree.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="site.css">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@graph":[
+{"@type":"SoftwareApplication","@id":"https://weftday.crckd.live/#app","name":"Weftday","applicationCategory":"BusinessApplication","operatingSystem":"Web browser","description":"A free, open-source web app that shows your Google calendars and tasks, records meetings, and writes notes from the recording with your own AI key. It runs entirely in the browser, with no server.","url":"https://weftday.crckd.live/","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"license":"https://www.gnu.org/licenses/agpl-3.0.html","isAccessibleForFree":true,"featureList":["Meeting recorder with no bot","AI meeting notes with speakers, decisions and action points","All Google calendars and tasks in one place","Microsoft Teams calendar","Screen and camera recording","Share links through your own Google Drive","Runs offline once opened","Self-hostable"],"author":{"@id":"https://www.crckd.live/#org"}},
+{"@type":"Organization","@id":"https://www.crckd.live/#org","name":"CRCKD","url":"https://www.crckd.live/"},
+{"@type":"WebSite","@id":"https://weftday.crckd.live/#site","name":"Weftday","url":"https://weftday.crckd.live/","publisher":{"@id":"https://www.crckd.live/#org"}},
+{"@type":"FAQPage","mainEntity":[
+{"@type":"Question","name":"Is Weftday really free?","acceptedAnswer":{"@type":"Answer","text":"Yes. There is no paid plan and no account with us. The AI features run on a key that you get free from Google. If you prefer a paid AI service you can use your own key for that instead, but nothing needs it."}},
+{"@type":"Question","name":"Does a bot join my meetings?","acceptedAnswer":{"@type":"Answer","text":"No. Weftday listens through your own browser, the way a screen share does. Nothing joins the call and nobody else has to install anything. Please tell people you are recording."}},
+{"@type":"Question","name":"Where are my recordings and notes kept?","acceptedAnswer":{"@type":"Answer","text":"In your browser, on your device. If you choose, tasks and notes are also kept in a calendar in your own Google account so your other devices have them. A share link copies one recording to your own Google Drive. There is no Weftday server."}},
+{"@type":"Question","name":"Does it work with Google Meet, Zoom and Microsoft Teams?","acceptedAnswer":{"@type":"Answer","text":"Yes. For a meeting in a browser tab, share that tab with its sound. For the Zoom or Teams app, share the whole screen with system sound. A company Teams or Outlook calendar can be shown next to your Google calendars."}},
+{"@type":"Question","name":"What do I need to get started?","acceptedAnswer":{"@type":"Answer","text":"Chrome or Edge on a computer for recording. Today, connecting Google takes a one-time setup of about ten minutes, which the app walks you through. A one-press sign-in is being arranged with Google. You can try everything first with sample data."}},
+{"@type":"Question","name":"How is Weftday different from Granola, Loom or Cap?","acceptedAnswer":{"@type":"Answer","text":"Those are polished products that each do one part: notes, or video. They run on their makers' servers, and most are paid. Weftday puts the calendar, the recorder and the notes together, keeps everything on your device or in your own Google account, and is free and open source. The price is a little more setup."}},
+{"@type":"Question","name":"Can I run my own copy?","acceptedAnswer":{"@type":"Answer","text":"Yes. Weftday is one folder of plain files with no build step. Put it on any static host, or run it on your computer with one command. The code is on GitHub under the AGPL-3.0 licence."}}
+]}
+]}
+</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the page</a>
+
+<header class="top" id="top">
+  <a class="mark" href="./" aria-label="Weftday, home"><img src="icon.svg" alt="" width="30" height="30"><span>Weftday</span></a>
+  <nav class="tabs" aria-label="On this page">
+    <a href="#record" data-tab="record">Record</a>
+    <a href="#notes" data-tab="notes">Notes</a>
+    <a href="#calendar" data-tab="calendar">Calendar</a>
+    <a href="#people" data-tab="people">People</a>
+    <a href="#yours" data-tab="yours">Yours</a>
+    <a href="#open" data-tab="open">Open source</a>
+  </nav>
+  <div class="topact">
+    <a class="ghub" href="https://github.com/crckdteam/planner" rel="noopener"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-3.160 19.490c.500.090.680-.220.680-.480v-1.700c-2.780.600-3.370-1.340-3.370-1.340-.450-1.160-1.110-1.470-1.110-1.470-.910-.620.070-.610.070-.610 1 .070 1.530 1.030 1.530 1.030.890 1.530 2.340 1.090 2.910.830.090-.650.350-1.090.630-1.340-2.220-.250-4.550-1.110-4.550-4.940 0-1.090.390-1.980 1.030-2.680-.100-.250-.450-1.270.100-2.650 0 0 .840-.270 2.750 1.020a9.560 9.560 0 0 1 5 0c1.910-1.290 2.750-1.020 2.750-1.020.550 1.380.200 2.400.100 2.650.640.700 1.030 1.590 1.030 2.680 0 3.840-2.340 4.680-4.570 4.930.360.310.680.920.680 1.850v2.740c0 .270.180.580.690.480A10 10 0 0 0 12 2z"/></svg><span>GitHub</span></a>
+    <a class="btn solid" href="https://crckdteam.github.io/planner/">Open Weftday</a>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero">
+    <h1>Your day,<br>woven together.</h1>
+    <p class="lede">Weftday is one calm place for your calendar, your meetings and your notes. Press Record, and the notes write themselves.</p>
+    <div class="cta">
+      <a class="btn solid big" href="https://crckdteam.github.io/planner/">Open Weftday</a>
+      <a class="btn line big" href="https://crckdteam.github.io/planner/?demo">Try it with sample data</a>
+    </div>
+    <p class="fine">Free and open source. Nothing to install, no account with us, no bot in your calls.</p>
+  </section>
+
+  <div class="drawer">
+    <section class="card first" aria-label="Weftday in twenty seconds">
+      <div class="dividers" aria-hidden="true"><i class="t-record"></i><i class="t-notes"></i><i class="t-calendar"></i><i class="t-people"></i><i class="t-yours"></i></div>
+      <figure class="screen">
+        <video id="tour" muted loop playsinline preload="metadata" poster="img/home.png" width="1280" height="800" aria-label="A short look around Weftday: the day, the Record button, the calendar, a meeting's notes, and the notes page">
+          <source src="video/tour.webm" type="video/webm">
+        </video>
+        <button type="button" class="vbtn" id="tourBtn" aria-pressed="true" aria-label="Pause the clip"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path class="pause" fill="currentColor" d="M7 5h3.500v14H7zM13.500 5H17v14h-3.500z"/><path class="play" fill="currentColor" d="M8 5l11 7-11 7z"/></svg></button>
+        <figcaption>The real app, with its sample week. Look closely at the calendar.</figcaption>
+      </figure>
+    </section>
+
+    <section class="card t-record" id="record">
+      <span class="tab" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18"><circle cx="12" cy="12" r="6" fill="currentColor"/></svg></span>
+      <div class="split">
+        <div class="say">
+          <h2>Press Record. Walk out with the notes.</h2>
+          <p>Weftday listens to the meeting through your own browser. No bot joins the call and nobody has to be invited. When it ends, the summary, the decisions and who does what are already written.</p>
+          <ul class="lines">
+            <li>Four ways to record: a meeting, your screen, your camera, or only your voice.</li>
+            <li>Trim it, speed it up, or send a link from your own Google Drive.</li>
+            <li>Recordings stay on your computer until you choose to share one.</li>
+          </ul>
+        </div>
+        <figure class="shot box"><img src="img/record.png" alt="The Record box in Weftday, with four choices: Meeting, Screen, Camera and Voice" loading="lazy"></figure>
+      </div>
+    </section>
+
+    <section class="card t-notes" id="notes">
+      <span class="tab" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.200" stroke-linecap="round"><path d="M6 7h12M6 12h12M6 17h7"/></svg></span>
+      <div class="split flip">
+        <div class="say">
+          <h2>Notes that know the meeting.</h2>
+          <p>Because Weftday holds your calendar, the notes know who was in the room, what was agreed last time, and what you typed while it was happening.</p>
+          <ul class="lines">
+            <li>Your action points become tasks. What others owe you is kept apart.</li>
+            <li>Ask across every meeting: “What did we agree with Acme about price?”</li>
+            <li>Type the way you would in any notes app: a dash for a bullet, two brackets for a tick-box.</li>
+          </ul>
+        </div>
+        <figure class="shot"><img src="img/meeting.png" alt="A meeting in Weftday with its notes: a summary, decisions, action points with tick-boxes, and what others owe" width="1360" height="850" loading="lazy"></figure>
+      </div>
+    </section>
+
+    <section class="card t-calendar" id="calendar">
+      <span class="tab" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.200" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5.500" width="16" height="14" rx="3"/><path d="M4 10.500h16M8.500 3.500v4M15.500 3.500v4"/></svg></span>
+      <div class="split">
+        <div class="say">
+          <h2>Every calendar. One day.</h2>
+          <p>Work, personal, a client’s. Connect each Google account once and they sit side by side, each in its own colour. A company Teams or Outlook calendar can join them.</p>
+          <ul class="lines">
+            <li>Add a task the way you say it: “gym tomorrow 7am”.</li>
+            <li>Plan my day fits your tasks into the gaps between meetings.</li>
+            <li>A second time zone down the side, for calls across countries.</li>
+          </ul>
+        </div>
+        <figure class="shot"><img src="img/calendar.png" alt="A week in Weftday: meetings from two accounts in two colours, tasks with tick circles, and a few surprises" width="1360" height="850" loading="lazy"></figure>
+      </div>
+    </section>
+
+    <section class="card t-people" id="people">
+      <span class="tab" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.200" stroke-linecap="round"><circle cx="12" cy="8.500" r="3.500"/><path d="M5 19.500c.800-3.400 3.500-5.500 7-5.500s6.200 2.100 7 5.500"/></svg></span>
+      <div class="split flip">
+        <div class="say">
+          <h2>Walk in knowing who you are meeting.</h2>
+          <p>Everyone from your meetings gets a page: what you discussed, what is still open, and what you have written about them. A brief before the call takes one press.</p>
+          <ul class="lines">
+            <li>People are grouped by company, so an account is one glance.</li>
+            <li>Free times writes out when you are free, in their time zone, ready to paste.</li>
+          </ul>
+        </div>
+        <figure class="shot box"><img src="img/people.png" alt="The People panel in Weftday, listing everyone from your meetings" loading="lazy"></figure>
+      </div>
+    </section>
+
+    <section class="card t-yours dark" id="yours">
+      <span class="tab" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.200" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.500" width="14" height="9.500" rx="2.500"/><path d="M8.500 10.500V8a3.500 3.500 0 0 1 7 0v2.500"/></svg></span>
+      <div class="split">
+        <div class="say">
+          <h2>There is no Weftday server.</h2>
+          <p>The app is a page that runs in your browser. Your calendar comes straight from Google to you. Recordings stay on your device. The AI runs on a key that you get, free, from Google. We never see any of it, and we could not if we tried.</p>
+          <ul class="lines">
+            <li>No account with us, no tracking, no ads.</li>
+            <li>Nothing is sent anywhere until you press a button that says so.</li>
+            <li>Works offline once it has been opened.</li>
+          </ul>
+        </div>
+        <figure class="map" aria-label="Where your information goes: between your browser, your own Google account, and the AI service you chose. Nothing goes to Weftday.">
+          <svg viewBox="0 0 460 340" role="img" aria-hidden="true">
+            <path class="wire" d="M230 150V78M230 190l-118 78M230 190l118 78"/>
+            <path class="wire off" d="M230 170h0"/>
+            <g class="node you"><rect x="150" y="136" width="160" height="62" rx="16"/><text x="230" y="164">Your browser</text><text class="sub" x="230" y="183">recordings, notes, keys</text></g>
+            <g class="node"><rect x="160" y="22" width="140" height="56" rx="14"/><text x="230" y="47">Google Calendar</text><text class="sub" x="230" y="65">your own account</text></g>
+            <g class="node"><rect x="34" y="262" width="156" height="56" rx="14"/><text x="112" y="287">Google Drive</text><text class="sub" x="112" y="305">only when you share</text></g>
+            <g class="node"><rect x="270" y="262" width="156" height="56" rx="14"/><text x="348" y="287">AI, with your key</text><text class="sub" x="348" y="305">only when you ask</text></g>
+          </svg>
+          <figcaption>Everything Weftday talks to is yours. There is no fourth box.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="card t-open" id="open">
+      <span class="tab" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.200" stroke-linecap="round" stroke-linejoin="round"><path d="M9 8l-4 4 4 4M15 8l4 4-4 4"/></svg></span>
+      <div class="split">
+        <div class="say">
+          <h2>Open, all the way down.</h2>
+          <p>Every line is on GitHub under the AGPL licence. Read it, run your own copy, or change it. There is no build step and nothing to install: Weftday is one folder of plain files.</p>
+          <div class="cta small">
+            <a class="btn ink" href="https://github.com/crckdteam/planner" rel="noopener">See the code on GitHub</a>
+            <a class="btn quiet" href="https://crckdteam.github.io/planner/guide.html">Read the guide</a>
+          </div>
+        </div>
+        <div class="code">
+          <pre><code>git clone https://github.com/crckdteam/planner.git
+cd planner
+node serve.mjs</code></pre>
+          <p>Then open <b>localhost:4321</b>. That is the whole installation.</p>
+          <h3>What it does not do yet</h3>
+          <ul class="lines tight">
+            <li>Recording a call needs Chrome or Edge on a computer. A phone can record your voice or camera, not a call.</li>
+            <li>Connecting Google takes a one-time setup of about ten minutes. A one-press sign-in is being arranged with Google.</li>
+            <li>There is no Mac or Windows app yet. It lives in a browser tab.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <section class="faq" id="faq">
+    <h2>Questions people ask first</h2>
+    <div class="qs">
+      <details><summary>Is Weftday really free?</summary><p>Yes. There is no paid plan and no account with us. The AI features run on a key that you get free from Google. If you prefer a paid AI service you can use your own key for that instead, but nothing needs it.</p></details>
+      <details><summary>Does a bot join my meetings?</summary><p>No. Weftday listens through your own browser, the way a screen share does. Nothing joins the call and nobody else has to install anything. Please tell people you are recording.</p></details>
+      <details><summary>Where are my recordings and notes kept?</summary><p>In your browser, on your device. If you choose, tasks and notes are also kept in a calendar in your own Google account so your other devices have them. A share link copies one recording to your own Google Drive. There is no Weftday server.</p></details>
+      <details><summary>Does it work with Google Meet, Zoom and Microsoft Teams?</summary><p>Yes. For a meeting in a browser tab, share that tab with its sound. For the Zoom or Teams app, share the whole screen with system sound. A company Teams or Outlook calendar can be shown next to your Google calendars.</p></details>
+      <details><summary>What do I need to get started?</summary><p>Chrome or Edge on a computer for recording. Today, connecting Google takes a one-time setup of about ten minutes, which the app walks you through. A one-press sign-in is being arranged with Google. You can try everything first with <a href="https://crckdteam.github.io/planner/?demo">sample data</a>.</p></details>
+      <details><summary>How is Weftday different from Granola, Loom or Cap?</summary><p>Those are polished products that each do one part: notes, or video. They run on their makers’ servers, and most are paid. Weftday puts the calendar, the recorder and the notes together, keeps everything on your device or in your own Google account, and is free and open source. The price is a little more setup.</p></details>
+      <details><summary>Can I run my own copy?</summary><p>Yes. Weftday is one folder of plain files with no build step. Put it on any static host, or run it on your computer with one command. The code is on <a href="https://github.com/crckdteam/planner" rel="noopener">GitHub</a> under the AGPL-3.0 licence.</p></details>
+    </div>
+  </section>
+
+  <section class="close">
+    <h2>Start with today.</h2>
+    <p>Open it, connect a calendar, and record your next meeting.</p>
+    <div class="cta">
+      <a class="btn solid big" href="https://crckdteam.github.io/planner/">Open Weftday</a>
+      <a class="btn line big" href="https://crckdteam.github.io/planner/?demo">Try it with sample data</a>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="fmark"><img src="icon.svg" alt="" width="26" height="26"><b>Weftday</b><span>A <a href="https://www.crckd.live/" rel="noopener">CRCKD</a> product.</span></div>
+  <nav aria-label="More">
+    <a href="https://crckdteam.github.io/planner/guide.html">Guide</a>
+    <a href="https://crckdteam.github.io/planner/privacy.html">Privacy</a>
+    <a href="https://crckdteam.github.io/planner/terms.html">Terms</a>
+    <a href="https://github.com/crckdteam/planner" rel="noopener">GitHub</a>
+    <a href="https://github.com/crckdteam/planner/issues" rel="noopener">Help</a>
+  </nav>
+</footer>
+<script src="site.js" defer></script>
+</body>
+</html>

@@ -2839,7 +2839,7 @@ function openSettings(msg, pane) {
             ${row('Privacy', 'What is kept, and where', '<a class="btn" href="privacy.html" target="_blank" rel="noopener">Read</a>')}
             ${row('Terms', 'The rules for using Weftday', '<a class="btn" href="terms.html" target="_blank" rel="noopener">Read</a>')}
             ${row('Help', 'Report a problem or ask a question', '<a class="btn" href="https://github.com/crckdteam/planner/issues" target="_blank" rel="noopener">Get help</a>')}
-            ${row('About Weftday', 'What it is, in one screen', '<a class="btn" href="home.html" target="_blank" rel="noopener">Open</a>')}
+            ${row('About Weftday', 'The website: what it is and who makes it', '<a class="btn" href="https://weftday.crckd.live/" target="_blank" rel="noopener">Open</a>')}
           </div>`)}
 
         ${section('advanced', 'Advanced', 'Weftday talks to Google with keys of your own. If this device was set up from another one, they are already filled in.', `
@@ -4576,7 +4576,7 @@ async function noteDocs() {
   return docs.sort((a, b) => b.when - a.when);
 }
 const plainNote = text => text.replace(/^\s*(#{1,3}|[-*•])\s+/gm, '').replace(/\[( |x|X)?\]\s*/g, ''); // without the marks for headings, bullets and tick-boxes
-const noteGist = text => { const body = AI.gistOf(text, 110); return plainNote(body || text).replace(/\s+/g, ' ').trim().slice(0, 110); };
+const noteGist = text => { const plain = plainNote(text), body = AI.gistOf(plain, 110); return (body || plain).replace(/\s+/g, ' ').trim().slice(0, 110); };
 function noteRows(docs) {
   const q = noteFind.trim().toLowerCase(), hits = q ? docs.filter(d => `${d.title}\n${d.text}`.toLowerCase().includes(q)) : docs;
   if (!hits.length) return `<p class="nnone">${q ? 'No note has those words.' : 'No notes yet.'}</p>`;
@@ -4809,6 +4809,8 @@ function demoEvents(ws) {
     { email: 'work@example.com', displayName: 'You', self: true, responseStatus: status }] });
   // A day that falls on one fixed date, shown only in the week it belongs to.
   const once = (who, y, mo, d, h, m, mins, title, extra) => { const day = Math.round((new Date(y, mo - 1, d) - ws) / 86400000); return day >= 0 && day < 7 ? [mk(who, day, h, m, mins, title, extra)] : []; };
+  // someone else in the meeting, by first name and where they are from
+  const withThem = (who, name, email) => ({ att: [{ email, displayName: name, responseStatus: 'accepted' }, { email: DEMO_ACCOUNTS[who].email, displayName: 'You', self: true, responseStatus: 'accepted' }] });
   return [
     mk(0, 0, 10, 0, 30, 'Weekly team sync', invite('accepted')),
     mk(0, 0, 14, 0, 60, 'Client call: Acme', { location: 'Google Meet', meet: 'https://meet.google.com/', att: [
@@ -4820,30 +4822,31 @@ function demoEvents(ws) {
     mk(1, 0, 19, 30, 60, 'Dinner with Meera'),
     mk(0, 1, 11, 0, 45, 'Pipeline review', invite('needsAction')),
     mk(0, 1, 11, 30, 30, 'Quick check-in with Arjun'),
-    mk(0, 1, 15, 0, 45, 'Interview: growth lead, round two'),
-    mk(1, 1, 18, 30, 60, 'Dance class', { location: 'Studio 9' }),
+    mk(0, 1, 15, 0, 45, 'Interview: growth lead, round two', withThem(0, 'Ira Bose', 'ira.bose@hey.example')),
+    mk(1, 1, 18, 30, 60, 'Dance class', { location: 'Studio 9', ...withThem(1, 'Shruti', 'shruti@studio9.example') }),
     mk(0, 2, 9, 30, 60, 'Product demo', invite('accepted')),
-    mk(0, 2, 13, 30, 45, 'Kitchen walkthrough, the new restaurant', { location: 'Lower Parel' }),
+    mk(0, 2, 13, 30, 45, 'Kitchen walkthrough, the new restaurant', { location: 'Lower Parel', ...withThem(0, 'Manasi', 'manasi@thirdcourse.example') }),
     mk(0, 2, 15, 0, 30, 'Vendor intro', invite('declined')),
     mk(0, 2, 16, 0, 30, 'YC office hours'),
     mk(0, 3, 0, 0, 1440, 'Team offsite', { allDay: true }),
-    mk(0, 3, 11, 0, 30, 'Life sciences lab: results call'),
-    mk(0, 3, 13, 30, 45, 'Interview: backend engineer'),
+    mk(0, 3, 11, 0, 30, 'Life sciences lab: results call', withThem(0, 'Aarya', 'aarya@helixbio.example')),
+    mk(0, 3, 13, 30, 45, 'Interview: backend engineer', withThem(0, 'Kabir Rao', 'kabir.rao@hey.example')),
     mk(1, 3, 18, 30, 60, 'Dance class', { location: 'Studio 9' }),
     mk(0, 4, 10, 0, 30, 'Weekly wrap-up'),
-    mk(0, 4, 12, 0, 30, 'Field notes from Gujarat (research call)'),
-    mk(0, 4, 14, 30, 45, 'EV battery lab, Kanpur: research sync'),
+    mk(0, 4, 12, 0, 30, 'Field notes from Gujarat (research call)', withThem(0, 'Bhakti', 'bhakti@fieldnotes.example')),
+    mk(0, 4, 14, 30, 45, 'EV battery lab, Kanpur: research sync', withThem(0, 'Jigyasa', 'jigyasa@evlab.example')),
+    mk(1, 4, 16, 0, 30, 'Markets close: the week in equities', withThem(1, 'Tanish', 'tanish@openinterest.example')),
     mk(1, 4, 19, 0, 150, 'Harry Potter rewatch: Prisoner of Azkaban'),
     mk(1, 5, 9, 0, 90, 'Football'),
     mk(1, 5, 11, 30, 45, 'Vet: the cat’s check-up'),
-    mk(1, 5, 20, 0, 120, 'Bar night: the new old fashioned', { location: 'He is behind the bar' }),
-    mk(1, 6, 11, 0, 60, 'Call the banker: how did the date go?'),
-    mk(1, 6, 16, 0, 45, 'Call Paris: wedding plans (bring your French)'),
+    mk(1, 5, 20, 0, 120, 'Bar night: the new old fashioned', { location: 'He is behind the bar', ...withThem(1, 'Naman', 'naman@lastcall.example') }),
+    mk(1, 6, 11, 0, 60, 'Call the banker: how did the date go?', withThem(1, 'Divyaansh', 'divyaansh@northbank.example')),
+    mk(1, 6, 16, 0, 45, 'Call Paris: wedding plans (bring your French)', withThem(1, 'Padmaja', 'padmaja@rivegauche.example')),
     ...once(1, 2026, 11, 19, 0, 0, 1440, 'GTA VI is out. Do not disturb.', { allDay: true }),
     ...once(1, 2026, 12, 17, 18, 0, 180, 'Doomsday: first day, first show'),
   ];
 }
-const DEMO_SEED = 4; // raise this when the sample tasks and notes change, so everyone sees the new ones
+const DEMO_SEED = 5; // raise this when the sample tasks and notes change, so everyone sees the new ones
 function seedDemo() {
   state.accounts = structuredClone(DEMO_ACCOUNTS);
   if (state.demoSeed === DEMO_SEED) return;
@@ -4904,13 +4907,6 @@ One calm place for the working day: calendar, recorder and notes that write them
 
 // ---------------------------------------------------------------- start
 async function boot() {
-  // Someone opening Weftday for the very first time sees what it is before an empty planner.
-  if (!DEMO && !location.search && !location.hash && !localStorage.getItem('weftday.seenHome')
-    && !state.accounts.length && !state.tasks.length && !state.settings.clientId) {
-    localStorage.setItem('weftday.seenHome', '1');
-    location.replace('home.html');
-    return;
-  }
   applyTheme();
   applySide();
   bind();

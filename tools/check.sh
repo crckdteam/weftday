@@ -15,5 +15,9 @@ if [ ! -x .venv/bin/python ]; then
   exit 0
 fi
 echo "== browser check"
-PORT=4399 WEFTDAY_URL=http://localhost:4399 .venv/bin/python .claude/skills/webapp-testing/scripts/with_server.py \
-  --server "PORT=4399 node test/mock-google.mjs" --port 4399 -- .venv/bin/python test/smoke.py
+# The app is served by a pretend Google on this computer for the length of the check.
+PORT=4399 node test/mock-google.mjs > /dev/null 2>&1 &
+server=$!
+trap 'kill $server 2>/dev/null' EXIT
+for i in 1 2 3 4 5 6 7 8 9 10; do curl -s -o /dev/null http://localhost:4399/ && break; sleep 0.5; done
+WEFTDAY_URL=http://localhost:4399 .venv/bin/python test/smoke.py
