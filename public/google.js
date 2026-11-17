@@ -64,11 +64,24 @@ export async function finishConnect() {
   return acct;
 }
 
+// A request to Google that gets no answer at all gives up after a while instead of waiting for ever
+// (a network, VPN or firewall that silently drops the connection looks exactly like that).
+const WAIT = 15000;
+async function reach(url, init) {
+  const stop = new AbortController(), timer = setTimeout(() => stop.abort(), WAIT);
+  try { return await fetch(url, { ...init, cache: 'no-store', signal: stop.signal }); }
+  catch (err) {
+    const e = new Error(stop.signal.aborted ? 'Google Calendar did not answer.' : 'Google Calendar could not be reached.');
+    e.kind = 'unreachable';
+    throw e;
+  } finally { clearTimeout(timer); }
+}
+
 async function tokenRequest(params) {
   const { clientId, clientSecret } = state.settings;
   const body = new URLSearchParams({ client_id: clientId, ...params });
   if (clientSecret) body.set('client_secret', clientSecret);
-  const r = await fetch(TOKEN, { method: 'POST', cache: 'no-store', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body });
+  const r = await reach(TOKEN, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) {
     const e = new Error(j.error_description || j.error || 'Google sign-in request failed');
@@ -108,8 +121,8 @@ export async function api(acct, path, { method = 'GET', params, body } = {}) {
     const tk = await token(acct);
     // Never kept or reused by the browser: two of your accounts ask the very same address, and one
     // account's answer must not be handed to another.
-    const r = await fetch(url, {
-      method, cache: 'no-store',
+    const r = await reach(url, {
+      method,
       headers: { authorization: `Bearer ${tk}`, ...(body ? { 'content-type': 'application/json' } : {}) },
       body: body ? JSON.stringify(body) : undefined,
     });

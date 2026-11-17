@@ -909,6 +909,7 @@ function bind() {
   $('#newEvent').onclick = () => openEventForm(null);
   $('#searchBtn').onclick = e => { e.stopPropagation(); openPalette(); };
   $('#zoneBtn').onclick = openSecondZone;
+  el.status.addEventListener('click', () => { if (el.status.classList.contains('err')) openSyncProblems(); });
   $('#fab').onclick = e => { e.stopPropagation(); newTaskHere(); };
   $('#connect').onclick = connect;
   $('#teamsBtn').onclick = openTeams;
@@ -2005,7 +2006,7 @@ async function refresh() {
   if (!live.length) { setStatus(state.accounts.length ? 'Reconnect needed' : '', true); return; }
   const seq = ++refreshSeq;
   setStatus('Updating…');
-  let failed = 0;
+  const failed = []; // { a, c, err } for each calendar that could not be read
   const jobs = [];
   for (const [f, t] of ranges) for (const a of live) for (const c of a.calendars) {
     if (!c.enabled || isPlannerCal(a, c)) continue;
@@ -2017,21 +2018,75 @@ async function refresh() {
         const ev = normalize(e, a, c);
         events.set(ev.key, ev);
       }
-    }).catch(err => { failed++; console.warn(a.email, c.summary, err); }));
+    }).catch(err => { if (!failed.some(x => x.a === a && x.c === c)) failed.push({ a, c, err }); console.warn(a.email, c.summary, err); }));
   }
   await Promise.all(jobs);
+  // A calendar that is gone from an account: read that account's list again, so it drops out by itself.
+  for (const a of new Set(failed.filter(x => [404, 410].includes(x.err.status)).map(x => x.a))) await G.refreshCalendars(a).catch(() => {});
   const ws = startOfWeek(today).getTime(), we = addDays(startOfWeek(today), 7).getTime();
   saveEventCache(ymd(startOfWeek(today)), [...events.values()].filter(ev => ev.e > ws && ev.s < we));
-  if (plannerReady()) await sync(() => pullPlanner(from, to));
-  if (plannerReady()) await sync(() => N.pull().catch(err => console.warn('Reading notes failed', err)));
+  const noGoogle = failed.length > 0 && failed.every(x => x.err.kind === 'unreachable'); // nothing answered: no point in waiting on more
+  let tasksCut = false; // the "Weftday" calendar itself could not be reached
+  if (plannerReady() && !noGoogle) tasksCut = (await sync(() => pullPlanner(from, to)))?.kind === 'unreachable';
+  if (plannerReady() && !noGoogle && !tasksCut) await sync(() => N.pull().catch(err => console.warn('Reading notes failed', err)));
   saveNames();
-  setTimeout(autoFacts, 1500);
+  if (!noGoogle) setTimeout(autoFacts, 1500);
   if (seq !== refreshSeq) return;
   if (!dragging) render();
   const time = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  syncProblems = failed.filter(x => x.a.calendars.includes(x.c)); // ones that dropped out of the list above are settled
+  if (tasksCut && !syncProblems.length) syncProblems = [{ a: {}, c: {}, err: { kind: 'unreachable' } }];
+  const cut = syncProblems.length && syncProblems.every(x => x.err.kind === 'unreachable');
   if (state.accounts.some(a => a.needsReconnect)) setStatus('An account needs reconnecting', true);
-  else if (failed) setStatus('Some calendars could not be updated', true);
-  else setStatus(`Updated ${time}`);
+  else if (cut) tellProblem('Can’t reach Google Calendar · Why?');
+  else if (syncProblems.length === 1) tellProblem(`“${syncProblems[0].c.summary}” could not be updated · Why?`);
+  else if (syncProblems.length) tellProblem(`${syncProblems.length} calendars could not be updated · Why?`);
+  else { toldProblem = ''; setStatus(`Updated ${time}`); }
+}
+
+// Why a calendar could not be read, in plain words.
+let syncProblems = [], toldProblem = '';
+// Shows the problem in the top bar; on a phone, where that line is hidden, as a message (once per problem).
+function tellProblem(text) {
+  setStatus(text, true);
+  if (innerWidth < 760 && toldProblem !== text && !el.dlg.open) toast(text.replace(' · Why?', ''), { err: true, go: ['Why?', openSyncProblems] });
+  toldProblem = text;
+}
+function whyFailed(err) {
+  if (err.kind === 'unreachable') return 'Google Calendar could not be reached.';
+  if (err.status === 401 || err.code === 'invalid_grant') return 'The sign-in for this account has run out. Reconnect the account.';
+  if (err.status === 403 && /rate|quota|limit/i.test(err.message || '')) return 'Google is holding back requests for the moment. It works again in a few minutes.';
+  if (err.status === 403) return 'Google says you no longer have access to this calendar.';
+  if (err.status === 404 || err.status === 410) return 'This calendar no longer exists in this account, or is no longer shared with it.';
+  if (err.status >= 500) return 'Google Calendar had a problem on its side. Try again in a minute.';
+  return err.message || 'Google gave no reason.';
+}
+// Opened by pressing the red message in the top bar: what exactly failed, and what to do about it.
+function openSyncProblems() {
+  if (!syncProblems.length) return;
+  const cut = syncProblems.every(x => x.err.kind === 'unreachable');
+  const rows = syncProblems.slice(0, 12).map((x, i) => `<div class="srow"><span class="dot" style="background:${x.a.color || '#888'}"></span>
+    <div class="st"><b>${esc(x.c.summary || 'Calendar')}</b><span>${esc(x.a.email)} · ${esc(whyFailed(x.err))}</span></div>
+    ${[403, 404, 410].includes(x.err.status) ? `<button type="button" class="btn" data-x="hide" data-i="${i}">Hide it</button>` : ''}</div>`).join('');
+  dialog(`<div class="dbody">
+    <h3>${cut ? 'Google Calendar can’t be reached' : syncProblems.length === 1 ? 'One calendar could not be updated' : `${syncProblems.length} calendars could not be updated`}</h3>
+    ${cut ? `<p>Weftday asked Google for your calendars and got no answer from this device. Other websites may still work.</p>
+      <ol class="steps"><li>Check that you are online.</li>
+        <li>If a <b>VPN</b> is on, switch it off or change its server, then try again. Some VPNs and office networks block Google Calendar.</li>
+        <li>Try opening <a href="https://calendar.google.com" target="_blank" rel="noopener">calendar.google.com</a>. If that does not open either, the network is the cause.</li></ol>
+      <p class="note">Until then Weftday shows what it last loaded. Nothing is lost; tasks you add are kept here and sent to Google when it can be reached again.</p>`
+    : `<p class="note">The rest of your calendars are up to date.</p><div class="sgroup">${rows}</div>`}
+    <div class="actions"><span class="sp"></span><button type="button" class="btn ghost" data-x="close">Close</button><button type="button" class="btn primary" data-x="again">Try again</button></div></div>`, {
+    again: () => { closeDialog(); refresh(); },
+    hide(x) { // stop showing a calendar that Google no longer gives this account
+      const p = syncProblems[+x.dataset.i];
+      p.c.enabled = false;
+      save();
+      syncProblems = syncProblems.filter(y => y !== p);
+      if (syncProblems.length) openSyncProblems(); else { closeDialog(); refresh(); }
+      renderSide();
+    },
+  });
 }
 
 // All reads and writes of the planner calendar run one after another.
@@ -2184,7 +2239,7 @@ async function pullPlanner(from, to) {
     }
     save();
     if (state.tombstones.length) scheduleFlush(); // a doubled entry found above is taken out of Google
-  } catch (err) { console.warn('Reading planner calendar failed', err); }
+  } catch (err) { console.warn('Reading planner calendar failed', err); return err; } // handed back so the reason can be shown
 }
 
 async function setPlanner(a) {
@@ -3534,12 +3589,19 @@ async function boot() {
     if (a) await onConnected(a);
   } catch (err) { toast(err.message, true); }
   if (!DEMO) {
-    await Promise.all(state.accounts.filter(a => !a.needsReconnect).map(a => G.refreshCalendars(a).catch(err => console.warn(a.email, err))));
+    let cut = false; // Google cannot be reached at all from here right now
+    await Promise.all(state.accounts.filter(a => !a.needsReconnect).map(a => G.refreshCalendars(a).catch(err => { cut ||= err.kind === 'unreachable'; console.warn(a.email, err); })));
     renderSide();
-    scheduleFlush();
-    await shareSync();
+    if (cut) { // say so at once instead of waiting on every calendar in turn; try again in a minute
+      syncProblems = [{ a: {}, c: {}, err: { kind: 'unreachable' } }];
+      tellProblem('Can’t reach Google Calendar · Why?');
+      setTimeout(refresh, 60000);
+    } else {
+      scheduleFlush();
+      await shareSync();
+    }
   }
-  await refresh();
+  if (!syncProblems.length) await refresh();
   tick();
   setInterval(tick, 30000);
   const catchUp = () => { checkForUpdate(); return shareSync().then(refresh); };
