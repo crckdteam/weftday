@@ -34,6 +34,31 @@ const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', '
 const MON = '(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
 const ORD = '(\\d{1,2})(?:st|nd|rd|th)?';
 
+// ---- how a task repeats
+// 'daily', 'weekdays' (Mon–Fri), 'weekly' (the weekday it starts on), or chosen days written as "d"
+// plus the days of the week it falls on (0 = Sunday): "d123456" is every day except Sunday.
+export const repeatDays = r => (/^d[0-6]+$/.test(r || '') ? [...r.slice(1)].map(Number) : null);
+export const repeatsOn = (r, weekday, startWeekday) => r === 'daily' || (r === 'weekdays' && weekday >= 1 && weekday <= 5)
+  || (r === 'weekly' && weekday === startWeekday) || !!repeatDays(r)?.includes(weekday);
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+export function repeatLabel(r) {
+  const days = repeatDays(r);
+  if (!days) return { daily: 'every day', weekdays: 'Mon – Fri', weekly: 'every week' }[r] || '';
+  const set = new Set(days), off = [1, 2, 3, 4, 5, 6, 0].filter(d => !set.has(d));
+  if (!off.length) return 'every day';
+  if (off.length === 2 && !set.has(0) && !set.has(6)) return 'Mon – Fri';
+  if (set.size === 2 && set.has(0) && set.has(6)) return 'weekends';
+  if (off.length <= 2) return `every day except ${off.map(d => DAY_NAMES[d]).join(' and ')}`;
+  return [1, 2, 3, 4, 5, 6, 0].filter(d => set.has(d)).map(d => DAY_NAMES[d]).join(', ');
+}
+// The first day, from the given one on, that a repeat falls on.
+export function firstRepeatDay(dateYmd, r) {
+  let d = fromYmd(dateYmd);
+  const start = d.getDay();
+  for (let i = 0; i < 7 && !repeatsOn(r, d.getDay(), start); i++) d = addDays(d, 1);
+  return ymd(d);
+}
+
 // Turns "gym tomorrow 7am 1h #health !" into a structured task.
 export function parseQuick(text, now = new Date()) {
   let s = ' ' + text.trim() + ' ';
@@ -55,8 +80,37 @@ export function parseQuick(text, now = new Date()) {
   s = s.replace(/\s#([\w-]+)(?=\s)/, (_, t) => { out.tag = t; return ' '; });
   s = s.replace(/\s(!high|!!|!)(?=\s)/i, () => { out.priority = 'high'; return ' '; });
 
+  // repeat on chosen days: "except sundays", "every mon wed fri", "weekends"
+  const DAYW = '(?:mon(?:day)?|tue(?:s|sday)?|wed(?:s|nesday)?|thu(?:r|rs|rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)s?';
+  const JOIN = '(?:\\s*,\\s*(?:and\\s+)?|\\s+and\\s+|\\s+or\\s+|\\s+)';
+  const daysIn = words => {
+    const set = new Set();
+    for (const w of words.toLowerCase().match(/weekends?|[a-z]+/g) || []) {
+      if (/^weekend/.test(w)) { set.add(0); set.add(6); continue; }
+      const i = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].indexOf(w.slice(0, 3));
+      if (i >= 0) set.add(i);
+    }
+    return set;
+  };
+  const asRepeat = set => 'd' + [0, 1, 2, 3, 4, 5, 6].filter(d => set.has(d)).join('');
+  s = s.replace(new RegExp(`\\s(?:(?:every\\s*day|daily)\\s+)?(?:except|excluding|but\\s+not(?:\\s+on)?|not\\s+on)\\s+((?:${DAYW}|weekends?)(?:${JOIN}(?:${DAYW}|weekends?))*)(?=\\s)`, 'i'), (all, list) => {
+    const off = daysIn(list), on = new Set([0, 1, 2, 3, 4, 5, 6].filter(d => !off.has(d)));
+    if (!off.size || !on.size) return all;
+    out.repeat = asRepeat(on); return ' ';
+  });
+  if (out.repeat) s = s.replace(/\s(every\s*day|daily)(?=\s)/i, ' '); // "daily … except weekends": the "daily" is already said
+  // "every mon wed fri", or "on mondays and fridays" (a plain "on monday and friday" is two one-off days, not a repeat)
+  const DAYSP = '(?:mon|tues?|wed(?:nes)?|thu(?:rs)?|fri|sat(?:ur)?|sun)days';
+  for (const form of [`(?:every|each)\\s+(${DAYW}(?:${JOIN}${DAYW})+)`, `on\\s+(${DAYSP}(?:${JOIN}${DAYSP})+)`]) {
+    if (!out.repeat) s = s.replace(new RegExp(`\\s${form}(?=\\s)`, 'i'), (all, list) => {
+      const on = daysIn(list);
+      if (on.size < 2) return all;
+      out.repeat = asRepeat(on); return ' ';
+    });
+  }
+  if (!out.repeat) s = s.replace(/\s(?:every\s+weekend|(?:on\s+)?weekends)(?=\s)/i, () => { out.repeat = 'd06'; return ' '; });
   // repeat: every day, daily, every weekday, weekly, every monday
-  s = s.replace(/\s(every\s*day|daily|every\s+weekday|weekdays|every\s+week|weekly)(?=\s)/i, (_, w) => {
+  if (!out.repeat) s = s.replace(/\s(every\s*day|daily|every\s+weekday|weekdays|every\s+week|weekly)(?=\s)/i, (_, w) => {
     out.repeat = /weekday/i.test(w) ? 'weekdays' : /week/i.test(w) ? 'weekly' : 'daily'; return ' ';
   });
   if (!out.repeat) s = s.replace(/\severy(?=\s+(?:mon(?:day)?|tue(?:s|sday)?|wed(?:s|nesday)?|thu(?:r|rs|rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)\s)/i, () => { out.repeat = 'weekly'; return ''; });
@@ -69,7 +123,8 @@ export function parseQuick(text, now = new Date()) {
   }
 
   // time: 7am, 7:30pm, 17:00, noon
-  s = s.replace(/\s(?:at\s+)?(\d{1,2})(?::([0-5]\d))?\s*(am|pm)(?=\s)/i, (_, h, m, ap) => {
+  s = s.replace(/\s(?:at\s+)?(\d{1,2})(?:[:.]?([0-5]\d))?\s*(am|pm)(?=\s)/i, (all, h, m, ap) => { // 7pm, 7:30pm, 730 pm, 7.30pm
+    if (+h > 12) return all;
     let hh = +h % 12; if (/pm/i.test(ap)) hh += 12;
     out.start = hh * 60 + (m ? +m : 0); return ' ';
   });
@@ -111,5 +166,6 @@ export function parseQuick(text, now = new Date()) {
     out.date = ymd(out.start < nowM ? addDays(today, 1) : today);
   }
   if (out.repeat && !out.date) out.date = ymd(today);
+  if (out.repeat && out.date) out.date = firstRepeatDay(out.date, out.repeat); // not on a day it skips
   return out;
 }

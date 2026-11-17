@@ -25,6 +25,7 @@ const base = () => ({
     searchKeys: {},       // keys for search services other than Tavily, by service name
     keysAt: 0,            // when the AI and search keys last changed here, so the newest set wins across devices
     aiAuto: false,        // get facts by itself for the people in today's meetings
+    aiQuick: true,        // "Add a task": Enter hands a sentence to your AI when the simple reader cannot take it
   },
   accounts: [],     // connected Google accounts
   tasks: [],        // your tasks and time blocks

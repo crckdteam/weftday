@@ -9,7 +9,7 @@ import { qrSvg } from './qr.js';
 import { PUBLIC_URL } from './config.js';
 import {
   pad, ymd, fromYmd, addDays, startOfDay, startOfWeek, localIso, hhmm, parseHhmm, clamp,
-  fmtTime, fmtRange, fmtDur, dayLabel, uid, esc, parseQuick, days, monthStart,
+  fmtTime, fmtRange, fmtDur, dayLabel, uid, esc, parseQuick, days, monthStart, repeatsOn, repeatLabel, repeatDays, firstRepeatDay,
 } from './util.js';
 
 const HOUR = 52, PXM = HOUR / 60, SNAP = 15;
@@ -195,7 +195,7 @@ function seriesDates(t, afterYmd, horizonYmd) {
   const out = [], end = fromYmd(horizonYmd), wd = fromYmd(t.date).getDay();
   for (let d = addDays(fromYmd(afterYmd), 1); d <= end; d = addDays(d, 1)) {
     const g = d.getDay();
-    if (t.repeat === 'daily' || (t.repeat === 'weekdays' && g >= 1 && g <= 5) || (t.repeat === 'weekly' && g === wd)) out.push(ymd(d));
+    if (repeatsOn(t.repeat, g, wd)) out.push(ymd(d));
   }
   return out;
 }
@@ -296,22 +296,46 @@ function quickHint() {
   $('#quickPh').hidden = !!v;
   const p = v.trim() ? parseQuick(v) : null;
   if (!p || !p.title) { el.hint.hidden = true; return; }
+  if (wantsAi(p)) { // too much for the simple reader: Enter hands it to your AI
+    el.hint.innerHTML = '<kbd>↵</kbd><span class="qchip">✨ AI will work this out</span>';
+    el.hint.hidden = false;
+    return;
+  }
   // what was understood, as small labels
   const chip = (text, kind = '') => `<span class="qchip ${kind}">${esc(text)}</span>`;
   const bits = [p.date ? chip(relDay(p.date)) : chip('Inbox', 'plain')];
   if (p.start != null) bits.push(chip(fmtTime(p.start)));
   if (p.duration) bits.push(chip(fmtDur(p.duration)));
-  if (p.repeat) bits.push(chip({ daily: 'every day', weekdays: 'Mon – Fri', weekly: 'every week' }[p.repeat]));
+  if (p.repeat) bits.push(chip(repeatLabel(p.repeat)));
   if (p.tag) bits.push(chip('#' + p.tag, 'plain'));
   if (p.priority === 'high') bits.push(chip('high priority', 'hot'));
   el.hint.innerHTML = `<kbd>↵</kbd>${bits.join('')}${v.trim().split(/\s+/).length >= 6 ? '<span class="qchip ai">✨ ⇧↵ several at once</span>' : ''}`;
   el.hint.hidden = false;
 }
 
+// Words the simple reader leaves behind that still talk about when: a sign the sentence needs AI.
+const AI_CUES = new RegExp([
+  '\\bexpect\\s+(mon|tue|wed|thu|fri|sat|sun|week)', '\\b(except|excluding|but not|every|each|until|till|alternate|twice|thrice|then|morning|afternoon|evening|tonight|night|noon|lunch|weekends?|monthly|fortnight|weekly|daily)\\b',
+  '\\bat\\s+\\d', '\\bin\\s+(\\d+|a|an|two|three|few)\\s+(hours?|hrs?|minutes?|mins?|days?|weeks?|months?)\\b', '\\b\\d{3,4}\\b',
+  '\\b(and|or)\\s+(mon|tue|wed|thu|fri|sat|sun)', ',',
+].join('|'), 'i');
+// Whether your AI can be asked: a key for a service that can do it, or the browser's own AI.
+function planReady() {
+  const s = state.settings, svc = S.aiService(s.aiProvider);
+  if (DEMO || s.aiQuick === false) return false;
+  return !!(s.claudeKey && svc.kind === 'claude') || ((svc.kind === 'google' || (svc.kind === 'chat' && svc.base)) && !!factsKey()) || !!s.aiKey || AI.supported();
+}
+const wantsAi = p => planReady() && AI_CUES.test(p.title);
+
 function quickAdd() {
   const input = $('#quickInput');
   const p = parseQuick(input.value);
   if (!p.title) return;
+  if (wantsAi(p)) return quickPlan(true);
+  quickAddPlain(p);
+}
+function quickAddPlain(p) {
+  const input = $('#quickInput');
   mark();
   const t = newTask({ title: p.title, date: p.date, start: p.start, duration: p.duration || 30, tag: p.tag, priority: p.priority });
   if (p.repeat) { t.repeat = p.repeat; t.seriesId = uid(); }
@@ -321,9 +345,11 @@ function quickAdd() {
   quickHint();
   commit();
   flash(t.id, 'born');
-  if (!t.date) toast('Added to your inbox', { undo: true });
-  else toast(`Scheduled ${relDay(t.date)}${t.start != null ? ', ' + fmtTime(t.start) : ''}`, { undo: true });
+  toast(addedLine(t), { undo: true });
 }
+// What is said after a task is added: where it went.
+const addedLine = t => (!t.date ? 'Task added to your inbox. Drag it onto a day when you know when.'
+  : `Task added to your calendar: ${relDay(t.date)}${t.start != null ? `, ${fmtTime(t.start)}` : ''}${t.repeat && t.repeat !== 'none' ? `, ${repeatLabel(t.repeat)}` : ''}`);
 
 function scheduleToday(t) {
   mark();
@@ -954,7 +980,7 @@ function openTask(t, isNew = false) {
       <button type="button" class="mini" data-x="when" data-v="inbox">No date (inbox)</button>
     </div>
     <div class="row">
-      <label>Repeat<select name="repeat">${opts([['none', 'Never'], ['daily', 'Every day'], ['weekdays', 'Mon – Fri'], ['weekly', 'Every week']], t.repeat)}</select></label>
+      <label>Repeat<select name="repeat">${opts([['none', 'Never'], ['daily', 'Every day'], ['weekdays', 'Mon – Fri'], ['weekly', 'Every week'], ...(repeatDays(t.repeat) ? [[t.repeat, cap(repeatLabel(t.repeat))]] : [])], t.repeat)}</select></label>
       <label>Reminder<select name="reminder">${reminderOptions(t.reminder, true)}</select></label>
       <label>Priority<select name="priority">${opts([['normal', 'Normal'], ['high', 'High']], t.priority)}</select></label>
     </div>
@@ -2551,6 +2577,9 @@ function openSettings(msg, pane) {
           </div>
           <h4>Add tasks in your own words</h4>
           <p class="gintro">The ✨ button in “Add a task”. Type a sentence such as “call Priya tomorrow morning, gym at 6 and send the deck on Friday” and it becomes separate tasks at the right times. You see them before anything is added. It uses the AI service chosen below, and only what you typed is sent.</p>
+          <div class="sgroup">
+            ${toggle('aiQuick', s.aiQuick !== false, 'Let Enter use AI when a sentence needs it', 'Simple tasks like “gym tomorrow 7am” are read on your device. Anything harder goes to your AI when you press Enter. With this off, AI is only used when you press ✨.')}
+          </div>
           <h4>Get facts about a person ${tag(...factsState(), 'factsState')}</h4>
           <p class="gintro">A button on a person’s profile. It looks them up on the web and fills in their profile inside Weftday: role, background, company and photo. It needs a key of your own.</p>
           <div class="sgroup">
@@ -2678,6 +2707,7 @@ function openSettings(msg, pane) {
     s.pictures = fd.get('pictures') === 'on';
     s.aiApp = fd.get('aiApp');
     s.aiAuto = fd.get('aiAuto') === 'on';
+    s.aiQuick = fd.get('aiQuick') === 'on';
     keep();
     if (s.keysAt !== opened.at) {
       // Newer keys arrived from another device while this box was open: only what you changed here
@@ -2862,8 +2892,8 @@ const PLAN_SCHEMA = {
   type: 'object',
   properties: { tasks: { type: 'array', items: {
     type: 'object',
-    properties: { title: { type: 'string' }, date: { type: 'string' }, start: { type: 'string' }, minutes: { type: 'integer' }, flexible: { type: 'boolean' } },
-    required: ['title', 'date', 'start', 'minutes', 'flexible'], additionalProperties: false,
+    properties: { title: { type: 'string' }, date: { type: 'string' }, start: { type: 'string' }, minutes: { type: 'integer' }, flexible: { type: 'boolean' }, repeat: { type: 'string' } },
+    required: ['title', 'date', 'start', 'minutes', 'flexible', 'repeat'], additionalProperties: false,
   } } },
   required: ['tasks'], additionalProperties: false,
 };
@@ -2873,7 +2903,7 @@ function planQuestion(text) {
   const week = Array.from({ length: 8 }, (_, i) => addDays(startOfDay(now), i)).map(d => `${dayName(d)} ${ymd(d)}`).join(', ');
   return [
     'You turn what a person typed into tasks for their planner. Answer with JSON only, no other words:',
-    '{"tasks":[{"title":"…","date":"YYYY-MM-DD","start":"HH:MM","minutes":30,"flexible":false}]}',
+    '{"tasks":[{"title":"…","date":"YYYY-MM-DD","start":"HH:MM","minutes":30,"flexible":false,"repeat":""}]}',
     `Now it is ${dayName(now)} ${ymd(now)}, ${hhmm(nowMinutes())}. The coming days: ${week}. Their working day is ${hhmm(dayStart)} to ${hhmm(Math.min(dayEnd, 1439))}. Weeks start on Monday.`,
     'Rules:',
     '- One entry for each separate thing to do. Never add tasks they did not mention.',
@@ -2884,6 +2914,8 @@ function planQuestion(text) {
     '- minutes: the length they gave, or 0 if they gave none.',
     '- flexible: true only when the time came from a part of the day; false for exact times and for no time.',
     '- "then" or "after that" means straight after the task before it.',
+    '- repeat: "" for a one-off. "daily" for every day, "weekdays" for Monday to Friday, "weekly" for once a week on the same weekday. For other patterns write "days:" and the weekday numbers it happens on, Sunday = 0 to Saturday = 6: every day except Sunday is "days:123456", Monday Wednesday Friday is "days:135", weekends is "days:06". A repeating task is ONE entry, never one entry per day. Its date is the first day it happens.',
+    '- People make typing slips ("expect sundays" means "except Sundays"). Read what they meant.',
     `What they typed: """${text.slice(0, 1500)}"""`,
   ].join('\n');
 }
@@ -2914,7 +2946,10 @@ function readPlan(raw, text = '') {
       if (s + duration <= 1440) start = s;
       taken.set(date, [...(taken.get(date) || []), [start, start + duration]]);
     }
-    out.push({ title, date, start, duration });
+    const days = /^days:([0-6]{1,7})$/.exec(x.repeat || '');
+    const repeat = days ? `d${[...new Set(days[1])].sort().join('')}` : ['daily', 'weekdays', 'weekly'].includes(x.repeat) ? x.repeat : '';
+    if (repeat) date = firstRepeatDay(date || today, repeat); // a repeating task starts on a day it falls on
+    out.push({ title, date, start, duration, repeat });
   }
   return out;
 }
@@ -2928,7 +2963,27 @@ async function askForTasks(text, signal) {
   throw Object.assign(new Error('nokey'), { kind: 'nokey' });
 }
 let planJob = null;
-async function quickPlan() {
+// Adds what the AI made of the sentence and says so, with Undo.
+function addPlanned(picked) {
+  mark();
+  const made = picked.map(p => {
+    const t = newTask({ title: p.title, date: p.date, start: p.start, duration: p.duration });
+    if (p.repeat) { t.repeat = p.repeat; t.seriesId = uid(); }
+    return t;
+  });
+  state.tasks.push(...made);
+  topUpSeries();
+  $('#quickInput').value = '';
+  quickHint();
+  commit();
+  for (const t of made) flash(t.id, 'born');
+  const one = made.length === 1 ? made[0] : null;
+  toast(one ? `✨ ${addedLine(one)}` : `✨ ${made.length} tasks added`, { undo: true });
+}
+// direct: Enter was pressed on a sentence the simple reader could not take; one task is then added
+// straight away, like any other, and only several at once are shown first.
+async function quickPlan(direct) {
+  if (direct instanceof Event) direct = false;
   const input = $('#quickInput'), btn = $('#quickAi'), text = input.value.trim();
   if (planJob) { planJob.abort(); return; } // pressed again while thinking: stop
   if (text.split(/\s+/).length < 2) { input.focus(); return toast('Type what you want to do, in your own words, then press ✨.'); }
@@ -2939,10 +2994,12 @@ async function quickPlan() {
   try {
     const tasks = await askForTasks(text, job.signal);
     if (job.signal.aborted) return;
-    if (!tasks.length) return toast('The AI found no tasks in that. Try saying it differently.', true);
+    if (!tasks.length) { if (direct === true) return quickAddPlain(parseQuick(text)); return toast('The AI found no tasks in that. Try saying it differently.', true); }
+    if (direct === true && tasks.length === 1) return addPlanned(tasks);
     openPlanned(tasks, text);
   } catch (err) {
     if (err.name === 'AbortError' || job.signal.aborted) return;
+    if (direct === true) { quickAddPlain(parseQuick(text)); toast('Added as typed: the AI could not be reached just now.', { undo: true }); return; }
     if (err.kind === 'nokey') openSettings('To add tasks in your own words, add a free AI key here (Google AI takes about a minute).', 'ai');
     else toast(err.message || 'The AI could not work that out. Please try again.', true);
   } finally {
@@ -2953,7 +3010,7 @@ async function quickPlan() {
 }
 // Shows what the AI made of the sentence. Nothing is added until you say so.
 function openPlanned(tasks, text) {
-  const when = t => [t.date ? relDay(t.date) : 'Inbox', t.start != null ? fmtRange(t.start, t.start + t.duration) : t.date ? 'any time' : '', t.start == null ? fmtDur(t.duration) : ''].filter(Boolean).join(' · ');
+  const when = t => [t.date ? relDay(t.date) : 'Inbox', t.start != null ? fmtRange(t.start, t.start + t.duration) : t.date ? 'any time' : '', t.start == null ? fmtDur(t.duration) : '', t.repeat ? repeatLabel(t.repeat) : ''].filter(Boolean).join(' · ');
   dialog(`<form class="dbody">
     <h3>Add ${tasks.length === 1 ? 'this task' : `these ${tasks.length} tasks`}?</h3>
     <p class="note">From: “${esc(text.length > 160 ? `${text.slice(0, 160)}…` : text)}”</p>
@@ -2963,18 +3020,8 @@ function openPlanned(tasks, text) {
     <div class="actions"><span class="sp"></span><button type="button" class="btn ghost" data-x="close">Cancel</button><button class="btn primary" id="planAdd">Add</button></div></form>`, {
     submit(fd) {
       const picked = fd.getAll('pick').map(i => tasks[+i]);
-      if (!picked.length) return closeDialog();
-      mark();
-      const made = picked.map(p => newTask({ title: p.title, date: p.date, start: p.start, duration: p.duration }));
-      state.tasks.push(...made);
-      $('#quickInput').value = '';
-      quickHint();
       closeDialog();
-      commit();
-      const firstDay = made.map(t => t.date).filter(Boolean).sort()[0];
-      if (firstDay && !visibleDates().some(d => ymd(d) === firstDay) && made.length === 1) goTo(fromYmd(firstDay));
-      for (const t of made) flash(t.id, 'born');
-      toast(made.length === 1 ? 'Task added' : `${made.length} tasks added`, { undo: true });
+      if (picked.length) addPlanned(picked);
     },
   });
   $('#planAdd', el.dlg).focus();
