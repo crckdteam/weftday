@@ -911,3 +911,10 @@ h3 img.logo { width: 22px; height: 22px; vertical-align: -4px; margin-right: 9px
 .rask input { flex: 1; }
 .ranswer { padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 7%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent); max-height: 200px; }
 .dbody textarea[name="note"].pad { min-height: 230px; }
+.rchaps { display: grid; gap: 2px; }
+.rchaps button, .rline { display: flex; gap: 10px; align-items: baseline; text-align: left; border: 0; background: transparent; color: var(--text); padding: 5px 8px; border-radius: 8px; font-size: 13.5px; line-height: 1.45; width: 100%; }
+.rchaps button:hover, .rline:hover { background: var(--shade); }
+.rchaps em, .rline em { font-style: normal; font-variant-numeric: tabular-nums; font-size: 12px; color: var(--accent); flex: none; min-width: 34px; }
+.rlines { display: grid; gap: 1px; max-height: 300px; overflow: auto; margin-top: 6px; }
+.rline b { font-weight: 600; }
+.rline.now { background: color-mix(in srgb, var(--accent) 9%, transparent); }

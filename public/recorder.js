@@ -10,7 +10,8 @@
 // sent to an AI to write meeting notes, one at a time, however long the meeting was.
 
 const DB = 'weftday-recordings', RECS = 'recs', PARTS = 'parts';
-const PIECE_MS = 6 * 60000;   // length of one sound piece for the AI
+const PIECE_MS = 20 * 60000;  // length of one sound piece for the AI (it tells voices apart within one piece, so longer is better)
+const PIECE_SLICE_MS = 5000;  // a piece is written to storage as it grows, so a crash keeps it too
 const SLICE_MS = 1000;        // how often the main recording is written to storage
 const BEAT_MS = 15000;        // how often a running recording notes that it is still alive
 const DEAD_MS = 180000;       // silent for this long: it was cut off (a hidden tab's clock can run a minute late)
@@ -32,7 +33,7 @@ function db() {
     const req = indexedDB.open(DB, 1);
     req.onupgradeneeded = () => {
       req.result.createObjectStore(RECS, { keyPath: 'id' });
-      req.result.createObjectStore(PARTS, { keyPath: ['id', 'kind', 'n'] }); // kind: 'm' main recording, 'p' sound piece
+      req.result.createObjectStore(PARTS, { keyPath: ['id', 'kind', 'n'] }); // kind: 'm' main recording, 'q' part of a sound piece ('p': a whole piece, first version)
     };
     req.onsuccess = () => done(req.result);
     req.onerror = () => { dbOpen = null; fail(req.error); };
@@ -47,6 +48,7 @@ async function store(name, mode, fn) {
   return out;
 }
 const range = (id, kind) => IDBKeyRange.bound([id, kind, 0], [id, kind, Infinity]);
+const PIECE_STEP = 100000; // parts of sound piece k are numbered k * PIECE_STEP, k * PIECE_STEP + 1, …
 const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 const putRec = rec => store(RECS, 'readwrite', s => wait(s.put(rec)));
 
@@ -59,10 +61,18 @@ export async function file(id) {
   const rec = await get(id), parts = await store(PARTS, 'readonly', s => wait(s.getAll(range(id, 'm'))));
   return rec && parts.length ? new Blob(parts.map(p => p.blob), { type: rec.mime }) : null;
 }
-// The sound in short pieces, each a complete file, in order.
-export const pieces = async id => (await store(PARTS, 'readonly', s => wait(s.getAll(range(id, 'p'))))).map(p => p.blob);
+// The sound in pieces, in order: [{ blob, at }], where "at" is the second of the recording the piece starts at.
+export async function pieces(id) {
+  const rec = await get(id), grown = await store(PARTS, 'readonly', s => wait(s.getAll(range(id, 'q'))));
+  if (!grown.length) { // made by the first version: every stored part is one whole six-minute piece
+    return (await store(PARTS, 'readonly', s => wait(s.getAll(range(id, 'p'))))).map((p, i) => ({ blob: p.blob, at: i * 360 }));
+  }
+  const byPiece = new Map();
+  for (const part of grown) { const k = Math.floor(part.n / PIECE_STEP); if (!byPiece.has(k)) byPiece.set(k, []); byPiece.get(k).push(part.blob); }
+  return [...byPiece].sort((a, b) => a[0] - b[0]).map(([k, blobs]) => ({ blob: new Blob(blobs, { type: rec?.pieceMime || 'audio/webm' }), at: rec?.pieceAt?.[k] ?? k * PIECE_MS / 1000 }));
+}
 export async function remove(id) {
-  await store(PARTS, 'readwrite', async s => { await wait(s.delete(range(id, 'm'))); await wait(s.delete(range(id, 'p'))); });
+  await store(PARTS, 'readwrite', async s => { for (const kind of ['m', 'p', 'q']) await wait(s.delete(range(id, kind))); });
   await store(RECS, 'readwrite', s => wait(s.delete(id)));
 }
 // Space used by recordings, in bytes, and what the browser still has free (null when it will not say).
@@ -274,7 +284,7 @@ export async function start(streams, opts = {}) {
   let camTrack = cam?.getVideoTracks()[0] || null;
   if (!sources.length && !screenTrack && !camTrack) {
     stopAll(...given);
-    throw Object.assign(new Error('No sound to record. In the box the browser shows, tick “Also share tab audio”, or switch your microphone on.'), { kind: 'nosound' });
+    throw Object.assign(new Error('No sound to record. In the box the browser shows, switch on “Share with tab audio” (or “Share with system audio” for Entire screen), or switch your microphone on.'), { kind: 'nosound' });
   }
 
   // sound: everything goes through one limiter into one track, so loud moments do not crackle
@@ -337,23 +347,25 @@ export async function start(streams, opts = {}) {
   // Some browsers hand nothing over on their own: then ask for each part.
   const guard = setTimeout(() => { if (!gotData) pull = setInterval(() => { if (main.state === 'recording') main.requestData(); }, SLICE_MS); }, 3500);
 
-  // the sound again, as short complete files for the AI: one recorder after another
+  // the clock only runs while recording, not while paused
+  let ran = 0, since = performance.now();
+  const seconds = () => Math.round((ran + (session?.state === 'recording' ? performance.now() - since : 0)) / 1000);
+  // the sound again, as separate files for the AI: one recorder after another
   let piece = null, pieceTimer = 0;
   const pieceStops = [];
   const nextPiece = () => { pieceTimer = setTimeout(() => { if (session.state === 'recording') { const old = piece; startPiece(); old.stop(); } }, PIECE_MS); };
   const startPiece = () => {
-    const chunks = [], r = new MediaRecorder(new MediaStream([soundTrack]), { mimeType: pieceMime, audioBitsPerSecond: 32000 }), num = pn++;
-    r.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
-    pieceStops.push(new Promise(done => { r.onstop = () => { if (chunks.length) save('p', num, new Blob(chunks, { type: pieceMime.split(';')[0] })); done(); }; r.onerror = done; }));
-    r.start();
+    const num = pn++, r = new MediaRecorder(new MediaStream([soundTrack]), { mimeType: pieceMime, audioBitsPerSecond: 32000 });
+    let part = 0;
+    (rec.pieceAt ||= [])[num] = seconds(); // where in the recording this piece begins
+    r.ondataavailable = e => { if (e.data.size) save('q', num * PIECE_STEP + part++, e.data); };
+    pieceStops.push(new Promise(done => { r.onstop = done; r.onerror = done; }));
+    r.start(PIECE_SLICE_MS);
     piece = r;
     nextPiece();
   };
   if (soundTrack && pieceMime) startPiece();
 
-  // the clock only runs while recording, not while paused
-  let ran = 0, since = performance.now();
-  const seconds = () => Math.round((ran + (session?.state === 'recording' ? performance.now() - since : 0)) / 1000);
   const ticker = setInterval(() => opts.onTick?.(seconds()), 500);
   const beat = setInterval(() => { Object.assign(rec, { beat: Date.now(), secs: seconds() }); putRec(rec).catch(() => {}); }, BEAT_MS);
   // a small picture for the list, taken a moment in

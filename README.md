@@ -39,7 +39,9 @@ Then open http://localhost:4321. Add `?demo` to the address to try it with sampl
 
 **Record** (in the side panel, and on every meeting) keeps a meeting's sound, your screen, or your camera, with your face in a corner of the screen if you like. It also takes single screenshots. Everything is stored in the browser (IndexedDB) and never uploaded. **Make notes** sends only the sound of one recording, in short pieces, to Google's AI with your own key and writes the summary into the meeting's notes.
 
-It needs Chrome or Edge on a computer. A phone can record the microphone and camera only. On a Mac, the sound of a meeting can be captured when the meeting runs in a browser tab, not from the Zoom or Teams desktop apps.
+It needs Chrome or Edge on a computer. A phone can record the microphone and camera only. A meeting in the browser is recorded by sharing its tab with “Share with tab audio” on; a meeting in an app such as Zoom or Teams by sharing the entire screen with “Share with system audio” on.
+
+Notes use Google's free AI key: one model writes down what was said with who spoke and when, another writes the notes, told who was in the meeting, your own rough notes and what was still open from last time. If Google is busy, any other AI service you have saved a key for writes the notes instead.
 
 ## Checking and publishing a change
 

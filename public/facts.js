@@ -223,13 +223,58 @@ export async function askPlain(input, keys, signal) {
 
 // Sound to text with Google's AI and your own key: one short piece of a recording at a time.
 // Returns what the model wrote. Other AI services are not used for this; Google's free key can listen.
+const base64Of = blob => new Promise((done, fail) => {
+  const reader = new FileReader();
+  reader.onload = () => done(String(reader.result).slice(String(reader.result).indexOf(',') + 1));
+  reader.onerror = () => fail(new Error('The recording could not be read from this browser’s storage.'));
+  reader.readAsDataURL(blob);
+});
+// Writes down what is said in a piece of sound, with who spoke and when, using Google's transcription
+// model (free with the same key). Returns { text, turns: [{ who, at, text }] }: who is 0, 1, 2… for
+// each voice it tells apart (null when it cannot), at is the second the turn starts.
+export async function transcribe(blob, mime, key, signal) {
+  const data = await base64Of(blob), stop = new AbortController(), giveUp = () => stop.abort();
+  signal?.addEventListener('abort', giveUp);
+  const timer = setTimeout(giveUp, 240000); // twenty minutes of sound takes a while
+  let res, body;
+  try {
+    res = await fetch(ENDPOINT, {
+      method: 'POST', signal: stop.signal, cache: 'no-store',
+      headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
+      body: JSON.stringify({
+        model: 'models/gemini-3.5-transcribe', store: false,
+        input: [{ type: 'audio', data, mime_type: /mp4|m4a|aac/.test(mime) ? 'audio/m4a' : 'audio/webm' }],
+        generation_config: { transcription_config: { mode: { type: 'verbatim', diarization_mode: 'speaker', timestamp_granularities: ['word'] } } },
+      }),
+    });
+    body = await res.json().catch(() => null);
+  } catch (err) {
+    if (signal?.aborted) throw new DOMException('Stopped', 'AbortError');
+    if (stop.signal.aborted) throw Object.assign(new Error('Google’s AI took too long. Please try again.'), { kind: 'slow' });
+    throw Object.assign(new Error('Could not reach Google’s AI. Check your connection and try again.'), { kind: 'offline' });
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', giveUp);
+  }
+  if (Array.isArray(body)) body = body[0];
+  if (!res.ok || body?.error) throw problem(res.status, body?.error);
+  const content = (body?.steps || []).flatMap(step => step.content || []).filter(c => typeof c.text === 'string');
+  const words = content.flatMap(c => c.annotations || []).filter(a => a.type === 'word_info' && a.text);
+  const text = content.map(c => c.text).join(' ').replace(/\s+/g, ' ').trim();
+  const turns = [];
+  for (const w of words) {
+    const who = /(\d+)\s*$/.exec(String(w.speaker ?? ''))?.[1], at = parseFloat(w.start_offset) || 0, last = turns[turns.length - 1];
+    const speaker = who == null ? null : +who;
+    // a new line when the voice changes, or at the end of a sentence once a line has run long
+    const full = last && /[.?!…]$/.test(last.text) && (last.n >= 28 || at - last.at > 22);
+    if (!last || last.who !== speaker || full) turns.push({ who: speaker, at, text: w.text, n: 1 });
+    else { last.text += ` ${w.text}`; last.n++; }
+  }
+  if (!turns.length && text) turns.push({ who: null, at: 0, text });
+  return { text, turns: turns.map(({ who, at, text: said }) => ({ who, at, text: said })) };
+}
 export async function askAudio(blob, mime, question, key, signal) {
-  const data = await new Promise((done, fail) => {
-    const reader = new FileReader();
-    reader.onload = () => done(String(reader.result).slice(String(reader.result).indexOf(',') + 1));
-    reader.onerror = () => fail(new Error('The recording could not be read from this browser’s storage.'));
-    reader.readAsDataURL(blob);
-  });
+  const data = await base64Of(blob);
   return firstThatAnswers(READ_MODELS, async model => {
     const stop = new AbortController(), giveUp = () => stop.abort();
     signal?.addEventListener('abort', giveUp);

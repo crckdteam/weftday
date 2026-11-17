@@ -253,12 +253,24 @@ def run(p):
     # ---- the meeting flow: record a meeting, type notes, and the notes write themselves (the AI is pretend)
     def pretend_ai(route):
         body = route.request.post_data or ''
+        if 'gemini-3.5-transcribe' in body:  # the listening model: each word with its voice and its time
+            said = [('spk:0', 'We agreed the price is 40 dollars a seat.'), ('spk:1', 'I will send the contract by Friday.')]
+            words, t = [], 0.1
+            for voice, sentence in said:
+                for word in sentence.split():
+                    words.append({'type': 'word_info', 'text': word, 'speaker': voice, 'start_offset': f'{t:.3f}s', 'end_offset': f'{t + 0.2:.3f}s'})
+                    t += 0.3
+            seen['heard'] = True
+            return route.fulfill(status=200, content_type='application/json', body=json.dumps(
+                {'status': 'completed', 'steps': [{'type': 'model_output', 'content': [{'type': 'text', 'text': ' '.join(x[1] for x in said), 'annotations': words}]}]}))
         if 'inline_data' in body:
             text = 'Speaker 1: We agreed the price is 40 dollars a seat.\nSpeaker 2: I will send the contract by Friday.'
         elif 'Answer with JSON only' in body:
             text = json.dumps({'title': 'Acme pricing agreed', 'kind': 'sales call', 'summary': 'The price was agreed at 40 dollars a seat.',
                                'next': 'Send the contract.', 'decisions': ['Price is 40 dollars a seat'], 'mine': ['Send the contract by Friday'],
-                               'theirs': ['Ravi: send the security questionnaire by Wednesday'], 'questions': [], 'facts': ['50 seats'], 'settled': []})
+                               'theirs': ['Ravi: send the security questionnaire by Wednesday'], 'questions': [], 'facts': ['50 seats'], 'settled': [],
+                               'voices': {'Speaker 1': 'Ravi Menon', 'Speaker 2': ''}, 'chapters': [{'at': '0:00', 'title': 'Agreeing the price'}]})
+            seen['timed'] = '[0:00] Speaker 1: We agreed' in body
             seen['rough'] = 'ask about the pilot' in body
             seen['people'] = 'Ravi Menon' in body
         else:
@@ -318,6 +330,13 @@ def run(p):
     page.wait_for_selector('#dlg .rcard', timeout=8000)
     page.locator(f'#dlg .rcard[data-id="{newest["id"]}"]').click()
     page.wait_for_selector('#dlg .rask', timeout=8000)
+    check('what was said is kept line by line, with times and voices', seen.get('heard') and seen.get('timed') and page.locator('#dlg .rline').count() == 2)
+    check('a voice gets its real name when the talk makes it certain', 'Ravi Menon' in page.locator('#dlg .rline').first.inner_text()
+          and 'Speaker 2' in page.locator('#dlg .rline').nth(1).inner_text())
+    check('the recording has chapters', page.locator('#dlg .rchaps button').count() == 1)
+    page.locator('#dlg .rline').nth(1).click()
+    page.wait_for_timeout(500)
+    check('pressing a line jumps the player there', page.evaluate("document.querySelector('#dlg .rplay').currentTime") > 2)
     page.locator('#dlg .rask input').fill('what price did we agree?')
     page.locator('#dlg .rask button').click()
     wait_until(page, "document.querySelector('#recAnswer').textContent.includes('40 dollars')", 15000)

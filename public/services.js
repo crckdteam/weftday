@@ -23,12 +23,12 @@ export const AI_SERVICES = {
   },
   groq: {
     name: 'Groq', cost: 'free', setup: 'about 2 minutes', kind: 'chat', label: 'Groq key', base: 'https://api.groq.com/openai/v1',
-    model: 'openai/gpt-oss-120b', prefer: [/gpt-oss-120b/, /gpt-oss-20b/, /gpt-oss/, /qwen/, /llama/],
+    model: 'openai/gpt-oss-120b', prefer: [/gpt-oss-120b/, /gpt-oss-20b/, /gpt-oss/, /qwen/, /llama/], room: 22000, // its free plan takes little text a minute
     help: keySteps('https://console.groq.com/keys', 'the Groq Console', '<li>Groq has a free plan with daily limits. It runs open models very fast.</li>'),
   },
   openrouter: {
     name: 'OpenRouter', cost: 'free', setup: 'about 2 minutes', kind: 'chat', label: 'OpenRouter key', base: 'https://openrouter.ai/api/v1',
-    model: 'openrouter/free', prefer: [/^openrouter\/free$/, /:free$/],
+    model: 'openrouter/free', prefer: [/^openrouter\/free$/, /:free$/], room: 300000,
     help: keySteps('https://openrouter.ai/keys', 'OpenRouter', '<li>Weftday uses its free models: about 50 lookups a day. To use a paid model, type its name under “Choose a model”.</li>'),
   },
   ollama: {
@@ -42,8 +42,13 @@ export const AI_SERVICES = {
   },
   mistral: {
     name: 'Mistral', cost: 'free to try', setup: 'about 3 minutes', kind: 'chat', label: 'Mistral key', base: 'https://api.mistral.ai/v1',
-    model: 'mistral-small-latest', prefer: [/^mistral-small-latest$/, /^mistral-medium-latest$/, /^mistral-small/, /^mistral/],
+    model: 'mistral-small-latest', prefer: [/^mistral-small-latest$/, /^mistral-medium-latest$/, /^mistral-small/, /^mistral/], room: 100000,
     help: keySteps('https://console.mistral.ai/api-keys', 'the Mistral Console', '<li>New accounts start in a free mode with limits. Heavier use is paid.</li>'),
+  },
+  cohere: {
+    name: 'Cohere', cost: 'free to try', setup: 'about 3 minutes', kind: 'chat', label: 'Cohere key', base: 'https://api.cohere.ai/compatibility/v1',
+    model: 'command-a-plus-05-2026', prefer: [/^command-a-plus/, /^command-a-\d/, /^command-a/, /^command-r/], room: 300000,
+    help: keySteps('https://dashboard.cohere.com/api-keys', 'the Cohere dashboard', '<li>A trial key is free: about 1,000 requests a month.</li>'),
   },
   openai: {
     name: 'OpenAI', cost: 'paid', setup: 'about 5 minutes', kind: 'chat', ownSearch: true, label: 'OpenAI key', base: 'https://api.openai.com/v1',

@@ -3743,7 +3743,7 @@ function openRecordSetup(ev) {
       <div class="grid2"><label>Microphone<select name="micId"><option value="">The usual one</option></select></label>
       <label>Camera<select name="camId"><option value="">The usual one</option></select></label></div>
     </details>
-    ${screen ? '<p class="note" id="recHow">Chrome will ask what to share. Pick the <b>tab your meeting is in</b> and leave <b>“Also share tab audio”</b> switched on.</p>' : ''}
+    ${screen ? '<p class="note" id="recHow">Chrome will ask what to share. For a meeting in the browser, pick its <b>tab</b> and leave <b>“Share with tab audio”</b> on. For Zoom, Teams or any other app, pick <b>Entire screen</b> and switch on <b>“Share with system audio”</b>.</p>' : ''}
     <p class="note warn2">Tell everyone in the meeting that you are recording. In many places that is the law.</p>
     <p class="note">It stays in this browser. Nothing is sent anywhere unless you later press “Make notes”.</p>
     <div class="actions">${screen ? '<button type="button" class="btn ghost" data-x="shot">Take a screenshot instead</button>' : ''}<span class="sp"></span><button type="button" class="btn ghost" data-x="close">Cancel</button><button class="btn primary">Start recording</button></div></form>`, {
@@ -3775,7 +3775,7 @@ function openRecordSetup(ev) {
         openFloat(session, true);
         if (ev) openEvent(ev, true); // the meeting's own notes, ready to type in while it records
         const heard = session.rec.heard;
-        if (streams.noSystemSound && heard.length < 2) toast('No sound is coming from what you shared. To record the meeting’s sound, share the browser tab it is in and leave “Also share tab audio” on.', true);
+        if (streams.noSystemSound && heard.length < 2) toast('No sound is coming from what you shared. Stop, then share again with the sound switch on: “Share with tab audio” for a tab, “Share with system audio” for Entire screen.', true);
         else if (streams.micFailed) toast('Your microphone could not be used, so your own voice is not being recorded.', true);
         else if (streams.camFailed || (wantCam && !session.cam)) toast('Your camera could not be used, so the recording goes on without it.', true);
         else toast(heard.length === 2 ? 'Recording the meeting and your microphone.' : heard.length ? `Recording ${heard[0]} only.` : 'Recording without sound.');
@@ -3857,26 +3857,46 @@ async function notesFromRecording(rec, signal, say) {
   if (!key) throw Object.assign(new Error('nokey'), { kind: 'nokey' });
   const parts = await R.pieces(rec.id);
   if (!parts.length) throw new Error('This recording has no sound that can be listened to.');
-  const heard = [];
   // Everything Weftday already knows about this meeting goes in with it: that is what makes the notes specific.
   const ev = eventFor(rec.key), guests = ev ? outsiders(ev).filter(x => !x.who.self) : [], emails = guests.map(x => x.who.email);
   const me = ev?.att?.find(p => p.self)?.displayName || '';
   const cast = guests.slice(0, 12).map(x => { const f = savedFacts(x.who.email); return `${x.who.name}${f?.role ? `, ${f.role}` : ''}${x.who.company ? ` (${x.who.company})` : ''}`; });
   const listen = LISTEN + (cast.length || me ? ` The people in this meeting: ${[me, ...guests.slice(0, 12).map(x => x.who.name)].filter(Boolean).join(', ')}. When a speaker gives their name or is spoken to by name, write that name instead of “Speaker 1”.` : '');
+  // Each piece is written down with who spoke and when. If Google's transcription model cannot be
+  // used, the general model listens instead: the words are the same, only the times are coarser.
+  const pause = () => new Promise((done, fail) => { const t = setTimeout(done, 30000); signal?.addEventListener('abort', () => { clearTimeout(t); fail(new DOMException('Stopped', 'AbortError')); }, { once: true }); });
+  const lines = []; // { t: second of the recording, who, text }
   for (let i = 0; i < parts.length; i++) {
     say(parts.length > 1 ? `Listening… part ${i + 1} of ${parts.length}` : 'Listening to the recording…');
+    const { blob, at } = parts[i];
+    let timed = null, plain = '';
     for (let tries = 0; ; tries++) {
-      try { heard.push(await F.askAudio(parts[i], rec.pieceMime, listen, key, signal)); break; }
-      catch (err) { // the free key allows only so much a minute: wait and go on
-        if (err.name === 'AbortError' || tries >= 2 || !['billing', 'credit', 'busy', 'slow'].includes(err.kind)) throw err;
-        say('Google’s AI asked for a short pause. Carrying on in half a minute…');
-        await new Promise((done, fail) => { const t = setTimeout(done, 30000); signal?.addEventListener('abort', () => { clearTimeout(t); fail(new DOMException('Stopped', 'AbortError')); }, { once: true }); });
+      try { timed = await F.transcribe(blob, rec.pieceMime, key, signal); break; }
+      catch (err) {
+        if (err.name === 'AbortError' || err.kind === 'key') throw err;
+        if (tries < 2 && ['billing', 'credit', 'slow'].includes(err.kind)) { say('Google’s AI asked for a short pause. Carrying on in half a minute…'); await pause(); continue; } // the free key allows only so much a minute
+        break; // not available for this key or this sound: listen the other way
       }
     }
+    if (!timed) for (let tries = 0; ; tries++) {
+      try { plain = await F.askAudio(blob, rec.pieceMime, listen, key, signal); break; }
+      catch (err) {
+        if (err.name === 'AbortError' || tries >= 2 || !['billing', 'credit', 'busy', 'slow'].includes(err.kind)) throw err;
+        say('Google’s AI asked for a short pause. Carrying on in half a minute…');
+        await pause();
+      }
+    }
+    if (timed) for (const turn of timed.turns) lines.push({ t: Math.round((at + turn.at) * 10) / 10, who: turn.who == null ? '' : `Speaker ${turn.who + 1}`, text: turn.text, part: i });
+    else for (const row of plain.split('\n').map(x => x.trim()).filter(x => x && !/^\(silence\)$/i.test(x))) {
+      const named = /^([^:]{1,40}):\s+(.+)$/.exec(row);
+      lines.push({ t: at, who: named ? named[1] : '', text: named ? named[2] : row, part: i, rough: true });
+    }
   }
-  const transcript = heard.filter(t => t && !/^\(silence\)$/i.test(t.trim())).join('\n').trim();
-  if (!transcript) throw new Error('No speech was found in this recording.');
-  await R.update(rec.id, { transcript });
+  if (!lines.length) throw new Error('No speech was found in this recording.');
+  const several = lines.some(l => l.part > 0); // voices are numbered afresh in each piece of a long recording
+  const written = () => lines.map((l, i) => `${several && i && l.part !== lines[i - 1].part ? '(the next part of the recording: voices are numbered afresh)\n' : ''}[${clock(Math.floor(l.t))}] ${l.who ? `${l.who}: ` : ''}${l.text}`).join('\n');
+  let transcript = written();
+  await R.update(rec.id, { transcript, lines });
   say('Writing the notes…');
   // What you typed yourself, in the meeting's notes or on the pad, shows what mattered to you.
   const openBox = $('textarea[name=note]', el.dlg), typing = openBox?.dataset.key === rec.key;
@@ -3884,7 +3904,7 @@ async function notesFromRecording(rec, signal, say) {
   // What was still open from earlier meetings with the same people, and where things stood last time.
   const earlier = emails.length ? N.withPeople(emails, rec.key) : [], open = emails.length ? openItems(emails, rec.key).slice(0, 12) : [];
   const day = new Date(rec.at), agenda = (ev?.description || '').replace(/\s+/g, ' ').trim().slice(0, 600);
-  const raw = await F.askPlain([
+  const raw = await askWriter(room => [
     `You are writing my notes of a meeting I recorded${rec.key && rec.title ? `, called “${rec.title}”` : ''}. It took place on ${day.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}.`,
     me ? `I am ${me}. “I”, “me” and “mine” below always mean ${me}.` : 'I am the person who made the recording.',
     cast.length ? `The others in the meeting: ${cast.join('; ')}.` : '',
@@ -3895,23 +3915,33 @@ async function notesFromRecording(rec, signal, say) {
     'Answer with JSON only, no other words, in this shape:',
     '{"title":"three to six words naming what this meeting was about","kind":"sales call | customer call | interview | one-to-one | team meeting | planning | catch-up | other",'
       + '"summary":"two or three sentences: what it was about, what was settled, where things stand now","next":"one sentence: the single most useful next step for me",'
-      + '"decisions":["…"],"mine":["…"],"theirs":["…"],"questions":["…"],"facts":["…"],"settled":["…"]}',
+      + '"decisions":["…"],"mine":["…"],"theirs":["…"],"questions":["…"],"facts":["…"],"settled":["…"],'
+      + '"voices":{"Speaker 1":"that person’s real name, only when the talk makes it certain, otherwise empty"},"chapters":[{"at":"m:ss","title":"three to six words"}]}',
     'decisions: what was agreed or settled. mine: what I have to do; start with a verb and keep the deadline, written as a date when one was meant (“Send the contract by Fri 20 Nov”). theirs: what somebody else promised; start with their name and a colon (“Ravi: send the security questionnaire by Wed 18 Nov”). When it is not clear who will do something, it goes in theirs, starting with “Someone:”. questions: what was left open. facts: prices, numbers, dates, names and other details worth keeping exactly as said. settled: lines from “Still open from earlier meetings” that this meeting dealt with, copied word for word.',
     'Fit the notes to the kind of meeting: for a sales or customer call bring out what they need, their objections and the next step; for an interview, strengths, concerns and what happens next; for a team meeting, who does what by when.',
+    'chapters: where the talk moves to a new subject, with the time from the transcript where it starts; three to eight for a long meeting, none for one shorter than five minutes.',
     'Use only what was said. Leave a list empty when there is nothing for it. Write in the language the meeting was held in.',
-    `Transcript:\n${transcript.slice(0, 60000)}`,
-  ].filter(Boolean).join('\n'), { provider: 'google', google: key }, signal);
+    `Transcript (each line starts with its time):\n${transcript.slice(0, Math.max(4000, room - 9000))}`,
+  ].filter(Boolean).join('\n'), signal);
   let got = {};
   try { got = JSON.parse(/\{[\s\S]*\}/.exec(raw)?.[0] || '{}'); } catch { got = {}; }
   const line = v => String(v || '').replace(/\s+/g, ' ').trim();
-  const lines = v => (Array.isArray(v) ? v : []).map(line).filter(Boolean).slice(0, 20);
-  const settled = lines(got.settled).filter(x => open.some(o => o.text.toLowerCase() === x.toLowerCase())); // only ones that really were open
+  const list = v => (Array.isArray(v) ? v : []).map(line).filter(Boolean).slice(0, 20);
+  const settled = list(got.settled).filter(x => open.some(o => o.text.toLowerCase() === x.toLowerCase())); // only ones that really were open
   const result = {
     summary: [line(got.summary), line(got.next) ? `Next: ${line(got.next)}` : ''].filter(Boolean).join('\n'),
-    decisions: lines(got.decisions), actions: lines(got.mine ?? got.actions), waiting: lines(got.theirs), questions: lines(got.questions),
-    info: [...lines(got.facts), ...(settled.length ? [`Settled from last time: ${settled.join('; ')}`] : [])],
+    decisions: list(got.decisions), actions: list(got.mine ?? got.actions), waiting: list(got.theirs), questions: list(got.questions),
+    info: [...list(got.facts), ...(settled.length ? [`Settled from last time: ${settled.join('; ')}`] : [])],
   };
   if (!result.summary && !result.actions.length && !result.decisions.length) throw new Error('The AI could not write notes from this recording. Please try again.');
+  // Voices get their real names where the talk made them certain, and the recording gets its chapters.
+  const voices = got.voices && typeof got.voices === 'object' && !several ? got.voices : {};
+  let renamed = false;
+  for (const l of lines) { const name = line(voices[l.who]).slice(0, 40); if (name && !/^speaker\b/i.test(name)) { l.who = name; renamed = true; } }
+  if (renamed) transcript = written();
+  const seconds = at => { const p = String(at || '').split(':').map(Number); return p.length > 1 && p.every(Number.isFinite) ? p.reduce((sum, x) => sum * 60 + x, 0) : NaN; };
+  const chapters = (Array.isArray(got.chapters) ? got.chapters : []).map(c => ({ t: seconds(c?.at), title: line(c?.title).slice(0, 80) }))
+    .filter(c => c.title && c.t >= 0 && c.t <= (rec.secs || 1e9)).sort((x, y) => x.t - y.t).slice(0, 12);
   // A recording that has no meeting gets a name that says what it was about.
   const named = !rec.key && /^Recording, /.test(rec.title) && line(got.title) ? line(got.title).slice(0, 80) : '';
   if (named) rec.title = named;
@@ -3925,8 +3955,34 @@ async function notesFromRecording(rec, signal, say) {
     const box = $('textarea[name=note]', el.dlg); // the meeting's box is open: show the new notes in it
     if (box?.dataset.key === rec.key) { box.value = notes; box.dispatchEvent(new Event('input')); }
   } else notes = AI.layout(result, own || 'Written from the recording.');
-  await R.update(rec.id, { notes, ...(named ? { title: named } : {}) });
+  await R.update(rec.id, { notes, transcript, lines, chapters, ...(named ? { title: named } : {}) });
   return { transcript, notes, actions: result.actions.length, waiting: result.waiting.length };
+}
+// The AI services that can write from a long text, best first: Google reads a whole meeting in one go,
+// then the service chosen in Settings, then any other you have saved a key for. If one is busy or has
+// used up its free allowance, the next one is asked, so notes do not depend on a single service.
+function writers() {
+  const s = state.settings, out = [];
+  const add = id => {
+    const svc = S.AI_SERVICES[id];
+    if (!svc || out.some(w => w.id === id)) return;
+    if (id === 'google') { if (s.aiKey) out.push({ id, room: 500000, keys: { provider: 'google', google: s.aiKey } }); }
+    else if (svc.kind === 'chat' && svc.base && (aiKeyOf(id) || (svc.noKey && s.aiProvider === id))) out.push({ id, room: svc.room || 60000, keys: { provider: id, key: aiKeyOf(id), model: s.aiModels?.[id] || '' } });
+  };
+  add('google'); add(s.aiProvider);
+  for (const id of Object.keys(S.AI_SERVICES)) add(id);
+  return out;
+}
+// build(room) gives the text to send, cut to what a service can take in one go.
+async function askWriter(build, signal) {
+  const list = writers();
+  if (!list.length) throw Object.assign(new Error('nokey'), { kind: 'nokey' });
+  let first = null;
+  for (const w of list) {
+    try { return await F.askPlain(build(w.room), w.keys, signal); }
+    catch (err) { if (err.name === 'AbortError') throw err; first ||= err; }
+  }
+  throw first;
 }
 // Each action point in a note becomes a task in the inbox (ones you already have are not made twice).
 function tasksFromNotes(text, from, when = new Date()) {
@@ -3989,28 +4045,32 @@ async function openRecording(id, back) {
     </div>
     <div class="note" id="recSay" hidden></div>
     ${rec.notes ? `<h4>Notes</h4><div class="desc rtext">${esc(AI.originalOf(rec.notes) === rec.notes ? rec.notes : rec.notes.slice(0, rec.notes.indexOf(AI.ORIGINAL_MARK)).trim())}</div>` : ''}
+    ${rec.chapters?.length ? `<h4>Chapters</h4><div class="rchaps">${rec.chapters.map(c => `<button type="button" data-x="jump" data-t="${+c.t}"><em>${clock(Math.floor(c.t))}</em>${esc(c.title)}</button>`).join('')}</div>` : ''}
     ${rec.transcript ? `<form class="rask"><input name="q" maxlength="300" autocomplete="off" placeholder="Ask about this ${ev ? 'meeting' : 'recording'}: what did we agree on price?" aria-label="Ask about this recording"><button class="btn">Ask</button></form>
     <div class="desc rtext ranswer" id="recAnswer" hidden></div>
-    <details><summary>What was said (the full text)</summary><div class="desc rtext">${esc(rec.transcript)}</div></details>` : ''}
+    <details${rec.lines?.length ? ' open' : ''}><summary>What was said${rec.lines?.length ? ' · press a line to hear it' : ' (the full text)'}</summary>${rec.lines?.length
+    ? `<div class="rlines">${rec.lines.map(l => `<button type="button" class="rline" data-x="jump" data-t="${+l.t}"><em>${clock(Math.floor(l.t))}</em><span>${l.who ? `<b>${esc(l.who)}</b> ` : ''}${esc(l.text)}</span></button>`).join('')}</div>`
+    : `<div class="desc rtext">${esc(rec.transcript)}</div>`}</details>` : ''}
     <div class="actions"><button type="button" class="btn danger" data-x="del">Delete</button>${back ? '<button type="button" class="btn" data-x="back">Back</button>' : ''}<span class="sp"></span><button type="button" class="btn ghost" data-x="close">Close</button></div></div>`, {
     back: () => back(),
     meeting: () => openEvent(ev),
     mktasks: () => tasksFromNotes(rec.notes, `${rec.title} (${dayLabel(new Date(rec.at))})`, new Date(rec.at)),
+    jump(x) { const m = $('.rplay', el.dlg); if (m) { m.currentTime = +x.dataset.t; m.play().catch(() => {}); } },
     // A question about what was said, answered from the text of this recording only.
     async submit(fd, form) {
-      const q = String(fd.get('q') || '').trim(), out = $('#recAnswer', el.dlg), btn = $('button', form), key = state.settings.aiKey;
+      const q = String(fd.get('q') || '').trim(), out = $('#recAnswer', el.dlg), btn = $('button', form);
       if (!q) return;
-      if (!key) return openSettings('Asking about a recording needs the free Google AI key. Add it here.', 'ai');
+      if (!writers().length) return openSettings('Asking about a recording needs an AI key. The free Google AI key is the quickest to add.', 'ai');
       const job = newJob();
       btn.disabled = true;
       out.hidden = false;
       out.textContent = 'Looking through what was said…';
       try {
-        const answer = await F.askPlain([
+        const answer = await askWriter(room => [
           'Answer the question from the transcript of a recorded meeting below, and from nothing else. Be brief and plain: a sentence or two, or a short list. Quote names, numbers and dates exactly as they were said. If the transcript does not say, answer: “That did not come up in this recording.”',
           `Question: ${q}`,
-          `Transcript:\n${rec.transcript.slice(0, 60000)}`,
-        ].join('\n'), { provider: 'google', google: key }, job.signal);
+          `Transcript:\n${rec.transcript.slice(0, Math.max(4000, room - 2000))}`,
+        ].join('\n'), job.signal);
         if (out.isConnected) out.textContent = String(answer || '').trim() || 'No answer came back. Please try again.';
       } catch (err) {
         if (err.name !== 'AbortError' && out.isConnected) out.textContent = err.message || 'That could not be answered just now. Please try again.';
@@ -4062,6 +4122,21 @@ async function openRecording(id, back) {
     media.addEventListener('durationchange', () => { if (Number.isFinite(media.duration)) media.currentTime = 0; }, { once: true });
     media.currentTime = 1e7;
   }, { once: true });
+  if (media && rec.lines?.length) {
+    // the line being said is marked as it plays
+    const rows = $$('.rline', el.dlg);
+    media.addEventListener('timeupdate', () => {
+      let now = -1;
+      for (let i = 0; i < rec.lines.length && rec.lines[i].t <= media.currentTime + 0.25; i++) now = i;
+      rows.forEach((row, i) => row.classList.toggle('now', i === now));
+    });
+    // a video also gets them as captions (the CC button in the player)
+    if (rec.kind === 'video') {
+      const stamp = t => { const ms = Math.max(0, Math.round(t * 1000)); return `${pad(Math.floor(ms / 3600000))}:${pad(Math.floor(ms / 60000) % 60)}:${pad(Math.floor(ms / 1000) % 60)}.${String(ms % 1000).padStart(3, '0')}`; };
+      const cues = rec.lines.filter(l => !l.rough).map((l, i, all) => `${stamp(l.t)} --> ${stamp(Math.max(l.t + 1, Math.min(all[i + 1]?.t ?? l.t + 8, l.t + 12)))}\n${`${l.who ? `${l.who}: ` : ''}${l.text}`.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}`);
+      if (cues.length) media.append(Object.assign(document.createElement('track'), { kind: 'captions', label: 'Captions', srclang: 'en', src: recUrl(new Blob([`WEBVTT\n\n${cues.join('\n\n')}\n`], { type: 'text/vtt' })) }));
+    }
+  }
   const keys = e => {
     const m = $('.rplay', el.dlg);
     if (!m || e.metaKey || e.ctrlKey || e.altKey || e.target.closest('input, textarea, select, button, a, audio, video')) return;
