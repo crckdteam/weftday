@@ -1,6 +1,7 @@
 import { state, save, DEMO, loadEventCache, saveEventCache } from './store.js';
 import * as G from './google.js';
 import * as V from './vault.js';
+import * as N from './notes.js';
 import { qrSvg } from './qr.js';
 import { PUBLIC_URL } from './config.js';
 import {
@@ -69,7 +70,10 @@ function setStatus(text, isErr) {
 }
 
 let dlgOpenedAt = 0, closeTimer = 0;
+let noteCommit = null; // saves the notes box of the meeting that is open, if any
+function saveOpenNote() { const f = noteCommit; noteCommit = null; if (f) f(); }
 function dialog(html, handlers = {}, cls = '') {
+  saveOpenNote();
   clearTimeout(closeTimer); // a box that was fading out is taken over by the new one
   document.body.append(el.toast);
   el.dlg.className = cls;
@@ -461,7 +465,7 @@ function blockHtml(it) {
       <div class="rs"></div></div>`;
   }
   const ev = it.ev;
-  return `<div class="blk ev${evClass(ev)}${sm}" data-key="${esc(ev.key)}" style="${style}--c:${evColor(ev)}">
+  return `<div class="blk ev${evClass(ev)}${N.has(noteKey(ev)) ? ' noted' : ''}${sm}" data-key="${esc(ev.key)}" style="${style}--c:${evColor(ev)}">
     <div class="bt"><div class="t">${esc(ev.title)}</div><div class="m">${fmtRange(it.s, it.e)}${ev.location ? ' · ' + esc(ev.location) : ''}</div></div></div>`;
 }
 
@@ -848,7 +852,7 @@ function bind() {
   addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (view === 'month') renderMonth(); }, 150); });
   addEventListener('offline', () => setStatus('Offline. Changes are kept and sent later.', true));
   addEventListener('online', () => { setStatus(''); scheduleFlush(); refresh(); });
-  el.dlg.addEventListener('close', () => document.body.append(el.toast));
+  el.dlg.addEventListener('close', () => { saveOpenNote(); document.body.append(el.toast); });
   el.dlg.addEventListener('cancel', e => { if (!calm()) { e.preventDefault(); closeDialog(); } }); // Escape fades out too
 }
 
@@ -1065,16 +1069,92 @@ function eventWhen(ev) {
   return ymd(s) === ymd(e) ? `${dayLabel(s, true)} · ${fmtRange(sm, em)}` : `${dayLabel(s)} ${fmtTime(sm)} – ${dayLabel(e)} ${fmtTime(em)}`;
 }
 
+// ---------------------------------------------------------------- meeting prep
+// Who you are meeting, your history with them, ways to look them up, and your own private notes.
+const FREE_MAIL = new Set(['gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com', 'live.com', 'msn.com', 'yahoo.com',
+  'yahoo.co.in', 'icloud.com', 'me.com', 'proton.me', 'protonmail.com', 'aol.com', 'zoho.com', 'rediffmail.com']);
+const cap = w => w.charAt(0).toUpperCase() + w.slice(1);
+function person(p) {
+  const email = (p.email || '').toLowerCase(), [local, domain = ''] = email.split('@');
+  const name = p.displayName && !p.displayName.includes('@') ? p.displayName : local.split(/[._-]+/).filter(Boolean).map(cap).join(' ') || email;
+  const company = domain && !FREE_MAIL.has(domain) ? cap(domain.split('.')[0]) : '';
+  return { email, name, domain, company, self: !!p.self || !!acct(email), organizer: !!p.organizer, status: p.responseStatus };
+}
+// Links that search for the person by name (and company). Nothing is sent until you press one.
+function lookupLinks(who) {
+  const words = who.name + (who.company ? ` ${who.company}` : '');
+  const links = [
+    ['LinkedIn', `https://www.linkedin.com/search/results/people/?keywords=${G.enc(words)}`],
+    ['Google', `https://www.google.com/search?q=${G.enc(`"${who.name}"${who.company ? ` ${who.company}` : ''}`)}`],
+  ];
+  if (who.company) links.push(['Website', `https://${who.domain}`]);
+  return links.map(([label, url]) => `<a href="${esc(url)}" target="_blank" rel="noopener">${label}</a>`).join('');
+}
+// Your meetings with one person over the past year (and the next three months), oldest first.
+const metCache = new Map();
+async function meetingsWith(email) {
+  const hit = metCache.get(email);
+  if (hit && Date.now() - hit.at < 10 * 60000) return hit.list;
+  const found = new Map();
+  if (DEMO) {
+    for (const ev of events.values()) if ((ev.att || []).some(p => (p.email || '').toLowerCase() === email)) found.set(noteKey(ev), { s: ev.s, nk: noteKey(ev) });
+  } else {
+    const now = new Date(), params = {
+      q: email, timeMin: addDays(now, -365).toISOString(), timeMax: addDays(now, 90).toISOString(),
+      singleEvents: true, orderBy: 'startTime', maxResults: 250,
+    };
+    await Promise.all(state.accounts.filter(a => !a.needsReconnect).map(async a => {
+      const cal = a.calendars.find(c => c.primary);
+      if (!cal) return;
+      try {
+        const j = await G.api(a, `/calendars/${G.enc(cal.id)}/events`, { params });
+        for (const e of j.items || []) {
+          if (e.status === 'cancelled' || !e.start) continue;
+          if (!(e.attendees || []).some(p => (p.email || '').toLowerCase() === email)) continue;
+          if ((e.attendees || []).find(p => p.self)?.responseStatus === 'declined') continue;
+          const nk = N.keyFor(e);
+          found.set(nk, { s: Date.parse(e.start.dateTime || `${e.start.date}T00:00:00`), nk });
+        }
+      } catch (err) { console.warn(a.email, err); }
+    }));
+  }
+  const list = [...found.values()].sort((x, y) => x.s - y.s);
+  metCache.set(email, { at: Date.now(), list });
+  return list;
+}
+function metLine(list, key) {
+  const now = Date.now(), past = list.filter(m => m.s < now && m.nk !== key);
+  if (!past.length) return 'No earlier meetings in the past year';
+  return `Met ${past.length === 1 ? 'once' : `${past.length} times`} in the past year · last on ${dayLabel(new Date(past[past.length - 1].s))}`;
+}
+
 function openEvent(ev) {
   const a = acct(ev.accountId), c = a?.calendars.find(c => c.id === ev.calendarId);
-  const people = (ev.att || []).filter(p => !p.resource);
+  const everyone = (ev.att || []).filter(p => !p.resource).map(person);
+  const others = everyone.filter(p => !p.self); // your own reply is shown further down, under "Are you going?"
+  const key = noteKey(ev), note = N.get(key);
+  const about = { title: ev.title, when: ev.s, people: others.slice(0, 30).map(p => p.email) };
+  const earlier = N.withPeople(about.people, key).slice(0, 5);
+  const shown = others.slice(0, 4), rest = others.slice(4, 40);
+  const extras = [...(ev.links || []), ...(ev.files || []).filter(f => !(ev.links || []).some(l => l.url === f.url))].slice(0, 6);
+  const who = (p, lookup) => `<div class="who" data-email="${esc(p.email)}">
+      <div><b>${esc(p.name)}</b>${p.organizer ? ' <i>· organiser</i>' : ''}${STATUS_LABEL[p.status] ? ` <i>· ${STATUS_LABEL[p.status]}</i>` : ''}</div>
+      <div class="wm">${lookup ? '<span class="met">Checking your past meetings…</span>' : ''}<span class="look">${lookupLinks(p)}</span></div></div>`;
   dialog(`<div class="dbody">
     <h3>${esc(ev.title)}</h3>
     <div class="meta">${esc(eventWhen(ev))}</div>
     <div class="meta"><span class="dot" style="background:${a?.color || '#888'}"></span>${esc(a?.email || '')}${c && !c.primary ? ' · ' + esc(c.summary) : ''}</div>
     ${ev.location ? `<div class="meta">${esc(ev.location)}</div>` : ''}
-    ${ev.meet ? `<div><a class="btn primary" href="${esc(ev.meet)}" target="_blank" rel="noopener">Join video call</a></div>` : ''}
-    ${people.length ? `<div class="people">${people.slice(0, 40).map(p => `<div>${esc(p.displayName || p.email)}${p.organizer ? ' <i>(organiser)</i>' : ''} <i>· ${STATUS_LABEL[p.responseStatus] || ''}</i></div>`).join('')}${people.length > 40 ? `<div><i>and ${people.length - 40} more</i></div>` : ''}</div>` : ''}
+    ${ev.meet || extras.length ? `<div class="btnrow">
+      ${ev.meet ? `<a class="btn primary" href="${esc(ev.meet)}" target="_blank" rel="noopener">Join video call</a>` : ''}
+      ${extras.map(x => `<a class="btn" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.label)}</a>`).join('')}</div>` : ''}
+    ${others.length ? `<h4>Who’s there</h4><div class="whos">${shown.map(p => who(p, true)).join('')}
+      ${rest.length ? `<details><summary>${rest.length} more</summary><div class="whos">${rest.map(p => who(p, false)).join('')}</div></details>` : ''}</div>` : ''}
+    <label><span>Your notes <i>· only you can see these</i></span>
+      <textarea name="note" rows="4" maxlength="${N.MAX_LENGTH}" placeholder="What do you want to cover? What was decided?">${esc(note?.text || '')}</textarea></label>
+    <div class="saved" id="noteState"></div>
+    ${earlier.length ? `<details><summary>Earlier notes with ${others.length === 1 ? esc(others[0].name) : 'these people'} (${earlier.length})</summary>
+      <div class="past">${earlier.map(n => `<div><b>${esc(n.title || 'Meeting')}</b>${n.when ? ` <i>· ${esc(dayLabel(new Date(n.when)))}</i>` : ''}<div class="desc">${esc(n.text)}</div></div>`).join('')}</div></details>` : ''}
     ${ev.description ? `<div class="desc">${esc(ev.description)}</div>` : ''}
     ${ev.selfStatus ? `<div class="rowline"><span class="note">Are you going? <b>${STATUS_LABEL[ev.selfStatus] || ''}</b></span><span>
       <button class="btn" data-x="rsvp" data-s="accepted">Yes</button>
@@ -1108,6 +1188,28 @@ function openEvent(ev) {
       } catch (err) { toast(err.message, true); }
     },
   });
+
+  // Notes save by themselves a moment after you stop typing, and when the box closes.
+  const box = $('[name=note]', el.dlg), saved = $('#noteState', el.dlg);
+  let timer = 0;
+  const commitNote = () => {
+    clearTimeout(timer);
+    if (!N.set(key, box.value.trim() ? box.value : '', about)) return;
+    scheduleFlush();
+    if (saved.isConnected) saved.textContent = plannerReady() ? 'Saved' : 'Saved on this device';
+    renderView(); // shows or hides the small note mark on the meeting
+  };
+  box.addEventListener('input', () => { saved.textContent = ''; clearTimeout(timer); timer = setTimeout(commitNote, 600); });
+  box.addEventListener('change', commitNote);
+  noteCommit = commitNote;
+
+  // Fill in the history with each of the first few people.
+  for (const p of shown) {
+    meetingsWith(p.email).then(list => {
+      const line = el.dlg.querySelector(`.who[data-email="${CSS.escape(p.email)}"] .met`);
+      if (line) line.textContent = metLine(list, key);
+    }).catch(() => {});
+  }
 }
 
 function openEventForm(ev) {
@@ -1192,8 +1294,28 @@ function normalize(e, a, c) {
     att: e.attendees || [], selfStatus: self?.responseStatus || null,
     organizerSelf: !!e.organizer?.self, calWritable,
     canEdit: calWritable && (!!e.organizer?.self || !(e.attendees || []).length),
+    nk: N.keyFor(e),
+    files: (e.attachments || []).filter(f => /^https:\/\//.test(f.fileUrl || '')).slice(0, 6).map(f => ({ label: f.title || 'Attached file', url: f.fileUrl })),
+    links: noteLinks(`${e.description || ''} ${e.location || ''}`),
   };
 }
+
+// Links to meeting-notes apps found in a meeting's description, so the notes are one press away.
+const NOTE_APPS = [
+  ['Fireflies', /https:\/\/app\.fireflies\.ai\/[^\s"'<>]+/i], ['Otter', /https:\/\/otter\.ai\/[^\s"'<>]+/i],
+  ['Fathom', /https:\/\/(?:app\.)?fathom\.video\/[^\s"'<>]+/i], ['Granola', /https:\/\/(?:notes\.|app\.)?granola\.(?:ai|so)\/[^\s"'<>]+/i],
+  ['tl;dv', /https:\/\/(?:app\.)?tldv\.io\/[^\s"'<>]+/i], ['Read', /https:\/\/app\.read\.ai\/[^\s"'<>]+/i],
+  ['Notion', /https:\/\/(?:www\.)?notion\.so\/[^\s"'<>]+/i], ['Google Doc', /https:\/\/docs\.google\.com\/document\/[^\s"'<>]+/i],
+];
+function noteLinks(text) {
+  const out = [];
+  for (const [name, re] of NOTE_APPS) {
+    const url = re.exec(text)?.[0].replace(/&amp;/g, '&');
+    if (url) out.push({ label: name === 'Google Doc' || name === 'Notion' ? `Open ${name}` : `${name} notes`, url });
+  }
+  return out;
+}
+const noteKey = ev => ev.nk || ev.id;
 
 let refreshSeq = 0;
 async function refresh() {
@@ -1227,6 +1349,7 @@ async function refresh() {
   const ws = startOfWeek(today).getTime(), we = addDays(startOfWeek(today), 7).getTime();
   saveEventCache(ymd(startOfWeek(today)), [...events.values()].filter(ev => ev.e > ws && ev.s < we));
   if (plannerReady()) await sync(() => pullPlanner(from, to));
+  if (plannerReady()) await sync(() => N.pull().catch(err => console.warn('Reading notes failed', err)));
   if (seq !== refreshSeq) return;
   if (!dragging) render();
   const time = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
@@ -1316,7 +1439,8 @@ async function flush() {
       if (t.rev === rev) t.dirty = false;
       save();
     }
-    if (state.tombstones.length || state.tasks.some(t => t.dirty)) scheduleFlush();
+    await N.push(); // meeting notes ride along
+    if (state.tombstones.length || state.tasks.some(t => t.dirty) || N.pending()) scheduleFlush();
     else if (el.status.textContent.startsWith('Could not save')) setStatus('Saved');
   } catch (err) {
     console.warn('Saving to Google failed', err);
@@ -1358,7 +1482,7 @@ async function pullPlanner(from, to) {
     ]);
     const seen = new Set();
     for (const e of [...lists.flat(), ...inbox]) {
-      if (e.status === 'cancelled' || !e.start || V.isShared(e)) continue;
+      if (e.status === 'cancelled' || !e.start || V.isShared(e) || N.isNote(e)) continue;
       seen.add(e.id);
       mergeRemote(e);
     }
@@ -1376,7 +1500,7 @@ async function setPlanner(a) {
   const changed = state.settings.plannerCalendarId && state.settings.plannerCalendarId !== id;
   state.settings.plannerAccountId = a.id;
   state.settings.plannerCalendarId = id;
-  if (changed) { state.tombstones = []; for (const t of state.tasks) { t.gEventId = null; t.remoteUpdated = null; } }
+  if (changed) { state.tombstones = []; for (const t of state.tasks) { t.gEventId = null; t.remoteUpdated = null; } N.forgetRemote(); }
   for (const t of state.tasks) if (!t.gEventId) t.dirty = true;
   save();
   scheduleFlush();
@@ -1756,7 +1880,7 @@ function demoEvents(ws) {
     return {
       key: `${a.id}|${a.calendars[0].id}|${id}`, id, accountId: a.id, calendarId: a.calendars[0].id,
       title, s: s.getTime(), e: s.getTime() + mins * 60000, allDay: false, location: '', htmlLink: '', meet: '', description: '',
-      att: [], selfStatus: null, organizerSelf: true, calWritable: false, canEdit: false, ...extra,
+      att: [], selfStatus: null, organizerSelf: true, calWritable: false, canEdit: false, nk: id, files: [], links: [], ...extra,
     };
   };
   const invite = status => ({ selfStatus: status, organizerSelf: false, att: [
@@ -1764,7 +1888,11 @@ function demoEvents(ws) {
     { email: 'work@example.com', displayName: 'You', self: true, responseStatus: status }] });
   return [
     mk(0, 0, 10, 0, 30, 'Weekly team sync', invite('accepted')),
-    mk(0, 0, 14, 0, 60, 'Client call: Acme', { location: 'Google Meet', meet: 'https://meet.google.com/' }),
+    mk(0, 0, 14, 0, 60, 'Client call: Acme', { location: 'Google Meet', meet: 'https://meet.google.com/', att: [
+      { email: 'ravi.menon@acme.com', displayName: 'Ravi Menon', organizer: true, responseStatus: 'accepted' },
+      { email: 'lena@acme.com', responseStatus: 'tentative' },
+      { email: 'work@example.com', displayName: 'You', self: true, responseStatus: 'accepted' }],
+      links: [{ label: 'Fireflies notes', url: 'https://app.fireflies.ai/' }] }),
     mk(1, 0, 18, 30, 60, 'Dinner with Meera'),
     mk(0, 1, 11, 0, 45, 'Pipeline review', invite('needsAction')),
     mk(0, 1, 11, 30, 30, 'Quick check-in with Arjun'),

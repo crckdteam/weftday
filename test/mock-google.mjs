@@ -46,7 +46,9 @@ async function api(req, res, url) {
   if (!list) return json(res, 404, { error: { message: 'Calendar not found' } });
   if (parts.length === 3 && req.method === 'GET') {
     const min = Date.parse(url.searchParams.get('timeMin')), max = Date.parse(url.searchParams.get('timeMax'));
-    return json(res, 200, { items: list.filter(e => e.status !== 'cancelled' && span(e)[1] > min && span(e)[0] < max) });
+    const q = (url.searchParams.get('q') || '').toLowerCase(); // free-text search, like Google's
+    const hit = e => !q || `${e.summary || ''} ${(e.attendees || []).map(p => p.email).join(' ')}`.toLowerCase().includes(q);
+    return json(res, 200, { items: list.filter(e => e.status !== 'cancelled' && span(e)[1] > min && span(e)[0] < max && hit(e)) });
   }
   if (parts.length === 3 && req.method === 'POST') {
     const e = { ...body, id: `ev${++seq}`, status: 'confirmed', updated: stamp() };

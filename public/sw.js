@@ -1,7 +1,7 @@
 // Keeps a copy of the app's own files so it still opens without a connection.
 // Always asks the network for the newest copy first, so updates show up straight away.
-const CACHE = 'planner-shell-v12';
-const FILES = ['./', 'index.html', 'styles.css', 'app.js', 'google.js', 'store.js', 'util.js', 'qr.js', 'vault.js', 'config.js', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'manifest.webmanifest'];
+const CACHE = 'planner-shell-v13';
+const FILES = ['./', 'index.html', 'styles.css', 'app.js', 'google.js', 'store.js', 'util.js', 'qr.js', 'vault.js', 'notes.js', 'config.js', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'manifest.webmanifest'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));
