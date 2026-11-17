@@ -16,6 +16,7 @@ const INBOX_DATE = '2000-01-01'; // inbox tasks are parked on this day in the "W
 const VIEWS = ['day', 'week', 'month', 'list'];
 const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
 const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const el = {
   side: $('#sideBody'), head: $('#gridHead'), body: $('#gridBody'), grid: $('#grid'),
   month: $('#month'), list: $('#list'), hint: $('#quickHint'),
@@ -1623,7 +1624,7 @@ function openEventForm(ev) {
       targets.push([`${a.id}|${c.id}`, c.primary ? a.email : `${a.email} · ${c.summary}`, c.primary]);
     }
   }
-  if (!targets.length) return openSettings('Connect a Google account first, then you can add events to it.');
+  if (!targets.length) return openSettings('Connect a Google account first, then you can add events to it.', 'accounts');
   targets.sort((x, y) => y[2] - x[2]);
   const s = ev ? new Date(ev.s) : null, e = ev ? new Date(ev.e) : null;
   const defStart = Math.min(23 * 60, Math.ceil((nowMinutes() + 1) / 30) * 30);
@@ -2219,74 +2220,164 @@ const FACT_PROVIDERS = {
   },
 };
 
-function openSettings(msg) {
+// Settings is split into a few sections, so no screen is long. Small line icons mark each one.
+const SET_ICONS = {
+  general: '<path d="M4 6h8M18 6h2M4 12h2M12 12h8M4 18h9M19 18h1"/><circle cx="15" cy="6" r="2.2"/><circle cx="9" cy="12" r="2.2"/><circle cx="16" cy="18" r="2.2"/>',
+  reminders: '<path d="M6 16v-5a6 6 0 1 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
+  accounts: '<circle cx="12" cy="8" r="3.6"/><path d="M5 20c.8-3.6 3.5-5.6 7-5.6s6.2 2 7 5.6"/>',
+  ai: '<path d="M11 3.5l1.9 5.1L18 10.5l-5.1 1.9L11 17.5l-1.9-5.1L4 10.5l5.1-1.9z"/><path d="M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/>',
+  data: '<ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6"/><path d="M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/>',
+  advanced: '<circle cx="8" cy="15.5" r="4"/><path d="M11 12.5L19.5 4M16 7.5l3 3M13.5 10l2 2"/>',
+};
+const SET_PANES = [['general', 'General'], ['reminders', 'Reminders'], ['accounts', 'Accounts'], ['ai', 'AI'], ['data', 'Your data'], ['advanced', 'Advanced']];
+const setIcon = name => `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${SET_ICONS[name]}</svg>`;
+let settingsPane = 'general'; // the section you last looked at
+
+function openSettings(msg, pane) {
   const s = state.settings;
   const keys = { google: s.aiKey || '', claude: s.claudeKey || '' }; // the key box shows the one for the chosen service
   let provider = FACT_PROVIDERS[s.aiProvider] ? s.aiProvider : 'google';
-  const perm = !('Notification' in window) ? 'not available in this browser' : { granted: 'on', denied: 'blocked in browser settings', default: 'off' }[Notification.permission];
+  const permNow = () => !('Notification' in window) ? 'none' : Notification.permission;
+  const PERM = { none: ['Not available in this browser', ''], granted: ['On', 'ok'], denied: ['Blocked in browser settings', 'warn'], default: ['Off', ''] };
   const hours = Array.from({ length: 24 }, (_, h) => [h * 60, fmtTime(h * 60)]);
-  dialog(`<form class="dbody">
-    <h3>Settings</h3>
-    ${msg ? `<p class="note warn">${esc(msg)}</p>` : ''}
-    <h4>Google connection</h4>
-    <label>Client ID<input name="clientId" value="${esc(s.clientId)}" placeholder="…apps.googleusercontent.com" autocomplete="off" spellcheck="false"></label>
-    <label>Client secret<input name="clientSecret" type="password" value="${esc(s.clientSecret)}" autocomplete="off"></label>
-    <details><summary>How to get these (one time, about 10 minutes)</summary><ol>
-      <li>Open <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">console.cloud.google.com</a> and create a project called “Weftday”.</li>
-      <li>Go to <b>APIs &amp; Services → Library</b>, find <b>Google Calendar API</b> and press Enable.</li>
-      <li>Go to <b>Google Auth Platform</b> (OAuth consent screen). Choose <b>External</b>, give it a name and your email.</li>
-      <li>Under <b>Audience</b>, press <b>Publish app</b>. This stops Google signing you out every 7 days. Only you can use it.</li>
-      <li>Under <b>Clients</b>, create a client of type <b>Web application</b>. Add <code>${esc(location.origin)}</code> under “Authorised JavaScript origins” and <code>${esc(G.redirectUri())}</code> under “Authorised redirect URIs”.</li>
-      <li>Copy the Client ID and Client secret into the boxes above and press Save.</li>
-      <li>When you connect an account, Google shows a “not verified” warning. Choose <b>Advanced → Go to Weftday</b>. That is expected for a private app.</li>
-    </ol></details>
-    <div class="rowline"><span class="note">Phone, tablet or another computer</span><button type="button" class="btn" data-x="device">Set up another device</button></div>
-    <h4>Where tasks are saved</h4>
-    <label>Save tasks to a “Weftday” calendar in<select name="planner">${opts([['', 'This device only'], ...state.accounts.map(a => [a.id, a.email])], s.plannerAccountId)}</select></label>
-    <label class="check"><input type="checkbox" name="share"${s.shareAccounts ? ' checked' : ''}>Keep my accounts the same on all my devices</label>
-    <p class="note">Saves the sign-ins for your accounts, locked, inside the account chosen above. A new device then needs no Google login, and accounts you add or remove follow you everywhere. Keep that account safe.</p>
-    <h4>Your day</h4>
-    <div class="row two">
-      <label>Working day starts<select name="dayStart">${opts(hours, s.dayStart)}</select></label>
-      <label>Working day ends<select name="dayEnd">${opts(hours.slice(1).concat([[1440, 'midnight']]), s.dayEnd)}</select></label>
-    </div>
-    <div class="row two">
-      <label>Morning summary<select name="morning">${opts([[-1, 'Off'], ...hours.slice(5, 12).map(([m, l]) => [m, `From ${l}`])], s.morning)}</select></label>
-      <label>Remind me<select name="reminder">${reminderOptions(s.reminder, false)}</select></label>
-    </div>
-    <div class="rowline"><span class="note">Notifications on this device: <b>${perm}</b></span>${perm === 'off' ? '<button type="button" class="btn" data-x="notif">Turn on</button>' : ''}</div>
-    <h4>AI</h4>
-    <div class="rowline"><span class="note">Tidying notes: <b id="aiState">checking…</b></span></div>
-    <label>“Ask AI” about a person opens<select name="aiApp">${opts(Object.entries(AI_APPS).map(([k, v]) => [k, v[0]]), s.aiApp)}</select></label>
-    <label>“Get facts” about a person uses<select name="aiProvider">${opts(Object.entries(FACT_PROVIDERS).map(([k, v]) => [k, v.choice]), provider)}</select></label>
-    <label><span id="aiKeyLabel">${FACT_PROVIDERS[provider].label}</span><input name="aiKey" type="password" value="${esc(keys[provider])}" autocomplete="off" spellcheck="false"></label>
-    <details><summary>How to get this key</summary><ol id="aiKeyHelp">${FACT_PROVIDERS[provider].help}</ol></details>
-    <div id="searchKeyPart"${provider === 'google' ? '' : ' hidden'}>
-      <label><span>Search key <i>· free, finds facts about the person</i></span><input name="searchKey" type="password" value="${esc(s.searchKey || '')}" autocomplete="off" spellcheck="false"></label>
-      <details><summary>How to get this key</summary><ol>
-        <li>Open <a href="https://app.tavily.com" target="_blank" rel="noopener">Tavily</a>, a search service made for AI tools, and sign up. It is free and asks for no card.</li>
-        <li>Copy your API key, paste it above and press Save. It gives 1,000 searches a month; one lookup uses four.</li>
-      </ol></details></div>
-    <label class="check"><input type="checkbox" name="aiAuto"${s.aiAuto ? ' checked' : ''}>Get facts by itself for the people I’m meeting today</label>
-    <p class="note">With this on, Weftday looks up today’s guests in the background, so their profiles are ready when you open a meeting. Their names go to the AI without you pressing anything. People at your own company are skipped.</p>
-    <p class="note">Tidying runs inside your browser, so your notes stay on this device. “Ask AI” and “Get facts” send the person’s name, company and the meeting title to that AI, and only when you press them.</p>
-    <h4>Look</h4>
-    <label>Theme<select name="theme">${opts([['auto', 'Match this device'], ['light', 'Light'], ['dark', 'Dark']], s.theme)}</select></label>
-    <label class="check"><input type="checkbox" name="pictures"${s.pictures !== false ? ' checked' : ''}>Show people’s photos and company logos</label>
-    <p class="note">Logos come from Google’s site-icon service. Photos come from Gravatar, for people who have one there. LinkedIn photos cannot be shown, because LinkedIn does not let other apps fetch them.</p>
-    <h4>Your data</h4>
-    <div class="rowline"><span class="note">${state.tasks.length} tasks stored on this device</span><button type="button" class="btn" data-x="backup">Download backup</button></div>
-    <div class="actions"><span class="sp"></span>
-      <button type="button" class="btn ghost" data-x="close">Cancel</button>
-      <button class="btn primary">Save</button></div></form>`, {
+  const first = pane || (msg ? 'advanced' : settingsPane);
+
+  // The pieces every section is made of.
+  const text = (title, desc) => `<div class="st"><b>${title}</b>${desc ? `<span>${desc}</span>` : ''}</div>`;
+  const row = (title, desc, control) => `<div class="srow">${text(title, desc)}${control}</div>`;
+  const toggle = (name, on, title, desc) => `<label class="srow">${text(title, desc)}<input type="checkbox" class="switch" name="${name}"${on ? ' checked' : ''}></label>`;
+  const select = (name, list, cur) => `<select name="${name}">${opts(list, cur)}</select>`;
+  const tag = (label, kind = '', id = '') => `<i class="stag ${kind}"${id ? ` id="${id}"` : ''}>${label}</i>`;
+  const keyTag = (value, id) => tag(value ? 'Saved' : 'Not added', value ? 'ok' : '', id);
+  const section = (name, title, lead, body) => `<section class="spane" data-pane="${name}"${name === first ? '' : ' hidden'}>
+    <h3>${title}</h3>${lead ? `<p class="lead">${lead}</p>` : ''}${body}</section>`;
+  const factsState = () => provider === 'claude'
+    ? (keys.claude ? ['Ready', 'ok'] : ['Needs a key', ''])
+    : !keys.google ? ['Needs a key', ''] : s.searchKey ? ['Ready', 'ok'] : ['Company website only', 'ok'];
+
+  const accounts = state.accounts.map(a => `<div class="srow"><span class="adot">${esc(a.email[0].toUpperCase())}</span>
+    ${text(esc(a.email), a.needsReconnect ? 'Needs reconnecting. Use the Reconnect button in the side menu.' : a.id === s.plannerAccountId ? 'Your tasks are saved here' : `${a.calendars.length} calendar${a.calendars.length === 1 ? '' : 's'}`)}
+    ${a.needsReconnect ? tag('Signed out', 'warn') : a.id === s.plannerAccountId ? tag('Home', 'ok') : ''}</div>`).join('');
+
+  dialog(`<form class="sets">
+    <nav class="snav" aria-label="Settings sections">
+      <h3>Settings</h3>
+      ${SET_PANES.map(([k, l]) => `<button type="button" data-x="pane" data-pane="${k}"${k === first ? ' class="on"' : ''}>${setIcon(k)}<span>${l}</span></button>`).join('')}
+      ${loadedVersion ? `<span class="sver">Weftday · version ${esc(loadedVersion.replace(/\D+/g, ''))}</span>` : ''}
+    </nav>
+    <div class="smain">
+      <div class="spanes">
+        ${msg ? `<p class="note warn">${esc(msg)}</p>` : ''}
+
+        ${section('general', 'General', '', `
+          <h4>Your working day</h4>
+          <div class="sgroup">
+            ${row('Starts', 'Shown as the bright part of each day', select('dayStart', hours, s.dayStart))}
+            ${row('Ends', '', select('dayEnd', hours.slice(1).concat([[1440, 'midnight']]), s.dayEnd))}
+          </div>
+          <h4>Look</h4>
+          <div class="sgroup">
+            ${row('Theme', '', `<div class="segr">${[['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) =>
+              `<label><input type="radio" name="theme" value="${v}"${(s.theme || 'auto') === v ? ' checked' : ''}><span>${l}</span></label>`).join('')}</div>`)}
+            ${toggle('pictures', s.pictures !== false, 'Photos and company logos', 'Logos come from Google’s site-icon service, photos from Gravatar. LinkedIn photos cannot be shown.')}
+          </div>`)}
+
+        ${section('reminders', 'Reminders', '', `
+          <div class="sgroup">
+            <div class="srow">${text('Notifications on this device', 'Needed for reminders to pop up')}<span id="permPart"></span></div>
+            ${row('Remind me', 'Before a task or meeting starts', `<select name="reminder">${reminderOptions(s.reminder, false)}</select>`)}
+            ${row('Morning summary', 'Your meetings and tasks for the day, once each morning', select('morning', [[-1, 'Off'], ...hours.slice(5, 12).map(([m, l]) => [m, `From ${l}`])], s.morning))}
+          </div>`)}
+
+        ${section('accounts', 'Accounts', '', `
+          <h4>Google accounts</h4>
+          <div class="sgroup">
+            ${accounts || `<div class="srow">${text('No account connected yet', 'Connect one to see its calendars here')}</div>`}
+            <div class="srow">${text('Add another', '')}<button type="button" class="btn" data-x="connect">Connect account</button></div>
+          </div>
+          <h4>Tasks and devices</h4>
+          <div class="sgroup">
+            ${row('Save my tasks in', 'Kept in a calendar called “Weftday” in that account', select('planner', [['', 'This device only'], ...state.accounts.map(a => [a.id, a.email])], s.plannerAccountId))}
+            ${toggle('share', s.shareAccounts, 'Same accounts on all my devices', 'Keeps your sign-ins, locked, inside the account above. A new device then needs no Google login. Keep that account safe.')}
+            ${row('Phone, tablet or another computer', '', '<button type="button" class="btn" data-x="device">Set up a device</button>')}
+          </div>
+          <h4>Other calendars</h4>
+          <div class="sgroup">
+            ${row('Teams or Outlook calendar', 'View-only, through a small helper in your Google account', '<button type="button" class="btn" data-x="teams">Add</button>')}
+          </div>`)}
+
+        ${section('ai', 'AI', 'Each part is optional and uses your own keys. Nothing is sent anywhere unless you press its button.', `
+          <h4>Meeting notes</h4>
+          <div class="sgroup">
+            ${row('Tidy my notes', 'Turns rough notes into a summary and action points. Runs inside your browser, so your notes stay on this device.', tag('Checking…', '', 'aiState'))}
+          </div>
+          <h4>Get facts about a person ${tag(...factsState(), 'factsState')}</h4>
+          <div class="sgroup">
+            ${row('Service', '', select('aiProvider', Object.entries(FACT_PROVIDERS).map(([k, v]) => [k, v.choice]), provider))}
+            <div class="sfield">
+              <label for="aiKeyBox"><b id="aiKeyLabel">${FACT_PROVIDERS[provider].label}</b>${keyTag(keys[provider], 'aiKeyTag')}</label>
+              <input id="aiKeyBox" name="aiKey" type="password" value="${esc(keys[provider])}" placeholder="Paste your key here" autocomplete="off" spellcheck="false">
+              <details><summary>How to get this key</summary><ol id="aiKeyHelp">${FACT_PROVIDERS[provider].help}</ol></details>
+            </div>
+            <div class="sfield" id="searchKeyPart"${provider === 'google' ? '' : ' hidden'}>
+              <label for="searchKeyBox"><b>Search key</b>${keyTag(s.searchKey)}</label>
+              <span class="hint">Free. Lets Weftday find facts about the person, not only their company.</span>
+              <input id="searchKeyBox" name="searchKey" type="password" value="${esc(s.searchKey || '')}" placeholder="Paste your key here" autocomplete="off" spellcheck="false">
+              <details><summary>How to get this key</summary><ol>
+                <li>Open <a href="https://app.tavily.com" target="_blank" rel="noopener">Tavily</a>, a search service made for AI tools, and sign up. It is free and asks for no card.</li>
+                <li>Copy your API key, paste it above and press Save. It gives 1,000 searches a month; one lookup uses four.</li>
+              </ol></details>
+            </div>
+            ${toggle('aiAuto', s.aiAuto, 'Look up today’s guests by itself', 'Profiles are ready when you open a meeting. Their names go to the AI without you pressing anything. People at your own company are skipped.')}
+          </div>
+          <h4>Ask AI</h4>
+          <div class="sgroup">
+            ${row('Opens in', 'A question about the person, ready to send', select('aiApp', Object.entries(AI_APPS).map(([k, v]) => [k, v[0]]), s.aiApp))}
+          </div>
+          <p class="note">“Get facts” and “Ask AI” send the person’s name, company and the meeting title to that AI. Keys are kept only in this browser.</p>`)}
+
+        ${section('data', 'Your data', 'Weftday has no server. Everything lives in this browser and in your own Google accounts.', `
+          <div class="sgroup">
+            ${row(`${state.tasks.length} task${state.tasks.length === 1 ? '' : 's'} on this device`, 'Save a copy as a file', '<button type="button" class="btn" data-x="backup">Download backup</button>')}
+            ${row('Privacy', 'What is kept, and where', '<a class="btn" href="privacy.html" target="_blank" rel="noopener">Read</a>')}
+            ${row('About Weftday', '', '<a class="btn" href="about.html" target="_blank" rel="noopener">Open</a>')}
+          </div>`)}
+
+        ${section('advanced', 'Advanced', 'Weftday talks to Google with keys of your own. If this device was set up from another one, they are already filled in.', `
+          <h4>Google connection</h4>
+          <div class="sgroup">
+            <div class="sfield">
+              <label for="clientIdBox"><b>Client ID</b>${keyTag(s.clientId)}</label>
+              <input id="clientIdBox" name="clientId" value="${esc(s.clientId)}" placeholder="…apps.googleusercontent.com" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="sfield">
+              <label for="clientSecretBox"><b>Client secret</b>${keyTag(s.clientSecret)}</label>
+              <input id="clientSecretBox" name="clientSecret" type="password" value="${esc(s.clientSecret)}" autocomplete="off">
+            </div>
+          </div>
+          <details><summary>How to get these (one time, about 10 minutes)</summary><ol>
+            <li>Open <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">console.cloud.google.com</a> and create a project called “Weftday”.</li>
+            <li>Go to <b>APIs &amp; Services → Library</b>, find <b>Google Calendar API</b> and press Enable.</li>
+            <li>Go to <b>Google Auth Platform</b> (OAuth consent screen). Choose <b>External</b>, give it a name and your email.</li>
+            <li>Under <b>Audience</b>, press <b>Publish app</b>. This stops Google signing you out every 7 days. Only you can use it.</li>
+            <li>Under <b>Clients</b>, create a client of type <b>Web application</b>. Add <code>${esc(location.origin)}</code> under “Authorised JavaScript origins” and <code>${esc(G.redirectUri())}</code> under “Authorised redirect URIs”.</li>
+            <li>Copy the Client ID and Client secret into the boxes above and press Save.</li>
+            <li>When you connect an account, Google shows a “not verified” warning. Choose <b>Advanced → Go to Weftday</b>. That is expected for a private app.</li>
+          </ol></details>`)}
+      </div>
+      <div class="sfoot"><span class="sp"></span>
+        <button type="button" class="btn ghost" data-x="close">Cancel</button>
+        <button class="btn primary">Save</button></div>
+    </div></form>`, {
     async submit(fd, form) {
-      if (+fd.get('dayEnd') <= +fd.get('dayStart')) return toast('Your working day must end after it starts.', true);
+      const stop = (where, text) => { show(where); toast(text, true); };
+      if (+fd.get('dayEnd') <= +fd.get('dayStart')) return stop('general', 'Your working day must end after it starts.');
       s.clientId = fd.get('clientId').trim();
       s.clientSecret = fd.get('clientSecret').trim();
       s.reminder = +fd.get('reminder');
       s.dayStart = +fd.get('dayStart'); s.dayEnd = +fd.get('dayEnd');
       s.morning = +fd.get('morning');
-      s.theme = fd.get('theme');
+      s.theme = fd.get('theme') || 'auto';
       s.pictures = fd.get('pictures') === 'on';
       s.aiApp = fd.get('aiApp');
       keys[provider] = fd.get('aiKey').trim();
@@ -2299,8 +2390,8 @@ function openSettings(msg) {
       const want = fd.get('planner'), share = fd.get('share') === 'on';
       save();
       applyTheme();
-      if (share && !want) return toast('To keep your accounts the same everywhere, first choose an account to save tasks in.', true);
-      if (share && !s.clientSecret) return toast('To keep your accounts the same everywhere, add the Client secret first.', true);
+      if (share && !want) return stop('accounts', 'To keep your accounts the same everywhere, first choose an account to save tasks in.');
+      if (share && !s.clientSecret) return stop('advanced', 'To keep your accounts the same everywhere, add the Client secret first.');
       const wasSharing = s.shareAccounts, moving = want !== s.plannerAccountId;
       $('button.primary', form).disabled = true;
       try {
@@ -2314,8 +2405,11 @@ function openSettings(msg) {
         closeDialog(); render(); toast('Settings saved');
       } catch (err) { $('button.primary', form).disabled = false; toast(err.message, true); }
     },
-    async notif() { await Notification.requestPermission(); openSettings(); },
+    pane: x => show(x.dataset.pane),
+    async notif() { await Notification.requestPermission(); showPerm(); },
     device: () => openDeviceSetup(),
+    connect: () => connect(),
+    teams: () => openTeams(),
     backup() {
       const blob = new Blob([JSON.stringify({ exported: new Date().toISOString(), tasks: state.tasks }, null, 2)], { type: 'application/json' });
       const link = document.createElement('a');
@@ -2324,20 +2418,52 @@ function openSettings(msg) {
       link.click();
       URL.revokeObjectURL(link.href);
     },
+  }, 'settings');
+
+  function show(name) {
+    settingsPane = name;
+    for (const p of $$('.spane', el.dlg)) p.hidden = p.dataset.pane !== name;
+    for (const b of $$('.snav button', el.dlg)) {
+      b.classList.toggle('on', b.dataset.pane === name);
+      if (b.dataset.pane === name) b.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
+    $('.spanes', el.dlg).scrollTop = 0;
+  }
+  function showPerm() {
+    const part = $('#permPart', el.dlg), now = permNow();
+    if (part) part.innerHTML = now === 'default' ? '<button type="button" class="btn" data-x="notif">Turn on</button>' : tag(...PERM[now]);
+  }
+  showPerm();
+  settingsPane = first;
+
+  // The theme is shown as you pick it; closing without saving puts the saved one back.
+  for (const r of $$('[name=theme]', el.dlg)) r.addEventListener('change', () => {
+    if (r.value === 'auto') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = r.value;
   });
+  el.dlg.addEventListener('close', applyTheme, { once: true });
+
   // The key box follows the chosen AI service.
+  const keyBox = $('[name=aiKey]', el.dlg);
+  const showFacts = () => {
+    const [label, kind] = factsState(), t = $('#factsState', el.dlg);
+    t.textContent = label; t.className = `stag ${kind}`;
+    const k = $('#aiKeyTag', el.dlg);
+    k.textContent = keys[provider] ? 'Saved' : 'Not added'; k.className = `stag ${keys[provider] ? 'ok' : ''}`;
+  };
   $('[name=aiProvider]', el.dlg).addEventListener('change', e => {
-    const box = $('[name=aiKey]', el.dlg);
-    keys[provider] = box.value.trim();
+    keys[provider] = keyBox.value.trim();
     provider = e.target.value;
-    box.value = keys[provider];
+    keyBox.value = keys[provider];
     $('#aiKeyLabel', el.dlg).textContent = FACT_PROVIDERS[provider].label;
     $('#aiKeyHelp', el.dlg).innerHTML = FACT_PROVIDERS[provider].help;
     $('#searchKeyPart', el.dlg).hidden = provider !== 'google';
+    showFacts();
   });
   AI.status().then(st => {
     const line = $('#aiState', el.dlg);
-    if (line) line.textContent = { ready: 'ready on this device', download: 'needs a one-time download, which starts the first time you use it', no: 'not available here (it works in Chrome on a computer)' }[st];
+    if (!line) return;
+    line.textContent = { ready: 'Ready', download: 'One-time download', no: 'Chrome on a computer only' }[st];
+    line.className = `stag ${st === 'ready' ? 'ok' : ''}`;
   });
 }
 
