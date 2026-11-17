@@ -239,7 +239,7 @@ export function parse(raw) {
     if (!line || /^(none|n\/a|not found|unknown|not available|no information( available| found)?)\.?$/i.test(line)) continue;
     if (section === 'sources') {
       const link = asLink(line);
-      if (link && !/duckduckgo\.com$/.test(link.host) && !out.sources.some(x => x.url === link.url)) out.sources.push(link);
+      if (link && !out.sources.some(x => x.host === link.host)) out.sources.push(link); // one tag per site
     } else if (section === 'linkedin') {
       const link = asLink(line);
       if (link && /linkedin\.com$/.test(link.host)) out.linkedin = link.url;
