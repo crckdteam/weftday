@@ -1227,7 +1227,7 @@ function openEvent(ev) {
       const job = aiJob = new AbortController(), label = btn.textContent;
       btn.disabled = box.readOnly = true;
       btn.textContent = 'Tidying…';
-      saved.textContent = 'This can take up to a minute';
+      saved.textContent = 'This can take a minute or two. It runs on your computer.';
       try {
         const result = await AI.tidy({ title: ev.title, people: others.map(p => p.name).join(', '), text: rough },
           { signal: job.signal, onProgress: part => { if (part < 1) saved.textContent = `Getting the AI ready… ${Math.round(part * 100)}%`; } });
