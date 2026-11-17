@@ -17,9 +17,9 @@ const keySteps = (url, site, extra = '') => `<li>Open ${link(url, site)} and cre
 export const AI_SERVICES = {
   google: {
     name: 'Google AI', cost: 'free', setup: 'about 1 minute', recommended: true, kind: 'google', label: 'Google AI key',
-    help: `<li>Open ${link('https://aistudio.google.com/apikey', 'Google AI Studio')} and press <b>Create API key</b>.</li>
-      <li>Copy the key, paste it above and press Save. It is kept only in this browser. The key is free.</li>
-      <li>On its own this key reads the company’s website. Add a free search key below to also find facts about the person.</li>`,
+    help: `<li>Open ${link('https://aistudio.google.com/apikey', 'Google AI Studio')} and sign in with any Google account.</li>
+      <li>Press <b>Create API key</b>, then copy the key it shows.</li>
+      <li>Come back here, paste it in the box and press Save. It is free, and it is kept only in this browser.</li>`,
   },
   groq: {
     name: 'Groq', cost: 'free', setup: 'about 2 minutes', kind: 'chat', label: 'Groq key', base: 'https://api.groq.com/openai/v1',
@@ -300,3 +300,20 @@ export async function searchChat(svc, key, wanted, input, signal) {
   }
   throw last;
 }
+
+// Asks the service the smallest possible question, to find out whether a key is accepted.
+// Returns true or false; throws only when the service cannot be reached at all.
+export async function keyWorks(svc, key, signal) {
+  if (svc.kind === 'google') {
+    let res;
+    try { res = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1', { signal, headers: { 'x-goog-api-key': key } }); }
+    catch { throw unreachable(svc); }
+    return res.ok;
+  }
+  if (svc.kind === 'chat' && svc.base && !svc.noList) {
+    try { await listModels(svc, key, signal); return true; }
+    catch (err) { if (err.kind === 'offline' || err.name === 'AbortError') throw err; return false; }
+  }
+  return null; // this service has no simple way to check
+}
+

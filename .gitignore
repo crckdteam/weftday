@@ -3,3 +3,4 @@
 .claude/skills/
 .venv/
 test/.out/
+.claude/agents/

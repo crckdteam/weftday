@@ -449,6 +449,7 @@ function todayCardHtml() {
     <div class="cm">${mine.length ? `<b>${done} of ${mine.length}</b> tasks done` : 'No tasks planned yet'}</div>
     <div class="cm">${fmtDur(taskMin)} of tasks · ${meets.length} meeting${meets.length === 1 ? '' : 's'}${meetMin ? ` (${fmtDur(meetMin)})` : ''}</div>
     <button class="btn" data-act="plan">Plan my day</button>
+    <div class="cardlinks"><button type="button" data-act="open-today" title="Each of today’s meetings: who is in it, last time, what is open">Prepare for meetings</button><button type="button" data-act="free" title="Times you are free, to send to someone">Free times</button></div>
   </div>`;
 }
 
@@ -480,17 +481,18 @@ function miniHtml() {
     const cls = (d.getMonth() !== m.getMonth() ? ' other' : '') + (ds === today ? ' today' : '') + (vf && ds >= vf && ds < vt ? ' sel' : '') + (has.has(ds) ? ' has' : '');
     cells += `<button class="md${cls}" data-act="goto" data-date="${ds}">${d.getDate()}</button>`;
   }
-  return `<div class="sec"><h4><span>${m.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</span>
+  return `<div class="sec minibox"><h4><span>${m.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</span>
     <span class="mnav"><button class="mini" data-act="mini-prev" aria-label="Previous month">‹</button><button class="mini" data-act="mini-next" aria-label="Next month">›</button></span></h4>
     <div class="mc">${cells}</div></div>`;
 }
 
+const openAccts = new Set(); // the accounts whose calendars are unfolded in the sidebar
 function renderSide() {
   const today = todayYmd();
   const carried = state.tasks.filter(t => t.date && t.date < today && !t.done).sort((a, b) => a.date.localeCompare(b.date));
   const inbox = state.tasks.filter(t => !t.date && !t.done).sort((a, b) => (b.priority === 'high') - (a.priority === 'high') || b.created - a.created);
   const tagOf = t => t.tag ? ` · #${esc(t.tag)}` : '';
-  let h = todayCardHtml() + `<div class="tools"><button data-act="open-today" title="Each of today’s meetings: who is in it, last time, what is open">${toolIcon('prepare')}<span>Prepare</span></button><button data-act="people" title="Everyone you meet, and their companies">${toolIcon('people')}<span>People</span></button><button data-act="free" title="A text with the times you are free, to paste into an email">${toolIcon('free')}<span>Free times</span></button><button data-act="record" title="Record a meeting or your screen, and get notes from it">${toolIcon('record')}<span>Record</span></button></div>`
+  let h = todayCardHtml()
     + `<div id="upnext">${upNextHtml()}</div>`;
   if (carried.length) {
     h += `<div class="sec"><h4><span>Carried over</span><span>${carried.length}</span></h4>${carried.map(t =>
@@ -504,14 +506,15 @@ function renderSide() {
   h += `<div class="sec"><h4><span>Calendars</span></h4>`;
   if (!state.accounts.length) h += '<div class="empty">No accounts connected yet.</div>';
   for (const a of state.accounts) {
-    h += `<div class="acct" data-acct="${esc(a.id)}"><button class="dot" data-act="acct-color" title="Change colour" style="background:${hue(a.color)}"></button><span class="em" title="${esc(a.email)}">${esc(a.email)}</span>${
-      a.needsReconnect ? '<button class="mini warn" data-act="reconnect">Reconnect</button>' : '<button class="mini" data-act="rm-acct">Remove</button>'}</div>`;
-    for (const c of a.calendars) {
-      if (isPlannerCal(a, c)) continue;
-      h += `<label class="cal"><input type="checkbox" style="accent-color:${hue(a.color)}" data-cal="${esc(a.id)}|${esc(c.id)}"${c.enabled ? ' checked' : ''}><span>${esc(c.summary)}</span></label>`;
-    }
+    const cals = a.calendars.filter(c => !isPlannerCal(a, c)), shown = cals.filter(c => c.enabled).length;
+    h += `<details class="acctbox" data-acct="${esc(a.id)}"${openAccts.has(a.id) ? ' open' : ''}>
+      <summary class="acct"><button class="dot" data-act="acct-color" title="Change colour" style="background:${hue(a.color)}"></button><span class="em" title="${esc(a.email)}">${esc(a.email)}</span>${
+      a.needsReconnect ? '<button class="mini warn" data-act="reconnect">Reconnect</button>' : `<span class="acount">${shown === cals.length ? '' : `${shown} of ${cals.length}`}</span>`}</summary>
+      ${cals.map(c => `<label class="cal"><input type="checkbox" style="accent-color:${hue(a.color)}" data-cal="${esc(a.id)}|${esc(c.id)}"${c.enabled ? ' checked' : ''}><span>${esc(c.summary)}</span></label>`).join('')}
+      <button class="mini acctrm" data-act="rm-acct">Remove this account</button></details>`;
   }
   h += '</div>';
+  document.body.classList.toggle('has-accts', state.accounts.length > 0);
   el.side.innerHTML = h;
 }
 
@@ -734,6 +737,7 @@ function doAct(btn) {
   }
   if (act === 'open-today') return openToday(); // not 'today': that one is "do this task today" on a task
   if (act === 'people') return openPeople();
+  if (act === 'recordings') return openRecordings();
   if (act === 'free') return openFreeTimes();
   if (act === 'record') return R.current() ? toast('A recording is running. Use the bar at the bottom to stop it.') : openRecordSetup(null);
   if (act === 'toast-go') { el.toast.className = ''; return toastGo?.(); }
@@ -919,7 +923,9 @@ function onKey(e) {
     ArrowLeft: () => step(-1), ArrowRight: () => step(1), k: () => step(-1), j: () => step(1),
     n: () => innerWidth < 760 ? newTaskHere() : $('#quickInput').focus(),
     e: () => openEventForm(null), p: () => openPlan(), '/': openPalette, '?': openHelp,
+    r: () => doAct($('#recBtn')), 1: () => setView('home'), 2: () => setView(calendarView()), 3: () => setView('notes'), 4: openRecordings, 5: openPeople,
   }[key];
+  if (['ArrowLeft', 'ArrowRight', 'j', 'k'].includes(key) && !VIEWS.includes(view)) return; // only the calendar moves by day or week
   if (run) { e.preventDefault(); run(); }
 }
 
@@ -937,14 +943,6 @@ function bind() {
   });
   $('#quickAi').onclick = quickPlan;
   // The greyed example in the empty box changes every few seconds, to show what can be typed.
-  const examples = ['gym tomorrow 7am 1h', 'call Priya fri 3pm', 'pay rent 1 dec !', 'standup every weekday 9:30am', '✨ emails this morning, then the deck by noon'];
-  let shown = 0;
-  setInterval(() => {
-    const ph = $('#quickPh');
-    if (ph.hidden || document.hidden || calm() || document.activeElement === input) return;
-    ph.classList.add('swap');
-    setTimeout(() => { ph.querySelector('i').textContent = examples[shown = (shown + 1) % examples.length]; ph.classList.remove('swap'); }, 360);
-  }, 4200);
   $('#todayBtn').onclick = goToday;
   $('#prev').onclick = () => step(-1);
   $('#next').onclick = () => step(1);
@@ -953,7 +951,7 @@ function bind() {
   // The places the app has: Home, the calendar (in the view it was last in) and the notes.
   $('#mainNav').onclick = e => {
     const b = e.target.closest('[data-nav]');
-    if (!b) return;
+    if (!b || b.dataset.act) return; // Recordings and People open beside whatever is showing
     document.body.classList.remove('side-open');
     setView(b.dataset.nav === 'calendar' ? calendarView() : b.dataset.nav);
   };
@@ -972,6 +970,10 @@ function bind() {
   document.addEventListener('keydown', onKey);
   el.body.addEventListener('pointerdown', onGridPointerDown);
   el.side.addEventListener('pointerdown', onSidePointerDown);
+  el.side.addEventListener('toggle', e => { // remember which accounts are unfolded, so a redraw does not fold them again
+    const id = e.target.dataset?.acct;
+    if (id && e.target.matches('details.acctbox')) e.target.open ? openAccts.add(id) : openAccts.delete(id);
+  }, true);
   el.side.addEventListener('change', e => {
     const key = e.target.dataset.cal;
     if (!key) return;
@@ -1209,16 +1211,19 @@ function openPalette() {
 }
 
 function openHelp() {
-  const keys = [['T', 'Go to today'], ['D   W   M   L', 'Day, week, month or list view'], ['←   →', 'Previous or next'], ['N', 'New task'],
-    ['E', 'New event'], ['P', 'Plan my day'], ['/   or   ⌘K', 'Search everything'], ['⌘Z', 'Undo the last change'], ['?', 'Show this list']];
-  const ex = ['gym tomorrow 7am 1h #health', 'pay rent 1 dec !', 'standup every weekday 9:30am 15m', 'call mum fri 6pm', 'read contract (goes to your inbox)'];
-  dialog(`<div class="dbody"><h3>Shortcuts</h3>
-    <div class="keys">${keys.map(([k, v]) => `<div><kbd>${k}</kbd><span>${v}</span></div>`).join('')}</div>
-    <h4>Things you can type in “Add a task”</h4>
-    <div class="keys ex">${ex.map(x => `<div><kbd>${esc(x)}</kbd></div>`).join('')}</div>
-    <p class="note">On the calendar: click an empty time to add a task, drag across empty space to draw one, drag a task to move it, and drag its bottom edge to make it longer.</p>
-    <p class="note">New here? The <a href="guide.html" target="_blank" rel="noopener" style="color:var(--accent)">guide</a> shows the whole app in ten short steps.</p>
-    <div class="actions"><span class="sp"></span><button class="btn primary" data-x="close">Close</button></div></div>`);
+  const cmd = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
+  const groups = [
+    ['Go to', [[['1'], 'Home'], [['2'], 'Calendar'], [['3'], 'Notes'], [['4'], 'Recordings'], [['5'], 'People'], [['/'], 'Search everything']]],
+    ['Make', [[['R'], 'Record'], [['N'], 'New task'], [['E'], 'New event'], [['P'], 'Plan my day'], [[cmd, 'Z'], 'Undo']]],
+    ['Calendar', [[['T'], 'Today'], [['D'], 'Day'], [['W'], 'Week'], [['M'], 'Month'], [['L'], 'List'], [['←', '→'], 'Earlier, later']]],
+  ];
+  const ex = [['gym tomorrow 7am 1h #health', 'a time, a length and a tag'], ['pay rent 1 dec !', 'a date, marked important'], ['standup every weekday 9:30am 15m', 'repeats'], ['read contract', 'no date: goes to your inbox']];
+  dialog(`<div class="dbody keysbox"><h3>Shortcuts</h3>
+    <div class="kgroups">${groups.map(([name, rows]) => `<section><h4>${name}</h4>${rows.map(([keys, label]) => `<div class="krow"><span>${label}</span><span class="kcaps">${keys.map(k => `<kbd>${k}</kbd>`).join('')}</span></div>`).join('')}</section>`).join('')}</div>
+    <h4>Typing a task</h4>
+    <div class="kex">${ex.map(([text, what]) => `<div><code>${esc(text)}</code><span>${what}</span></div>`).join('')}</div>
+    <p class="note">On the calendar, click an empty time to add a task, drag a task to move it, and drag its bottom edge to make it longer. Press <kbd class="kin">?</kbd> any time to see this list.</p>
+    <div class="actions"><span class="sp"></span><button class="btn primary" data-x="close">Done</button></div></div>`, {}, 'wide');
 }
 
 // ---------------------------------------------------------------- calendar events
@@ -2782,48 +2787,47 @@ function openSettings(msg, pane) {
             ${row('Teams or Outlook calendar', 'View-only, through a small helper in your Google account', '<button type="button" class="btn" data-x="teams">Add</button>')}
           </div>`)}
 
-        ${section('ai', 'AI', 'Four optional helpers. Each is a button you press; here is what they do.', `
-          <h4>Tidy my notes</h4>
-          <p class="gintro">A button under your notes in a meeting. It turns rough notes into a short summary, decisions and action points.</p>
-          <div class="sgroup">
-            ${row('Runs on this device', 'Inside your browser, so your notes are never sent anywhere. No key needed.', tag('Checking…', '', 'aiState'))}
-          </div>
-          <h4>Add tasks in your own words</h4>
-          <p class="gintro">The ✨ button in “Add a task”. Type a sentence such as “call Priya tomorrow morning, gym at 6 and send the deck on Friday” and it becomes separate tasks at the right times. You see them before anything is added. It uses the AI service chosen below, and only what you typed is sent.</p>
-          <div class="sgroup">
-            ${toggle('aiQuick', s.aiQuick !== false, 'Let Enter use AI when a sentence needs it', 'Simple tasks like “gym tomorrow 7am” are read on your device. Anything harder goes to your AI when you press Enter. With this off, AI is only used when you press ✨.')}
-          </div>
-          <h4>Get facts about a person ${tag(...factsState(), 'factsState')}</h4>
-          <p class="gintro">A button on a person’s profile. It looks them up on the web and fills in their profile inside Weftday: role, background, company and photo. It needs a key of your own.</p>
-          <div class="sgroup">
-            ${row('AI service', 'Writes the brief', `<select name="aiProvider">${costly(Object.values(S.AI_SERVICES))}</select>`)}
+        ${section('ai', 'AI', 'AI in Weftday runs on a key of your own. It is free, and nobody else sees what you send.', `
+          <div class="aihero${s.aiKey ? ' ready' : ''}">
+            <div class="aihead"><span class="aimark" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 3.5l1.9 5.1L18 10.5l-5.1 1.9L11 17.5l-1.9-5.1L4 10.5l5.1-1.9z"/><path d="M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></svg></span>
+              <div><b>${s.aiKey ? 'AI is switched on' : 'Switch AI on with one free key'}</b><span>${s.aiKey ? 'Notes from recordings, questions about your meetings and tasks in your own words are ready.' : 'It takes about a minute. Google gives the key away free; you paste it below.'}</span></div></div>
+            ${row('AI service', 'Google’s is free and does everything here', `<select name="aiProvider">${costly(Object.values(S.AI_SERVICES))}</select>`)}
             <div class="sfield" id="aiKeyPart">
               <label for="aiKeyBox"><b id="aiKeyLabel"></b><i class="stag rec" id="aiRecTag" hidden>Recommended</i>${keyTag('', 'aiKeyTag')}</label>
-              <input id="aiKeyBox" name="aiKey" type="password" placeholder="Paste your key here" autocomplete="off" spellcheck="false">
+              <div class="keyrow"><input id="aiKeyBox" name="aiKey" type="password" placeholder="Paste your key here" autocomplete="off" spellcheck="false"><button type="button" class="btn" id="aiKeyCheck" data-x="checkkey">Check it</button></div>
+              <span class="hint keymsg" id="aiKeyMsg" hidden></span>
+              <details id="aiHelpBox" class="keyhelp"><summary id="aiHelpTitle"></summary><ol id="aiKeyHelp"></ol><a class="btn primary" id="aiKeyGet" target="_blank" rel="noopener"></a></details>
             </div>
-            <div class="sfield">
-              <details id="aiHelpBox"><summary id="aiHelpTitle"></summary><ol id="aiKeyHelp"></ol></details>
-              <details id="aiModelPart"><summary>Choose a model (optional)</summary>
-                <input name="aiModel" placeholder="Automatic" autocomplete="off" spellcheck="false" aria-label="Model name">
-                <span class="hint" id="aiModelHint"></span></details>
-            </div>
-            <div class="srow" id="ownSearchNote" hidden><div class="st"><b>Web search</b><span id="ownSearchText"></span></div>${tag('Built in', 'ok')}</div>
-            <div id="searchPart">
-              ${row('Search service', '<span id="searchWhy"></span>', `<select name="searchProvider">${costly(Object.values(S.SEARCH_SERVICES))}</select>`)}
+          </div>
+          <h4>What it does for you</h4>
+          <div class="sgroup aido">
+            ${row('Notes from a recording', 'When a recording ends: a summary, the decisions, and who does what.', tag(s.aiKey ? 'Ready' : 'Needs the Google key', s.aiKey ? 'ok' : ''))}
+            ${row('Ask my meetings', 'Ask a question and get the answer from your saved notes.', tag(s.aiKey ? 'Ready' : 'Needs the Google key', s.aiKey ? 'ok' : ''))}
+            ${toggle('aiQuick', s.aiQuick !== false, 'Tasks in your own words', 'Type “call Priya tomorrow, gym at 6” and get separate tasks. You see them before anything is added.')}
+            ${row('Tidy my notes', 'Turns rough notes into a summary. Runs inside this browser; nothing is sent.', tag('Checking…', '', 'aiState'))}
+            ${row('Facts about a person', 'Looks someone up on the web and fills in their page: role, company, background.', tag(...factsState(), 'factsState'))}
+            ${toggle('aiAuto', s.aiAuto, 'Look up today’s guests by itself', 'Their pages are ready when you open a meeting. Names go to the AI without a press. Your own company is skipped.')}
+          </div>
+          <details class="aimore"><summary>More choices</summary>
+            <div class="sgroup">
               <div class="sfield">
-                <label for="searchKeyBox"><b id="searchKeyLabel"></b><i class="stag rec" id="searchRecTag" hidden>Recommended</i>${keyTag('', 'searchKeyTag')}</label>
-                <input id="searchKeyBox" name="searchKey" type="password" placeholder="Paste your key here" autocomplete="off" spellcheck="false">
-                <details><summary id="searchHelpTitle"></summary><ol id="searchKeyHelp"></ol></details>
+                <details id="aiModelPart"><summary>Choose a model (optional)</summary>
+                  <input name="aiModel" placeholder="Automatic" autocomplete="off" spellcheck="false" aria-label="Model name">
+                  <span class="hint" id="aiModelHint"></span></details>
               </div>
+              <div class="srow" id="ownSearchNote" hidden><div class="st"><b>Web search</b><span id="ownSearchText"></span></div>${tag('Built in', 'ok')}</div>
+              <div id="searchPart">
+                ${row('Search service', '<span id="searchWhy"></span>', `<select name="searchProvider">${costly(Object.values(S.SEARCH_SERVICES))}</select>`)}
+                <div class="sfield">
+                  <label for="searchKeyBox"><b id="searchKeyLabel"></b><i class="stag rec" id="searchRecTag" hidden>Recommended</i>${keyTag('', 'searchKeyTag')}</label>
+                  <input id="searchKeyBox" name="searchKey" type="password" placeholder="Paste your key here" autocomplete="off" spellcheck="false">
+                  <details><summary id="searchHelpTitle"></summary><ol id="searchKeyHelp"></ol></details>
+                </div>
+              </div>
+              ${row('“Ask AI” opens', 'A chat app in a new tab, with a question about the person already typed', select('aiApp', Object.entries(AI_APPS).map(([k, v]) => [k, v[0]]), s.aiApp))}
             </div>
-            ${toggle('aiAuto', s.aiAuto, 'Look up today’s guests by itself', 'Profiles are ready when you open a meeting. Their names go to the AI without you pressing anything. People at your own company are skipped.')}
-          </div>
-          <h4>Ask AI ${tag('No key needed', 'ok')}</h4>
-          <p class="gintro">Another button on a person’s profile, for when you want to dig deeper. It opens a chat app in a new tab with a question about them already typed. You carry on the conversation there, with your own account in that app.</p>
-          <div class="sgroup">
-            ${row('Chat app to open', '', select('aiApp', Object.entries(AI_APPS).map(([k, v]) => [k, v[0]]), s.aiApp))}
-          </div>
-          <p class="note">“Get facts” and “Ask AI” send the person’s name, company and the meeting title to that AI. Keys are kept only in this browser.</p>`)}
+          </details>
+          <p class="note">Nothing is sent until you press a button, or switch on a setting that says so. Keys are kept only in this browser.</p>`)}
 
         ${section('data', 'Your data', 'Weftday has no server. Everything lives in this browser and in your own Google accounts.', `
           <div class="sgroup">
@@ -2831,7 +2835,7 @@ function openSettings(msg, pane) {
             ${toggle('recAsk', s.recAsk !== false, 'Offer to record when a meeting starts', 'A small message with a “Record it” button as each meeting with other people begins. Nothing is recorded until you press it.')}
             ${row('Recordings', 'Kept in this browser only', '<button type="button" class="btn" data-x="recordings">Open</button>')}
             ${row('Tour', 'A quick look around the main screen', '<button type="button" class="btn" data-x="tour">Start</button>')}
-            ${row('Guide', 'The whole app in ten short steps', '<a class="btn" href="guide.html" target="_blank" rel="noopener">Open</a>')}
+            ${row('Guide', 'How each part works', '<a class="btn" href="guide.html" target="_blank" rel="noopener">Open</a>')}
             ${row('Privacy', 'What is kept, and where', '<a class="btn" href="privacy.html" target="_blank" rel="noopener">Read</a>')}
             ${row('Terms', 'The rules for using Weftday', '<a class="btn" href="terms.html" target="_blank" rel="noopener">Read</a>')}
             ${row('Help', 'Report a problem or ask a question', '<a class="btn" href="https://github.com/crckdteam/planner/issues" target="_blank" rel="noopener">Get help</a>')}
@@ -2903,6 +2907,17 @@ function openSettings(msg, pane) {
       if (!importSetup($('[name=setupLink]', el.dlg).value.trim())) { if (lockedSetup) openSetupCode(); return; }
       closeDialog();
       if (homeFromLink) adoptHome(homeFromLink).then(refresh); else { render(); toast('Keys added. Now press “+ Connect Google account”.'); }
+    },
+    async checkkey() { // asks the service a tiny question, so a wrong key is found now and not in the middle of a meeting
+      keep();
+      const svc = S.aiService(provider), msg = part('aiKeyMsg'), key = keys[provider];
+      const say = (text, kind = '') => { msg.hidden = false; msg.textContent = text; msg.className = `hint keymsg ${kind}`; };
+      if (!key) return say('Paste the key in the box first.');
+      say('Checking…');
+      try {
+        const ok = await S.keyWorks(svc, key);
+        say(ok ? 'This key works. Press Save to keep it.' : ok === false ? `${svc.name} did not accept this key. Copy the whole key again and paste it here.` : 'This service cannot be checked from here. Press Save and try it.', ok ? 'good' : ok === false ? 'bad' : '');
+      } catch (err) { say(err.message, 'bad'); }
     },
     backup() {
       const blob = new Blob([JSON.stringify({ exported: new Date().toISOString(), tasks: state.tasks }, null, 2)], { type: 'application/json' });
@@ -2999,7 +3014,12 @@ function openSettings(msg, pane) {
     part('aiHelpTitle').textContent = `${svc.noKey ? `How to set ${svc.name} up` : 'How to get this key'} · ${svc.setup}`;
     part('searchHelpTitle').textContent = `How to get this key · ${find.setup}`;
     part('aiKeyHelp').innerHTML = svc.help;
-    part('aiHelpBox').open = !!svc.noKey;
+    part('aiHelpBox').open = !!svc.noKey || !keys[provider]; // no key yet: the steps are in plain sight
+    const get = part('aiKeyGet'), page = /href="([^"]+)"/.exec(svc.help || '');
+    get.hidden = !page || !!svc.noKey;
+    if (page) { get.href = page[1]; get.textContent = /^free/.test(svc.cost) ? 'Get my free key' : 'Get my key'; }
+    part('aiKeyCheck').hidden = !(svc.kind === 'google' || (svc.kind === 'chat' && svc.base && !svc.noList));
+    part('aiKeyMsg').hidden = true;
     part('aiModelPart').hidden = svc.kind !== 'chat';
     box('aiModel').value = models[provider] || '';
     part('aiModelHint').textContent = svc.local ? 'Leave empty to use the first model you have downloaded.' : `Leave empty and Weftday picks a good one${svc.model ? ` (${svc.model})` : ''}.`;
@@ -3755,6 +3775,7 @@ function openRecPad(session) {
 function showRecBar(session) {
   recBar ||= Object.assign(document.createElement('div'), { id: 'recBar' });
   recBar.className = '';
+  document.body.classList.add('recording');
   recBar.innerHTML = `${session.cam ? '<video class="rface" muted playsinline></video>' : '<span class="rdot"></span>'}
     <b class="rtime">0:00</b>${session.rec.heard.length ? '<span class="rlevel" title="How loud it is right now"><i></i></span>' : ''}<span class="rname">${esc(session.rec.title)}</span>
     <button type="button" class="ricon" data-r="notes" title="Type notes while it records" aria-label="Type notes">${REC_ICON.notes}</button>
@@ -3809,6 +3830,7 @@ async function openFloat(session, quiet) {
   syncRec(session);
 }
 function endRecViews() {
+  document.body.classList.remove('recording');
   cancelAnimationFrame(recMeter);
   recBar?.remove();
   if (recFloat && !recFloat.closed) recFloat.close();
@@ -3841,7 +3863,7 @@ async function beginRecording(ev, o) {
   });
   closeDialog();
   showRecBar(session);
-  openFloat(session, true);
+  // The small floating controls open only when asked for (the button in the bar), never by themselves.
   if (ev) openEvent(ev, true); // the meeting's own notes, ready to type in while it records
   const heard = session.rec.heard;
   if (streams.noSystemSound && heard.length < 2) toast('No sound is coming from what you shared. Stop, then share again with the sound switch on: “Share with tab audio” for a tab, “Share with system audio” for Entire screen.', true);
@@ -3864,11 +3886,11 @@ function quickRecord(ev) {
 }
 
 // The Record box: what to record, in one row, and little else.
-const REC_KINDS = {
-  sound: ['Meeting', 'Listens to the meeting and writes your notes. No bot joins the call.'],
-  video: ['Screen video', 'A video of your screen with its sound, to watch again or pass on.'],
-  camera: ['Camera', 'You, talking to the camera.'],
-  mic: ['Voice only', 'For a meeting in the same room: records through your microphone.'],
+const REC_KINDS = { // name, the long line, the short line on its card, its picture
+  sound: ['Meeting', 'Listens to the meeting and writes your notes. No bot joins the call.', 'Listens in and writes your notes', '<path d="M4 12v0M8 8v8M12 5v14M16 8v8M20 12v0"/>'],
+  video: ['Screen', 'A video of your screen with its sound, to watch again or pass on.', 'A video of your screen', '<rect x="3" y="4.5" width="18" height="12" rx="2.5"/><path d="M8.5 20h7M12 16.5V20"/>'],
+  camera: ['Camera', 'You, talking to the camera.', 'You, talking to the camera', '<rect x="3" y="6" width="13" height="12" rx="3"/><path d="m16 10.5 5-3v9l-5-3z"/>'],
+  mic: ['Voice', 'For a meeting in the same room: records through your microphone.', 'People in the same room', '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/>'],
 };
 function openRecordSetup(ev) {
   if (R.current()) return toast('A recording is already running. Stop it first.');
@@ -3882,13 +3904,13 @@ function openRecordSetup(ev) {
   dialog(`<form class="dbody rsetup">
     <h3>${ev ? 'Record this meeting' : 'Record'}</h3>
     ${ev ? `<div class="meta">${esc(ev.title)}</div>` : ''}
-    <div class="segr rkind">${kinds.map(k => `<label><input type="radio" name="what" value="${k}"${k === first ? ' checked' : ''}><span>${REC_KINDS[k][0]}</span></label>`).join('')}</div>
-    <p class="note" id="recWhy"></p>
+    <div class="rpick${kinds.length < 4 ? ' two' : ''}">${kinds.map(k => `<label><input type="radio" name="what" value="${k}"${k === first ? ' checked' : ''}><span><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${REC_KINDS[k][3]}</svg><b>${REC_KINDS[k][0]}</b><i>${REC_KINDS[k][2]}</i></span></label>`).join('')}</div>
+    <p class="note" id="recWhy" hidden></p>
     ${hasKey
-    ? `<label class="check" id="recAutoRow"><input type="checkbox" name="auto"${prefs.seen && prefs.auto === false ? '' : ' checked'}><span>Write the notes for me when it ends<i class="rsub">Google’s AI, with your own key, is sent the sound, who was in the meeting and your notes.</i></span></label>`
+    ? `<label class="ropt" id="recAutoRow"><span>Write my notes when it ends<i>Google’s AI, with your own key, is sent the sound, who was there and your notes.</i></span><input type="checkbox" class="switch" name="auto"${prefs.seen && prefs.auto === false ? '' : ' checked'}></label>`
     : '<p class="note" id="recAutoRow">To have the notes written for you, <button type="button" class="linkbtn" data-x="aikey">add the free Google AI key</button>.</p>'}
-    <label class="check" id="recMicRow"><input type="checkbox" name="mic"${prefs.micOff ? '' : ' checked'}>Record my own voice too</label>
-    <label class="check" id="recCamRow" hidden><input type="checkbox" name="cam"${prefs.camOn ? ' checked' : ''}>Show my camera in a corner</label>
+    <label class="ropt" id="recMicRow"><span>Record my own voice too</span><input type="checkbox" class="switch" name="mic"${prefs.micOff ? '' : ' checked'}></label>
+    <label class="ropt" id="recCamRow" hidden><span>Show my face in a corner</span><input type="checkbox" class="switch" name="cam"${prefs.camOn ? ' checked' : ''}></label>
     <div class="rcamset" id="recCamSet" hidden>
       <video class="rcam" muted playsinline></video>
       <div class="rcamopts" id="recCamOpts">
@@ -3896,13 +3918,13 @@ function openRecordSetup(ev) {
         <div><span class="rlbl">Size</span><div class="segr">${size('small', 'Small')}${size('medium', 'Medium')}${size('large', 'Large')}</div></div>
       </div>
     </div>
-    <details class="rmore"><summary>Choose the microphone or camera</summary>
+    <details class="rmore"><summary>Which microphone or camera</summary>
       <div class="grid2"><label>Microphone<select name="micId"><option value="">The usual one</option></select></label>
       <label>Camera<select name="camId"><option value="">The usual one</option></select></label></div>
     </details>
-    ${screen ? '<p class="note" id="recHow">Next, Chrome asks what to share. Pick the meeting’s <b>tab</b> with “Share with tab audio” on. For Zoom or Teams, pick <b>Entire screen</b> with “Share with system audio” on.</p>' : ''}
-    <p class="note warn2">Tell everyone in the meeting that you are recording. In many places that is the law.</p>
-    <div class="actions">${screen ? '<button type="button" class="btn ghost" data-x="shot">Take a screenshot instead</button>' : ''}<span class="sp"></span><button type="button" class="btn ghost" data-x="close">Cancel</button><button class="btn primary">Start recording</button></div></form>`, {
+    ${screen ? '<p class="note rnext" id="recHow">Next, your browser asks what to share. Pick the meeting’s <b>tab</b> and keep its sound switched on. For Zoom or Teams, pick <b>Entire screen</b>.</p>' : ''}
+    <div class="actions">${screen ? '<button type="button" class="btn ghost" data-x="shot">Screenshot instead</button>' : ''}<span class="sp"></span><button type="button" class="btn ghost" data-x="close">Cancel</button><button class="btn primary recgo"><i aria-hidden="true"></i>Start recording</button></div>
+    <p class="rtell">Please tell everyone that you are recording.</p></form>`, {
     shot: () => { stopPreview(); takeShot(ev); },
     aikey: () => { stopPreview(); openSettings('Making notes from a recording needs the free Google AI key. Add it here.', 'ai'); },
     async submit(fd, form) {
@@ -4553,7 +4575,8 @@ async function noteDocs() {
   if (noteDraft && !docs.some(d => d.id === noteDraft.id)) docs.push(noteDraft);
   return docs.sort((a, b) => b.when - a.when);
 }
-const noteGist = text => { const body = AI.gistOf(text, 110); return body || text.replace(/\s+/g, ' ').trim().slice(0, 110); };
+const plainNote = text => text.replace(/^\s*(#{1,3}|[-*•])\s+/gm, '').replace(/\[( |x|X)?\]\s*/g, ''); // without the marks for headings, bullets and tick-boxes
+const noteGist = text => { const body = AI.gistOf(text, 110); return plainNote(body || text).replace(/\s+/g, ' ').trim().slice(0, 110); };
 function noteRows(docs) {
   const q = noteFind.trim().toLowerCase(), hits = q ? docs.filter(d => `${d.title}\n${d.text}`.toLowerCase().includes(q)) : docs;
   if (!hits.length) return `<p class="nnone">${q ? 'No note has those words.' : 'No notes yet.'}</p>`;
@@ -4647,26 +4670,15 @@ async function renderNotes() {
 // ---------------------------------------------------------------- showing people around
 // The first time Weftday opens, a short tour points at each part of the main screen, one at a time.
 // The first time a feature's own box opens, one line at the top of that box says what it is for.
-const TOUR = [
+const TOUR = [ // three steps, never more: the rest explains itself as you use it
   { find: () => $('#connect'), side: true, when: () => !state.accounts.length && !DEMO, // nothing connected yet: this comes first
-    title: 'Start by connecting your calendars', text: 'Add each Google account once. Work, personal, anything else: they all show here together, each in its own colour.' },
-  { find: () => $('.qbox'), side: true,
-    title: 'Add a task here', text: 'Type it the way you would say it, like “gym tomorrow 7am”. Press the ✦ button to let AI turn a whole sentence into several tasks.' },
-  { find: () => $('#sideBody .card'), side: true,
-    title: 'Your day at a glance', text: 'How much is planned and how much is done. “Plan my day” fits your tasks into the gaps between your meetings.' },
-  { find: () => $('.tools'), side: true,
-    title: 'Four shortcuts', text: 'Prepare briefs you on today’s meetings. People lists everyone you meet. Free times writes out when you are free. Record captures a meeting and turns it into notes.' },
-  { find: () => [...document.querySelectorAll('#sideBody .sec')].find(s => /^inbox/i.test(s.textContent.trim())), side: true,
-    title: 'Your inbox', text: 'A task with no day waits here. Drag it onto the calendar to give it a time, or press “→ Today”.' },
-  { find: () => [el.grid, el.month, el.list].find(v => v && !v.hidden), big: true,
-    title: 'Your calendar', text: 'Every account in one place. Click an empty time to add a task there. Click a meeting to see who is coming, get a brief, and keep private notes.' },
-  { find: () => $('#viewSeg'), title: 'Change the view', text: 'Day, Week, Month or List. On a keyboard: D, W, M and L, and T for today.' },
-  { find: () => $('#searchBtn'), title: 'Search everything', text: 'Tasks, meetings, people and companies in one box. The “/” key opens it too.' },
-  { find: () => $('#zoneBtn'), title: 'A second time zone', text: 'Show another zone next to your own down the side of the calendar. Handy for calls across countries.' },
-  { find: () => $('#connect'), side: true, when: () => state.accounts.length > 0 || DEMO,
-    title: 'More calendars', text: 'Connect another Google account at any time. A company Teams calendar can be added just below.' },
-  { find: () => $('.sideFoot .footrow'), side: true,
-    title: 'Settings and the guide', text: 'Everything you can change lives in Settings, in six short sections. The Guide shows the whole app in ten steps, whenever you want it.' },
+    title: 'Start with your calendar', text: 'Connect a Google account and your meetings appear here. Add work and personal: they show together, each in its own colour.' },
+  { find: () => $('#recBtn'), side: true,
+    title: 'Record a meeting', text: 'One press. Weftday listens, and when the meeting ends your notes and next steps are already written. No bot joins the call.' },
+  { find: () => $('#mainNav'), side: true,
+    title: 'Everything has a place', text: 'Home is your day. Calendar, Notes, Recordings and People are one press away, and so is anything else: press “/” to search.' },
+  { find: () => $('.qbox'), side: true, when: () => state.accounts.length > 0 || DEMO,
+    title: 'Add a task the way you say it', text: 'Type “gym tomorrow 7am” and press Enter. That is the whole tour.' },
 ];
 let tourOn = false;
 function startTour() {
@@ -4795,6 +4807,8 @@ function demoEvents(ws) {
   const invite = status => ({ selfStatus: status, organizerSelf: false, att: [
     { email: 'priya@example.com', displayName: 'Priya Shah', organizer: true, responseStatus: 'accepted' },
     { email: 'work@example.com', displayName: 'You', self: true, responseStatus: status }] });
+  // A day that falls on one fixed date, shown only in the week it belongs to.
+  const once = (who, y, mo, d, h, m, mins, title, extra) => { const day = Math.round((new Date(y, mo - 1, d) - ws) / 86400000); return day >= 0 && day < 7 ? [mk(who, day, h, m, mins, title, extra)] : []; };
   return [
     mk(0, 0, 10, 0, 30, 'Weekly team sync', invite('accepted')),
     mk(0, 0, 14, 0, 60, 'Client call: Acme', { location: 'Google Meet', meet: 'https://meet.google.com/', att: [
@@ -4802,23 +4816,39 @@ function demoEvents(ws) {
       { email: 'lena@acme.com', responseStatus: 'tentative' },
       { email: 'work@example.com', displayName: 'You', self: true, responseStatus: 'accepted' }],
       links: [{ label: 'Fireflies notes', url: 'https://app.fireflies.ai/' }] }),
-    mk(1, 0, 18, 30, 60, 'Dinner with Meera'),
+    mk(0, 0, 16, 30, 60, 'Evolve session'),
+    mk(1, 0, 19, 30, 60, 'Dinner with Meera'),
     mk(0, 1, 11, 0, 45, 'Pipeline review', invite('needsAction')),
     mk(0, 1, 11, 30, 30, 'Quick check-in with Arjun'),
-    mk(1, 1, 7, 0, 60, 'Dentist', { location: 'City Dental' }),
+    mk(0, 1, 15, 0, 45, 'Interview: growth lead, round two'),
+    mk(1, 1, 18, 30, 60, 'Dance class', { location: 'Studio 9' }),
     mk(0, 2, 9, 30, 60, 'Product demo', invite('accepted')),
+    mk(0, 2, 13, 30, 45, 'Kitchen walkthrough, the new restaurant', { location: 'Lower Parel' }),
     mk(0, 2, 15, 0, 30, 'Vendor intro', invite('declined')),
-    mk(0, 4, 10, 0, 30, 'Weekly wrap-up'),
-    mk(1, 4, 19, 0, 120, 'Movie night'),
-    mk(1, 5, 9, 0, 90, 'Football'),
+    mk(0, 2, 16, 0, 30, 'YC office hours'),
     mk(0, 3, 0, 0, 1440, 'Team offsite', { allDay: true }),
+    mk(0, 3, 11, 0, 30, 'Life sciences lab: results call'),
+    mk(0, 3, 13, 30, 45, 'Interview: backend engineer'),
+    mk(1, 3, 18, 30, 60, 'Dance class', { location: 'Studio 9' }),
+    mk(0, 4, 10, 0, 30, 'Weekly wrap-up'),
+    mk(0, 4, 12, 0, 30, 'Field notes from Gujarat (research call)'),
+    mk(0, 4, 14, 30, 45, 'EV battery lab, Kanpur: research sync'),
+    mk(1, 4, 19, 0, 150, 'Harry Potter rewatch: Prisoner of Azkaban'),
+    mk(1, 5, 9, 0, 90, 'Football'),
+    mk(1, 5, 11, 30, 45, 'Vet: the cat’s check-up'),
+    mk(1, 5, 20, 0, 120, 'Bar night: the new old fashioned', { location: 'He is behind the bar' }),
+    mk(1, 6, 11, 0, 60, 'Call the banker: how did the date go?'),
+    mk(1, 6, 16, 0, 45, 'Call Paris: wedding plans (bring your French)'),
+    ...once(1, 2026, 11, 19, 0, 0, 1440, 'GTA VI is out. Do not disturb.', { allDay: true }),
+    ...once(1, 2026, 12, 17, 18, 0, 180, 'Doomsday: first day, first show'),
   ];
 }
+const DEMO_SEED = 4; // raise this when the sample tasks and notes change, so everyone sees the new ones
 function seedDemo() {
   state.accounts = structuredClone(DEMO_ACCOUNTS);
-  if (state.tasks.length) return;
-  const today = startOfDay(new Date()), d = n => ymd(addDays(today, n));
-  state.tasks.push(
+  if (state.demoSeed === DEMO_SEED) return;
+  const today = startOfDay(new Date()), d = n => ymd(addDays(today, n)), ws = startOfWeek(today), wk = ymd(ws);
+  state.tasks = [
     newTask({ title: 'Write proposal for Acme', date: d(0), start: 9 * 60, duration: 90, tag: 'work', priority: 'high' }),
     newTask({ title: 'Reply to investor email', date: d(0), start: 12 * 60, duration: 30, tag: 'work' }),
     newTask({ title: 'Gym', date: d(0), start: 17 * 60, duration: 60, tag: 'health' }),
@@ -4827,7 +4857,48 @@ function seedDemo() {
     newTask({ title: 'Send invoice to client', date: d(-1), start: 16 * 60, duration: 30, tag: 'work' }),
     newTask({ title: 'Book flights for Goa', duration: 30, tag: 'personal' }),
     newTask({ title: 'Read contract draft', duration: 45, tag: 'work' }),
-  );
+  ];
+  const at = (day, h, m = 0) => { const t = addDays(ws, day); t.setHours(h, m); return t.getTime(); };
+  const note = (key, title, when, people, text) => { state.notes[key] = { title, when, people, text, t: when }; };
+  state.notes = {};
+  note(`d${wk}-0-14-0`, 'Client call: Acme', at(0, 14), ['ravi.menon@acme.com', 'lena@acme.com'], `Summary
+Acme wants the pilot live before their board meets on the 30th. Ravi is happy with the price. Lena still needs the security answers before she signs off.
+
+Next: Send the pilot plan by Wednesday.
+
+Decisions
+- The pilot starts with the Mumbai team, 12 seats
+- Price stays at 40 a seat for the first year
+
+Action points
+- [ ] Send the pilot plan and timeline
+- [x] Share the security one-pager
+- [ ] Book the kickoff for next Tuesday
+
+Waiting on others
+- Ravi: confirm who signs
+- Lena: the list of questions from their IT team
+
+Open questions
+- Do they need single sign-on in the pilot?
+
+Written by AI from what was said in the recording of ${dayLabel(new Date(at(0, 14)))}.`);
+  note(`d${wk}-0-10-0`, 'Weekly team sync', at(0, 10), ['priya@example.com'], `- Launch moves to the 17th, press told on Friday
+- [ ] Rewrite the pricing page before the demo
+- [x] Post the contractor brief
+- Offsite on Thursday: bring walking shoes`);
+  note('note:demo-yc', 'YC application, rough answers', at(-3, 21), [], `# What are you making?
+One calm place for the working day: calendar, recorder and notes that write themselves.
+
+# Why now?
+- Everyone records meetings, nobody reads the transcript
+- [ ] Cut this answer to two sentences
+- [ ] Ask someone outside the team to read it cold`);
+  note('note:demo-shelf', 'Weekend list', at(-1, 18), [], `- Prisoner of Azkaban, again
+- The cat goes to the vet on Saturday
+- [ ] Book the 17 December show before it sells out
+- [ ] Learn three sentences of French before the wedding`);
+  state.demoSeed = DEMO_SEED;
   save();
 }
 

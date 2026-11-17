@@ -164,6 +164,8 @@ def run(p):
         page.screenshot(path=os.path.join(OUT, 'meeting.png'))
         # the notes editor: typed the way notes apps are typed, kept as plain text
         ed = page.locator('#dlg .ed')
+        # the sample meeting comes with notes; start from an empty page
+        page.evaluate("(() => { const a = document.querySelector('#dlg textarea[name=note]'); a.value = ''; a.dispatchEvent(new Event('input', { bubbles: true })); })()")
         ed.click()
         page.keyboard.type('Agenda')
         page.keyboard.press('Enter')
@@ -494,7 +496,7 @@ def run(p):
     page.keyboard.press('Enter')
     page.keyboard.type('[] send the deck to Ravi')
     page.wait_for_timeout(1000)
-    own = page.evaluate("Object.entries(JSON.parse(localStorage.getItem('planner.demo.v1')).notes).filter(([k]) => k.startsWith('note:')).map(([, n]) => [n.title, n.text])")
+    own = page.evaluate("Object.entries(JSON.parse(localStorage.getItem('planner.demo.v1')).notes).filter(([k]) => k.startsWith('note:') && !k.startsWith('note:demo-')).map(([, n]) => [n.title, n.text])")
     check('a new note of your own is saved with its title', own == [['Ideas for the demo', '- show the dashboard first\n- [ ] send the deck to Ravi']], str(own))
     check('typing in a note never triggers a keyboard shortcut', page.locator('#notes').is_visible() and page.evaluate("!document.querySelector('#dlg').open"))
     check('the new note shows in the list', page.locator('#notes .nrow.on b').inner_text() == 'Ideas for the demo')
