@@ -68,7 +68,7 @@ async function tokenRequest(params) {
   const { clientId, clientSecret } = state.settings;
   const body = new URLSearchParams({ client_id: clientId, ...params });
   if (clientSecret) body.set('client_secret', clientSecret);
-  const r = await fetch(TOKEN, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body });
+  const r = await fetch(TOKEN, { method: 'POST', cache: 'no-store', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) {
     const e = new Error(j.error_description || j.error || 'Google sign-in request failed');
@@ -106,8 +106,10 @@ export async function api(acct, path, { method = 'GET', params, body } = {}) {
   if (params) for (const [k, v] of Object.entries(params)) if (v != null) url.searchParams.set(k, v);
   for (let attempt = 0; ; attempt++) {
     const tk = await token(acct);
+    // Never kept or reused by the browser: two of your accounts ask the very same address, and one
+    // account's answer must not be handed to another.
     const r = await fetch(url, {
-      method,
+      method, cache: 'no-store',
       headers: { authorization: `Bearer ${tk}`, ...(body ? { 'content-type': 'application/json' } : {}) },
       body: body ? JSON.stringify(body) : undefined,
     });
@@ -152,6 +154,10 @@ export function mergeCalendars(acct, items) {
 
 export async function refreshCalendars(acct) {
   const list = await api(acct, '/users/me/calendarList', { params: { maxResults: 250 } });
+  // An account's main calendar carries its own address. A list whose main calendar is someone else's
+  // does not belong to this account and is not taken.
+  const main = (list.items || []).find(c => c.primary);
+  if (main && acct.id && main.id.toLowerCase() !== acct.id.toLowerCase()) throw new Error('The calendar list Google sent back was for another account.');
   mergeCalendars(acct, list.items || []);
   save();
 }
