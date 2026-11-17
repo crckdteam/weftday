@@ -318,6 +318,7 @@ def run(p):
             seen['timed'] = '[0:00] Speaker 1: We agreed' in body
             seen['rough'] = 'ask about the pilot' in body
             seen['people'] = 'Ravi Menon' in body
+            seen['names'] = 'Spell these names exactly' in body and 'Acme' in body
         else:
             text = 'The price agreed was 40 dollars a seat.'
             if 'Answer my question from my meeting notes and recordings' in body:
@@ -360,7 +361,8 @@ def run(p):
         written = box.input_value()
         check('notes are written by themselves when the recording ends', 'Summary' in written and 'Send the contract by Friday' in written, written[:200])
         check('what you typed is blended in and kept', seen.get('rough') and written.rstrip().endswith('ask about the pilot'), written[-120:])
-        check('the AI is told who was in the meeting', seen.get('people'))
+        check('the notes say they were written by AI from the recording', 'Written by AI from what was said in the recording of' in written)
+        check('the AI is told who was in the meeting, and how their names are spelt', seen.get('people') and seen.get('names'), str(seen))
         check('notes separate my action points from what others owe, and name the next step',
               'Waiting on others\n- Ravi: send the security questionnaire' in written and 'Next: Send the contract.' in written, written[:400])
         page.screenshot(path=os.path.join(OUT, 'meeting-notes-written.png'))
@@ -413,6 +415,75 @@ def run(p):
 
     page.screenshot(path=os.path.join(OUT, 'desktop.png'))
     page.close()
+
+    # ---- share links: a connected (pretend) Google account, a recording, and a link through (pretend) Google Drive
+    real = browser.new_context(viewport={'width': 1440, 'height': 860}, permissions=['microphone', 'camera', 'clipboard-read', 'clipboard-write'])
+    start = {'settings': {'clientId': 'test.apps.googleusercontent.com', 'clientSecret': 'pretend'},
+             'accounts': [{'id': 'me@test.dev', 'email': 'me@test.dev', 'color': '#2f6fed', 'calendars': [], 'refreshToken': 'rt:me@test.dev', 'accessToken': '', 'expiresAt': 0}]}
+    real.add_init_script(SEEN + QUIET + f"if (!localStorage.getItem('planner.v1')) localStorage.setItem('planner.v1', {json.dumps(json.dumps(start))});")
+    rp = real.new_page()
+    watch(rp, 'share')
+    rp.request.post(BASE + '/mock/reset')
+    rp.goto(BASE + '/')
+    rp.wait_for_load_state('networkidle')
+    rp.wait_for_timeout(1500)
+    close_dialog(rp)
+    rp.locator('#side [data-act="record"]').first.click()
+    rp.wait_for_timeout(400)
+    rp.locator('#dlg input[name=what][value=mic]').check(force=True)
+    rp.locator('#dlg button.primary').click()
+    rp.wait_for_selector('#recBar', timeout=20000)
+    rp.wait_for_timeout(2500)
+    rp.locator('#recBar [data-r=stop]').click()
+    rp.wait_for_selector('#recBar', state='detached', timeout=20000)
+    rp.locator('#toast [data-act=toast-go]').click()
+    rp.wait_for_selector('#dlg [data-x=share]', timeout=8000)
+
+    def dump():
+        return rp.request.get(BASE + '/mock/dump').json()
+
+    rp.locator('#dlg [data-x=share]').click()   # Google has not been asked about Drive yet
+    wait_until(rp, "document.querySelector('#dlg h3')?.textContent.includes('One permission')", 10000)
+    check('the first share explains the one permission Google will ask for', 'only see the files it puts there itself' in rp.locator('#dlg').inner_text())
+    rp.screenshot(path=os.path.join(OUT, 'share-ask.png'))
+    close_dialog(rp)
+    rp.request.post(BASE + '/mock/grant', data={'acct': 'me@test.dev'})   # as if the person had said yes at Google
+    rp.request.post(BASE + '/mock/driveoff', data={})                       # ...but Drive is not switched on for the project
+    rp.locator('#toast').evaluate("t => t.className = ''")
+    rec_id = recordings(rp)[0]['id']
+    rp.evaluate("document.querySelector('#settingsBtn').click()")
+    rp.wait_for_timeout(500)
+    rp.evaluate("document.querySelector('#dlg [data-x=recordings]').click()")
+    rp.wait_for_selector(f'#dlg .rcard[data-id="{rec_id}"]', timeout=8000)
+    rp.locator(f'#dlg .rcard[data-id="{rec_id}"]').click()
+    rp.wait_for_selector('#dlg [data-x=share]', timeout=8000)
+    rp.locator('#dlg [data-x=share]').click()
+    wait_until(rp, "document.querySelector('#dlg h3')?.textContent.includes('Switch on Google Drive')", 10000)
+    check('when Drive is not switched on, the steps and Google’s own link are shown', rp.locator('#dlg a.btn[href^="https://console.developers.google.com/"]').count() == 1)
+    rp.request.post(BASE + '/mock/driveoff', data={'off': False})
+    rp.locator('#dlg [data-x=again]').click()
+    try:
+        rp.wait_for_selector('#dlg .rshare input', timeout=20000)
+        link = rp.locator('#dlg .rshare input').input_value()
+        files = dump()['users']['me@test.dev'].get('files', {})
+        media = [f for f in files.values() if f.get('size')]
+        kept = recordings(rp)[0]
+        check('a copy of the recording goes into a “Weftday recordings” folder in Drive', len(media) == 1 and media[0]['size'] == kept['size']
+              and any(f.get('name') == 'Weftday recordings' for f in files.values()), str(files)[:300])
+        check('the link is for anyone who has it, and is shown and copied', media[0]['anyone'] and link == f"https://drive.google.com/file/d/{media[0]['id']}/view"
+              and rp.evaluate('navigator.clipboard.readText()') == link, link)
+        rp.screenshot(path=os.path.join(OUT, 'share-link.png'))
+        rp.once('dialog', lambda d: d.accept())
+        rp.locator('#dlg [data-x=unshare]').click()
+        rp.wait_for_selector('#dlg [data-x=share]', timeout=10000)
+        left = [f for f in dump()['users']['me@test.dev'].get('files', {}).values() if f.get('size')]
+        check('“Stop sharing” takes the copy out of Drive, and the recording stays', not left and len(recordings(rp)) == 1)
+    except Exception as err:  # noqa: BLE001
+        said = rp.evaluate("document.querySelector('#toast').innerText")
+        check('a copy of the recording goes into a “Weftday recordings” folder in Drive', False, f'{str(err)[:160]} | {said}'[:300])
+        rp.screenshot(path=os.path.join(OUT, 'share-failed.png'))
+    rp.close()
+    real.close()
 
     # ---- as a meeting begins, Weftday offers to record it (the clock is set to the start of a sample meeting)
     monday = datetime.date.today() - datetime.timedelta(days=datetime.date.today().weekday())

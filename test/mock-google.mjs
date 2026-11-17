@@ -63,6 +63,39 @@ async function api(req, res, url) {
   return json(res, 200, e);
 }
 
+// A pretend Google Drive: files live in memory, per account. An account may add files only after
+// /mock/grant (as if the person had allowed it), and /mock/driveoff pretends Drive is not switched on.
+async function drive(req, res, url, p) {
+  const u = user(who(req));
+  u.files ||= {};
+  db.log.push(`${who(req)} ${req.method} ${p.replace('/mock/', '')}`);
+  if (db.driveOff) return json(res, 403, { error: { code: 403, status: 'PERMISSION_DENIED', errors: [{ reason: 'accessNotConfigured' }], message: 'Google Drive API has not been used in project 123456 before or it is disabled. Enable it by visiting https://console.developers.google.com/apis/api/drive.googleapis.com/overview?project=123456 then retry.' } });
+  if (!u.drive) return json(res, 403, { error: { code: 403, status: 'PERMISSION_DENIED', errors: [{ reason: 'insufficientPermissions' }], message: 'Request had insufficient authentication scopes.' } });
+  if (p.startsWith('/mock/upload/')) { // one request holding a description of the file and the file itself
+    const raw = await new Promise(r => { const chunks = []; req.on('data', c => chunks.push(c)); req.on('end', () => r(Buffer.concat(chunks))); });
+    const text = raw.toString('latin1'), meta = JSON.parse(/\r\n\r\n(\{.*?\})\r\n--/s.exec(text)[1]);
+    const from = text.indexOf('\r\n\r\n', text.indexOf('\r\n--', text.indexOf('{'))) + 4, to = text.lastIndexOf('\r\n--');
+    const id = `file${++seq}`;
+    u.files[id] = { id, name: meta.name, parents: meta.parents, mimeType: meta.mimeType, size: to - from, anyone: false };
+    return json(res, 200, { id });
+  }
+  const parts = p.replace('/mock/drive/v3/', '').split('/').map(decodeURIComponent);
+  if (parts.length === 1 && req.method === 'GET') {
+    const name = /name='([^']+)'/.exec(url.searchParams.get('q') || '')?.[1];
+    return json(res, 200, { files: Object.values(u.files).filter(f => !name || f.name === name).map(f => ({ id: f.id })) });
+  }
+  if (parts.length === 1 && req.method === 'POST') { const id = `file${++seq}`; u.files[id] = { id, ...(await readBody(req)) }; return json(res, 200, { id }); }
+  const f = u.files[parts[1]];
+  if (!f) return json(res, 404, { error: { code: 404, message: 'File not found' } });
+  if (parts[2] === 'permissions' && req.method === 'POST') {
+    if (db.noOpenLinks) return json(res, 403, { error: { code: 403, errors: [{ reason: 'publishOutNotPermitted' }], message: 'Sharing outside the organisation is not allowed.' } });
+    f.anyone = (await readBody(req)).type === 'anyone';
+    return json(res, 200, { id: 'anyoneWithLink' });
+  }
+  if (req.method === 'DELETE') { delete u.files[parts[1]]; res.writeHead(204); return res.end(); }
+  return json(res, 200, { id: f.id, trashed: false });
+}
+
 http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://x');
@@ -84,6 +117,9 @@ http.createServer(async (req, res) => {
       if (e && b.remove) e.status = 'cancelled';
       return json(res, 200, { ok: true });
     }
+    if (p === '/mock/grant') { const b = await readBody(req); user(b.acct || 'me@test.dev').drive = b.drive !== false; return json(res, 200, { ok: true }); }
+    if (p === '/mock/driveoff') { db.driveOff = (await readBody(req)).off !== false; return json(res, 200, { ok: true }); }
+    if (p.startsWith('/mock/drive/v3/') || p.startsWith('/mock/upload/drive/v3/')) return await drive(req, res, url, p);
     if (p.startsWith('/mock/calendar/v3/')) return await api(req, res, url);
     if (p === '/') p = '/index.html';
     const file = path.join(root, path.normalize(p));
@@ -93,6 +129,12 @@ http.createServer(async (req, res) => {
       const src = data.toString().replace("const API = 'https://www.googleapis.com/calendar/v3';", "const API = location.origin + '/mock/calendar/v3';")
         .replace("const TOKEN = 'https://oauth2.googleapis.com/token';", "const TOKEN = location.origin + '/mock/token';");
       if (!src.includes('/mock/calendar/v3') || !src.includes('/mock/token')) throw new Error('google.js changed: update the mock');
+      data = Buffer.from(src);
+    }
+    if (p === '/drive.js') { // and at the pretend Google Drive
+      const src = data.toString().replace("const DRIVE = 'https://www.googleapis.com/drive/v3';", "const DRIVE = location.origin + '/mock/drive/v3';")
+        .replace("const UPLOAD = 'https://www.googleapis.com/upload/drive/v3';", "const UPLOAD = location.origin + '/mock/upload/drive/v3';");
+      if (!src.includes('/mock/drive/v3') || !src.includes('/mock/upload/drive/v3')) throw new Error('drive.js changed: update the mock');
       data = Buffer.from(src);
     }
     res.writeHead(200, { 'content-type': types[path.extname(file)] || 'application/octet-stream', 'cache-control': 'no-store' });

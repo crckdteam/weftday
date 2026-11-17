@@ -41,6 +41,8 @@ Then open http://localhost:4321. Add `?demo` to the address to try it with sampl
 
 It needs Chrome or Edge on a computer. A phone can record the microphone and camera only. A meeting in the browser is recorded by sharing its tab with “Share with tab audio” on; a meeting in an app such as Zoom or Teams by sharing the entire screen with “Share with system audio” on.
 
+**Share link** uploads a copy of a recording to your own Google Drive (folder “Weftday recordings”) and gives a link anyone can open. It needs the Google Drive API switched on in the Google Cloud project your OAuth keys belong to, and asks for the `drive.file` permission the first time (only files the app creates).
+
 Notes use Google's free AI key: one model writes down what was said with who spoke and when, another writes the notes, told who was in the meeting, your own rough notes and what was still open from last time. If Google is busy, any other AI service you have saved a key for writes the notes instead.
 
 ## Checking and publishing a change

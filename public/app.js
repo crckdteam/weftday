@@ -6,6 +6,7 @@ import * as AI from './ai.js';
 import * as F from './facts.js';
 import * as S from './services.js';
 import * as R from './recorder.js';
+import * as D from './drive.js';
 
 // Weftday never runs inside another site's page, where a press could be tricked out of someone.
 if (self !== top) { document.documentElement.innerHTML = ''; throw new Error('Weftday does not run inside another page.'); }
@@ -3892,6 +3893,8 @@ async function notesFromRecording(rec, signal, say) {
   const ev = eventFor(rec.key), guests = ev ? outsiders(ev).filter(x => !x.who.self) : [], emails = guests.map(x => x.who.email);
   const me = ev?.att?.find(p => p.self)?.displayName || '';
   const cast = guests.slice(0, 12).map(x => { const f = savedFacts(x.who.email); return `${x.who.name}${f?.role ? `, ${f.role}` : ''}${x.who.company ? ` (${x.who.company})` : ''}`; });
+  // Names it should know how to spell: the people, their companies, and your own company (from your accounts' addresses).
+  const known = [...new Set([me, ...guests.slice(0, 12).flatMap(x => [x.who.name, x.who.company]), ...state.accounts.map(a => person({ email: a.email }).company)].filter(Boolean))].slice(0, 30);
   const listen = LISTEN + (cast.length || me ? ` The people in this meeting: ${[me, ...guests.slice(0, 12).map(x => x.who.name)].filter(Boolean).join(', ')}. When a speaker gives their name or is spoken to by name, write that name instead of “Speaker 1”.` : '');
   // Each piece is written down with who spoke and when. If Google's transcription model cannot be
   // used, the general model listens instead: the words are the same, only the times are coarser.
@@ -3931,7 +3934,8 @@ async function notesFromRecording(rec, signal, say) {
   say('Writing the notes…');
   // What you typed yourself, in the meeting's notes or on the pad, shows what mattered to you.
   const openBox = $('textarea[name=note]', el.dlg), typing = openBox?.dataset.key === rec.key;
-  const had = rec.key ? N.get(rec.key) : null, own = (rec.key ? AI.originalOf(typing ? openBox.value : had?.text || '') : rec.jot || '').trim();
+  const had = rec.key ? N.get(rec.key) : null;
+  const own = (rec.key ? AI.originalOf(typing ? openBox.value : had?.text || '') : rec.jot || '').replace(/^Written from the recording[^\n]*$/m, '').trim(); // (a line older versions put there themselves)
   // What was still open from earlier meetings with the same people, and where things stood last time.
   const earlier = emails.length ? N.withPeople(emails, rec.key) : [], open = emails.length ? openItems(emails, rec.key).slice(0, 12) : [];
   const day = new Date(rec.at), agenda = (ev?.description || '').replace(/\s+/g, ' ').trim().slice(0, 600);
@@ -3939,6 +3943,7 @@ async function notesFromRecording(rec, signal, say) {
     `You are writing my notes of a meeting I recorded${rec.key && rec.title ? `, called “${rec.title}”` : ''}. It took place on ${day.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}.`,
     me ? `I am ${me}. “I”, “me” and “mine” below always mean ${me}.` : 'I am the person who made the recording.',
     cast.length ? `The others in the meeting: ${cast.join('; ')}.` : '',
+    known.length ? `Spell these names exactly this way wherever the transcript has something that sounds like one of them (speech-to-text often gets names wrong): ${known.join(', ')}.` : '',
     agenda ? `What the invitation said: ${agenda}` : '',
     earlier.length ? `Where things stood after our last meeting (${dayLabel(new Date(earlier[0].when || rec.at))}): ${AI.gistOf(earlier[0].text, 400)}` : '',
     open.length ? `Still open from earlier meetings:\n${open.map(o => `- ${o.text}`).join('\n')}` : '',
@@ -3976,16 +3981,20 @@ async function notesFromRecording(rec, signal, say) {
   // A recording that has no meeting gets a name that says what it was about.
   const named = !rec.key && /^Recording, /.test(rec.title) && line(got.title) ? line(got.title).slice(0, 80) : '';
   if (named) rec.title = named;
+  // Says where the notes came from, so nobody takes them for something typed by hand. "Your notes" below
+  // it holds only what you really typed, and is empty when that is nothing.
+  const source = `Written by AI from what was said in the recording of ${dayLabel(new Date(rec.at))}.`;
+  const sourced = text => { const at = text.lastIndexOf(`\n\n${AI.ORIGINAL_MARK}\n`), head = at < 0 ? text : text.slice(0, at); return `${head}\n\n${source}\n\n${AI.ORIGINAL_MARK}\n${own}`; };
   // into the meeting's own notes, above whatever you typed yourself
   let notes = '';
   if (rec.key) {
-    notes = AI.layout(result, own || `Written from the recording of ${dayLabel(new Date(rec.at))}.`).slice(0, N.MAX_LENGTH);
+    notes = sourced(AI.layout(result, own)).slice(0, N.MAX_LENGTH);
     N.set(rec.key, notes, ev ? { title: ev.title, when: ev.s, people: outsiders(ev).map(x => x.who.email).slice(0, 30) } : { title: had?.title || rec.title, when: had?.when || rec.at, people: had?.people || [] });
     scheduleFlush();
     renderView();
     const box = $('textarea[name=note]', el.dlg); // the meeting's box is open: show the new notes in it
     if (box?.dataset.key === rec.key) { box.value = notes; box.dispatchEvent(new Event('input')); }
-  } else notes = AI.layout(result, own || 'Written from the recording.');
+  } else notes = sourced(AI.layout(result, own));
   await R.update(rec.id, { notes, transcript, lines, chapters, ...(named ? { title: named } : {}) });
   return { transcript, notes, actions: result.actions.length, waiting: result.waiting.length };
 }
@@ -4087,8 +4096,11 @@ async function openRecording(id, back) {
       ${rec.notes && AI.actionsIn(rec.notes).length ? '<button type="button" class="btn" data-x="mktasks">Make tasks</button>' : ''}
       ${shot && url ? '<button type="button" class="btn primary" data-x="copy">Copy</button>' : ''}
       ${shot && url ? `<a class="btn" href="${url}" download="${esc(recFileName(rec))}">Save as a file</a>` : ''}
+      ${url && !rec.share ? '<button type="button" class="btn" data-x="share">Share link</button>' : ''}
       ${ev ? '<button type="button" class="btn" data-x="meeting">Open the meeting</button>' : ''}
     </div>
+    ${rec.share ? `<div class="rshare"><input readonly value="${esc(rec.share.url)}" aria-label="The link to this ${shot ? 'screenshot' : 'recording'}"><button type="button" class="btn primary" data-x="copylink">Copy link</button><button type="button" class="btn ghost" data-x="unshare">Stop sharing</button></div>
+    <p class="note">${rec.share.open === false ? 'Your organisation does not allow links that anyone can open. Share this copy from Google Drive with the people who should see it.' : 'Anyone you send this link to can watch. The copy is in your own Google Drive, in “Weftday recordings”.'}</p>` : ''}
     <div class="note" id="recSay" hidden></div>
     ${rec.notes ? `<div class="rnotes">${notesHtml(AI.originalOf(rec.notes) === rec.notes ? rec.notes : rec.notes.slice(0, rec.notes.indexOf(AI.ORIGINAL_MARK)).trim())}</div>` : ''}
     ${rec.transcript ? `<form class="rask"><input name="q" maxlength="300" autocomplete="off" placeholder="Ask about this ${ev ? 'meeting' : 'recording'}: what did we agree on price?" aria-label="Ask about this recording"><button class="btn">Ask</button></form>
@@ -4109,6 +4121,22 @@ async function openRecording(id, back) {
     back: () => back(),
     meeting: () => openEvent(ev),
     mktasks: () => tasksFromNotes(rec.notes, `${rec.title} (${dayLabel(new Date(rec.at))})`, new Date(rec.at)),
+    share: btn => { btn.disabled = true; shareRecording(id, back).finally(() => { if (btn.isConnected) btn.disabled = false; }); },
+    async copylink() {
+      try { await navigator.clipboard.writeText(rec.share.url); toast('Link copied.'); }
+      catch { const box = $('.rshare input', el.dlg); box.focus(); box.select(); toast('Press Copy on your keyboard to copy the link.'); }
+    },
+    async unshare(btn) {
+      if (!confirm('Stop sharing? The copy is removed from your Google Drive and the link stops working. The recording stays here.')) return;
+      const a = acct(rec.share.account);
+      btn.disabled = true;
+      try {
+        if (a && !a.needsReconnect) await D.remove(a, rec.share.id);
+        await R.update(id, { share: null });
+        toast(a && !a.needsReconnect ? 'The link no longer works.' : 'Forgotten here. That account is not connected, so remove the copy in Google Drive yourself.');
+        openRecording(id, back);
+      } catch (err) { btn.disabled = false; toast(err.message || 'It could not be removed from Google Drive. Please try again.', true); }
+    },
     jump(x) { const m = $('.rplay', el.dlg); if (m) { m.currentTime = +x.dataset.t; m.play().catch(() => {}); } },
     trim() { const box = $('#recTrim', el.dlg); box.hidden = !box.hidden; showKeep(); },
     trimfrom() { const m = $('.rplay', el.dlg); keep.from = Math.min(m.currentTime, keep.to - 1); showKeep(); },
@@ -4262,6 +4290,59 @@ function openAskAll() {
   }, 'wide');
   $('input[name=q]', el.dlg).focus();
 }
+// ---- share links: a copy in your own Google Drive, and a link to it
+// The account whose Drive is used: the one your tasks live in, or else the first one that is connected.
+const shareAccount = () => (plannerAccount() && !plannerAccount().needsReconnect ? plannerAccount() : state.accounts.find(a => !a.needsReconnect)) || null;
+async function shareRecording(id, back) {
+  if (DEMO) return toast('This is sample data. Open the app without “?demo” to share a recording.');
+  const rec = await R.get(id), a = shareAccount(), say = text => { const line = $('#recSay', el.dlg); if (line) { line.hidden = !text; line.textContent = text; } };
+  if (!rec) return;
+  if (!a) return toast('Connect a Google account first: the link is made in your own Google Drive.', true);
+  const blob = await R.file(id);
+  if (!blob) return toast('This recording has nothing to share.', true);
+  say('Getting your Google Drive ready…');
+  try {
+    const folderId = await D.folder(a, state.settings.driveFolder);
+    if (folderId !== state.settings.driveFolder) { state.settings.driveFolder = folderId; save(); }
+    const fileId = await D.upload(a, blob, recFileName(rec), folderId, part => say(`Putting a copy in your Google Drive… ${Math.round(part * 100)}%`));
+    let open = true;
+    try { await D.publish(a, fileId); } catch (err) { if (err.kind !== 'policy') { await D.remove(a, fileId).catch(() => {}); throw err; } open = false; }
+    const url = D.linkTo(fileId);
+    await R.update(id, { share: { id: fileId, url, at: Date.now(), account: a.id, open } });
+    if (open) navigator.clipboard?.writeText(url).catch(() => {});
+    toast(open ? 'Link copied. Anyone you send it to can watch.' : 'The copy is in your Google Drive. Your organisation does not allow open links: share it from there.');
+    if ($('#recSay', el.dlg)) openRecording(id, back);
+  } catch (err) {
+    say('');
+    if (err.name === 'AbortError') return;
+    if (err.kind === 'scope') return openDriveAsk(a, id);
+    if (err.kind === 'off') return openDriveOff(err.link, id, back);
+    toast(err.message || 'The link could not be made. Please try again.', true);
+  }
+}
+// The first time: Google has to be asked whether Weftday may add files to Drive.
+function openDriveAsk(a, id) {
+  if (R.current()) return toast('Stop the recording that is running first: asking Google takes you away from this page for a moment.', true);
+  dialog(`<div class="dbody">
+    <h3>One permission from Google</h3>
+    <p class="note" style="color:var(--text)">To make a link, Weftday puts a copy of the recording in your own Google Drive (${esc(a.email)}), in a folder called “Weftday recordings”. Google will now ask you to allow that.</p>
+    <p class="note">Weftday can only see the files it puts there itself, nothing else in your Drive. This is asked once.</p>
+    <div class="actions"><span class="sp"></span><button type="button" class="btn ghost" data-x="close">Not now</button><button type="button" class="btn primary" data-x="go">Continue to Google</button></div></div>`, {
+    go: () => G.startConnect(a.email, { drive: true, after: { share: id } }).catch(err => toast(err.message, true)),
+  });
+}
+// Google Drive has to be switched on once for the Google project the keys belong to.
+function openDriveOff(link, id, back) {
+  const open = /^https:\/\/console\.(developers|cloud)\.google\.com\//.test(link || '') ? link : 'https://console.cloud.google.com/apis/library/drive.googleapis.com';
+  dialog(`<div class="dbody">
+    <h3>Switch on Google Drive, once</h3>
+    <p class="note" style="color:var(--text)">Share links use Google Drive, and it is not switched on yet for your Google project (the one your Google keys come from).</p>
+    <ol class="steps"><li>Press <b>Open Google</b> below. Check the project named at the top is the one with your keys.</li><li>Press the blue <b>Enable</b> button and wait a few seconds.</li><li>Come back here and press <b>Try again</b>.</li></ol>
+    <div class="actions"><a class="btn" href="${esc(open)}" target="_blank" rel="noopener">Open Google</a><span class="sp"></span><button type="button" class="btn ghost" data-x="close">Not now</button><button type="button" class="btn primary" data-x="again">Try again</button></div></div>`, {
+    again: () => openRecording(id, back).then(() => shareRecording(id, back)),
+  });
+}
+
 // Everything recorded and kept in this browser: for one meeting (ev), or all of it.
 let recShow = 'all';
 async function openRecordings(ev) {
@@ -4514,6 +4595,8 @@ async function boot() {
   try {
     const a = await G.finishConnect();
     if (a) await onConnected(a);
+    const after = G.takeAfter(); // back from Google after being asked about Drive: carry on with the link
+    if (a && after?.share) openRecording(after.share).then(() => shareRecording(after.share));
   } catch (err) { toast(err.message, true); }
   if (!DEMO) {
     let cut = false; // Google cannot be reached at all from here right now

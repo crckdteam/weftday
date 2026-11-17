@@ -6,6 +6,7 @@ const AUTH = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN = 'https://oauth2.googleapis.com/token';
 const API = 'https://www.googleapis.com/calendar/v3';
 const SCOPE = 'https://www.googleapis.com/auth/calendar';
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file'; // only the files Weftday itself puts in Drive (share links)
 const PENDING = 'planner.oauth';
 export const COLORS = ['#2f6fed', '#1a9a6c', '#8e5bd6', '#e07a1f', '#d6457f', '#0e9aa7'];
 
@@ -19,22 +20,27 @@ const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf)))
   .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
 // Step 1: send the user to Google's sign-in page.
-export async function startConnect(loginHint) {
+// more = { drive: true } also asks whether Weftday may add its own files to Drive; more.after is handed
+// back by takeAfter() once the person returns, so what they were doing can carry on.
+export async function startConnect(loginHint, more) {
   const { clientId } = state.settings;
   if (!clientId) throw new Error('Add your Google Client ID in Settings first.');
   const verifier = b64url(crypto.getRandomValues(new Uint8Array(48)));
   const st = b64url(crypto.getRandomValues(new Uint8Array(16)));
   const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
-  localStorage.setItem(PENDING, JSON.stringify({ verifier, st }));
+  localStorage.setItem(PENDING, JSON.stringify({ verifier, st, after: more?.after || null }));
   const p = new URLSearchParams({
-    client_id: clientId, redirect_uri: redirectUri(), response_type: 'code', scope: SCOPE,
-    access_type: 'offline', prompt: 'consent select_account',
+    client_id: clientId, redirect_uri: redirectUri(), response_type: 'code', scope: more?.drive ? `${SCOPE} ${DRIVE_SCOPE}` : SCOPE,
+    access_type: 'offline', prompt: more?.drive && loginHint ? 'consent' : 'consent select_account',
+    include_granted_scopes: 'true', // what was allowed before stays allowed
     code_challenge: challenge, code_challenge_method: 'S256', state: st,
   });
   if (loginHint) p.set('login_hint', loginHint);
   location.assign(`${AUTH}?${p}`);
 }
 
+let afterConnect = null;
+export const takeAfter = () => { const after = afterConnect; afterConnect = null; return after; };
 // Step 2: back from Google. Swap the one-time code for long-lived access.
 export async function finishConnect() {
   const q = new URLSearchParams(location.search);
@@ -45,6 +51,7 @@ export async function finishConnect() {
   localStorage.removeItem(PENDING);
   if (error) throw new Error(error === 'access_denied' ? 'Google sign-in was cancelled.' : `Google sign-in failed: ${error}`);
   if (!pending || pending.st !== st) throw new Error('Sign-in could not be verified. Please try again.');
+  afterConnect = pending.after && typeof pending.after === 'object' ? pending.after : null;
 
   const tok = await tokenRequest({
     grant_type: 'authorization_code', code, redirect_uri: redirectUri(), code_verifier: pending.verifier,
@@ -115,6 +122,7 @@ async function token(acct) {
   return acct.accessToken;
 }
 
+export const accessToken = acct => token(acct); // for the other Google services this app talks to (Drive)
 // One Calendar request for one account.
 export async function api(acct, path, { method = 'GET', params, body } = {}) {
   const url = new URL(API + path);
