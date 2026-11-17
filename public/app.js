@@ -4337,7 +4337,7 @@ function openDriveOff(link, id, back) {
   dialog(`<div class="dbody">
     <h3>Switch on Google Drive, once</h3>
     <p class="note" style="color:var(--text)">Share links use Google Drive, and it is not switched on yet for your Google project (the one your Google keys come from).</p>
-    <ol class="steps"><li>Press <b>Open Google</b> below. Check the project named at the top is the one with your keys.</li><li>Press the blue <b>Enable</b> button and wait a few seconds.</li><li>Come back here and press <b>Try again</b>.</li></ol>
+    <ol class="steps"><li>Press <b>Open Google</b> below. If Google says you need access, switch (top right) to the Google account you made your keys with. The project named at the top should be the one with your keys.</li><li>Press the blue <b>Enable</b> button and wait a few seconds.</li><li>Come back here and press <b>Try again</b>.</li></ol>
     <div class="actions"><a class="btn" href="${esc(open)}" target="_blank" rel="noopener">Open Google</a><span class="sp"></span><button type="button" class="btn ghost" data-x="close">Not now</button><button type="button" class="btn primary" data-x="again">Try again</button></div></div>`, {
     again: () => openRecording(id, back).then(() => shareRecording(id, back)),
   });
