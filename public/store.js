@@ -13,9 +13,13 @@ const base = () => ({
     aiApp: 'claude',      // which AI app the "Ask AI" link about a person opens
     aiKey: '',            // your own Google AI key, for "Get facts" (kept only in this browser)
     aiFreeSince: 0,       // when this key was last found to have no Google web search (free plan)
-    aiProvider: 'google', // which AI service "Get facts" uses: 'google' or 'claude'
+    aiProvider: 'google', // which AI service "Get facts" uses (see services.js)
     searchKey: '',        // your own free search key (Tavily), used with the Google key to find facts about a person
     claudeKey: '',        // your own Anthropic key, when Claude is chosen (kept only in this browser)
+    aiKeys: {},           // keys for the other AI services, by service name (see services.js)
+    aiModels: {},         // a model you chose yourself for a service; empty means the usual one
+    searchProvider: 'tavily', // which search service the search key is for
+    searchKeys: {},       // keys for search services other than Tavily, by service name
     aiAuto: false,        // get facts by itself for the people in today's meetings
   },
   accounts: [],     // connected Google accounts

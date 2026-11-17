@@ -4,6 +4,7 @@ import * as V from './vault.js';
 import * as N from './notes.js';
 import * as AI from './ai.js';
 import * as F from './facts.js';
+import * as S from './services.js';
 import { qrSvg } from './qr.js';
 import { PUBLIC_URL } from './config.js';
 import {
@@ -1200,7 +1201,7 @@ function openFactsHelp(guest, from) {
       <li>Copy the key and paste it into <b>Settings → AI</b>.</li>
     </ol>
     <p class="note">Each time facts are fetched, the person’s name, their company and the meeting title go to that AI. Nothing is sent before that.</p>
-    <p class="note">Settings → AI also has a free search key for richer results, and the choice of using a Claude key instead.</p>
+    <p class="note">Settings → AI also has a free search key for richer results, and other AI services to choose from (OpenAI, Claude, Ollama and more), each marked free or paid.</p>
     <div class="actions"><button type="button" class="btn ghost" data-x="back">Back</button><span class="sp"></span><button type="button" class="btn primary" data-x="settings">Open Settings</button></div></div>`, {
     back: () => openPerson(guest, from),
     settings: () => openSettings(),
@@ -1722,15 +1723,23 @@ const noteKey = ev => ev.nk || ev.id;
 const hasFacts = email => (N.get(N.aboutKey(email))?.text || '').includes(F.MARK);
 // Runs "Get facts". A key without Google's own web search is remembered for a few days, so the
 // free way (reading search result pages) is used straight away instead of asking and being refused.
-const factsKey = () => (state.settings.aiProvider === 'claude' ? state.settings.claudeKey : state.settings.aiKey) || '';
+// The keys you added in Settings. Google's, Claude's and Tavily's keep their first places; the rest
+// are kept by the name of their service.
+const aiKeyOf = id => { const s = state.settings; return (id === 'google' ? s.aiKey : id === 'claude' ? s.claudeKey : s.aiKeys?.[id]) || ''; };
+const searchKind = () => S.searchService(state.settings.searchProvider).id;
+const searchKeyOf = id => { const s = state.settings; return (id === 'tavily' ? s.searchKey : s.searchKeys?.[id]) || ''; };
+// Whether "Get facts" can run: the chosen AI service has its key (one on your own computer needs none).
+const factsKey = () => { const svc = S.aiService(state.settings.aiProvider); return svc.noKey ? 'none needed' : aiKeyOf(svc.id); };
 async function getFacts(who, meeting, signal, hint = '') {
-  const s = state.settings;
-  if (s.aiProvider === 'claude' && s.claudeKey) { // the better-results choice: Claude with its own web search
+  const s = state.settings, svc = S.aiService(s.aiProvider);
+  if (svc.kind === 'claude') { // Claude with its own web search
     const C = await import('./claude.js');
     return { ...(await C.personFacts(who, meeting, s.claudeKey, signal, hint)), hint };
   }
+  const keys = { provider: svc.id, key: aiKeyOf(svc.id), model: s.aiModels?.[svc.id] || '', google: s.aiKey, search: searchKeyOf(searchKind()), searchKind: searchKind() };
+  if (svc.kind !== 'google') return { ...(await F.personFacts(who, meeting, keys, signal, false, hint)), hint };
   const freeLately = s.aiFreeSince && Date.now() - s.aiFreeSince < 3 * 86400000;
-  const answer = await F.personFacts(who, meeting, { google: s.aiKey, search: s.searchKey }, signal, !freeLately, hint);
+  const answer = await F.personFacts(who, meeting, keys, signal, !freeLately, hint);
   const wasFree = !!s.aiFreeSince;
   if (answer.how !== 'search' && !freeLately) s.aiFreeSince = Date.now();
   if (answer.how === 'search') s.aiFreeSince = 0;
@@ -2204,22 +2213,6 @@ function applyTheme() {
   else delete document.documentElement.dataset.theme;
 }
 
-// The AI services "Get facts" can use. Each needs a key of your own.
-const FACT_PROVIDERS = {
-  google: {
-    choice: 'Google AI · free key', label: 'Google AI key',
-    help: `<li>Open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> and press <b>Create API key</b>.</li>
-      <li>Copy the key, paste it above and press Save. It is kept only in this browser. The key is free.</li>
-      <li>On its own this key reads the company’s website. Add the free search key below to also find facts about the person.</li>`,
-  },
-  claude: {
-    choice: 'Claude · your own paid key, better results', label: 'Claude (Anthropic) key',
-    help: `<li>Open the <a href="https://platform.claude.com/settings/keys" target="_blank" rel="noopener">Anthropic Console</a> and create an API key.</li>
-      <li>Claude keys are paid: add a little credit in the Console. Each lookup uses a small amount of it.</li>
-      <li>Copy the key, paste it above and press Save. It is kept only in this browser.</li>`,
-  },
-};
-
 // Settings is split into a few sections, so no screen is long. Small line icons mark each one.
 const SET_ICONS = {
   general: '<path d="M4 6h8M18 6h2M4 12h2M12 12h8M4 18h9M19 18h1"/><circle cx="15" cy="6" r="2.2"/><circle cx="9" cy="12" r="2.2"/><circle cx="16" cy="18" r="2.2"/>',
@@ -2235,8 +2228,13 @@ let settingsPane = 'general'; // the section you last looked at
 
 function openSettings(msg, pane) {
   const s = state.settings;
-  const keys = { google: s.aiKey || '', claude: s.claudeKey || '' }; // the key box shows the one for the chosen service
-  let provider = FACT_PROVIDERS[s.aiProvider] ? s.aiProvider : 'google';
+  // The key boxes show the key of the chosen service; the others are remembered until Save.
+  const keys = { ...(s.aiKeys || {}), google: s.aiKey || '', claude: s.claudeKey || '' };
+  const models = { ...(s.aiModels || {}) };
+  const findKeys = { ...(s.searchKeys || {}), tavily: s.searchKey || '' };
+  let provider = S.aiService(s.aiProvider).id, finder = S.searchService(s.searchProvider).id;
+  const costly = list => [['Free', list.filter(v => /^free/.test(v.cost))], ['Paid', list.filter(v => !/^free/.test(v.cost))]]
+    .map(([group, items]) => `<optgroup label="${group}">${items.map(v => [v.id, `${v.name} (${v.cost})`]).map(([k, l]) => `<option value="${k}"${k === provider || k === finder ? ' selected' : ''}>${esc(l)}</option>`).join('')}</optgroup>`).join('');
   const permNow = () => !('Notification' in window) ? 'none' : Notification.permission;
   const PERM = { none: ['Not available in this browser', ''], granted: ['On', 'ok'], denied: ['Blocked in browser settings', 'warn'], default: ['Off', ''] };
   const hours = Array.from({ length: 24 }, (_, h) => [h * 60, fmtTime(h * 60)]);
@@ -2251,9 +2249,12 @@ function openSettings(msg, pane) {
   const keyTag = (value, id) => tag(value ? 'Saved' : 'Not added', value ? 'ok' : '', id);
   const section = (name, title, lead, body) => `<section class="spane" data-pane="${name}"${name === first ? '' : ' hidden'}>
     <h3>${title}</h3>${lead ? `<p class="lead">${lead}</p>` : ''}${body}</section>`;
-  const factsState = () => provider === 'claude'
-    ? (keys.claude ? ['Ready', 'ok'] : ['Needs a key', ''])
-    : !keys.google ? ['Needs a key', ''] : s.searchKey ? ['Ready', 'ok'] : ['Company website only', 'ok'];
+  const factsState = () => {
+    const svc = S.aiService(provider);
+    if (!svc.noKey && !keys[provider]) return ['Needs a key', ''];
+    if (svc.ownSearch || findKeys[finder]) return ['Ready', 'ok'];
+    return svc.kind === 'google' ? ['Company website only', 'ok'] : ['Needs a search key', ''];
+  };
 
   const accounts = state.accounts.map(a => `<div class="srow"><span class="adot">${esc(a.email[0].toUpperCase())}</span>
     ${text(esc(a.email), a.needsReconnect ? 'Needs reconnecting. Use the Reconnect button in the side menu.' : a.id === s.plannerAccountId ? 'Your tasks are saved here' : `${a.calendars.length} calendar${a.calendars.length === 1 ? '' : 's'}`)}
@@ -2313,20 +2314,25 @@ function openSettings(msg, pane) {
           </div>
           <h4>Get facts about a person ${tag(...factsState(), 'factsState')}</h4>
           <div class="sgroup">
-            ${row('Service', '', select('aiProvider', Object.entries(FACT_PROVIDERS).map(([k, v]) => [k, v.choice]), provider))}
-            <div class="sfield">
-              <label for="aiKeyBox"><b id="aiKeyLabel">${FACT_PROVIDERS[provider].label}</b>${keyTag(keys[provider], 'aiKeyTag')}</label>
-              <input id="aiKeyBox" name="aiKey" type="password" value="${esc(keys[provider])}" placeholder="Paste your key here" autocomplete="off" spellcheck="false">
-              <details><summary>How to get this key</summary><ol id="aiKeyHelp">${FACT_PROVIDERS[provider].help}</ol></details>
+            ${row('AI service', 'Writes the brief', `<select name="aiProvider">${costly(Object.values(S.AI_SERVICES))}</select>`)}
+            <div class="sfield" id="aiKeyPart">
+              <label for="aiKeyBox"><b id="aiKeyLabel"></b>${keyTag('', 'aiKeyTag')}</label>
+              <input id="aiKeyBox" name="aiKey" type="password" placeholder="Paste your key here" autocomplete="off" spellcheck="false">
             </div>
-            <div class="sfield" id="searchKeyPart"${provider === 'google' ? '' : ' hidden'}>
-              <label for="searchKeyBox"><b>Search key</b>${keyTag(s.searchKey)}</label>
-              <span class="hint">Free. Lets Weftday find facts about the person, not only their company.</span>
-              <input id="searchKeyBox" name="searchKey" type="password" value="${esc(s.searchKey || '')}" placeholder="Paste your key here" autocomplete="off" spellcheck="false">
-              <details><summary>How to get this key</summary><ol>
-                <li>Open <a href="https://app.tavily.com" target="_blank" rel="noopener">Tavily</a>, a search service made for AI tools, and sign up. It is free and asks for no card.</li>
-                <li>Copy your API key, paste it above and press Save. It gives 1,000 searches a month; one lookup uses four.</li>
-              </ol></details>
+            <div class="sfield">
+              <details id="aiHelpBox"><summary id="aiHelpTitle"></summary><ol id="aiKeyHelp"></ol></details>
+              <details id="aiModelPart"><summary>Choose a model (optional)</summary>
+                <input name="aiModel" placeholder="Automatic" autocomplete="off" spellcheck="false" aria-label="Model name">
+                <span class="hint" id="aiModelHint"></span></details>
+            </div>
+            <div class="srow" id="ownSearchNote" hidden><div class="st"><b>Web search</b><span id="ownSearchText"></span></div>${tag('Built in', 'ok')}</div>
+            <div id="searchPart">
+              ${row('Search service', '<span id="searchWhy"></span>', `<select name="searchProvider">${costly(Object.values(S.SEARCH_SERVICES))}</select>`)}
+              <div class="sfield">
+                <label for="searchKeyBox"><b id="searchKeyLabel"></b>${keyTag('', 'searchKeyTag')}</label>
+                <input id="searchKeyBox" name="searchKey" type="password" placeholder="Paste your key here" autocomplete="off" spellcheck="false">
+                <details><summary>How to get this key</summary><ol id="searchKeyHelp"></ol></details>
+              </div>
             </div>
             ${toggle('aiAuto', s.aiAuto, 'Look up today’s guests by itself', 'Profiles are ready when you open a meeting. Their names go to the AI without you pressing anything. People at your own company are skipped.')}
           </div>
@@ -2380,12 +2386,13 @@ function openSettings(msg, pane) {
       s.theme = fd.get('theme') || 'auto';
       s.pictures = fd.get('pictures') === 'on';
       s.aiApp = fd.get('aiApp');
-      keys[provider] = fd.get('aiKey').trim();
+      keep();
       if (s.aiKey !== keys.google) s.aiFreeSince = 0; // a new key may have Google's own search
-      s.aiKey = keys.google;
-      s.claudeKey = keys.claude;
-      s.searchKey = fd.get('searchKey').trim();
-      s.aiProvider = provider;
+      const { google, claude, ...otherKeys } = keys, { tavily, ...otherFinders } = findKeys;
+      const filled = map => Object.fromEntries(Object.entries(map).filter(([, v]) => v));
+      s.aiKey = google; s.claudeKey = claude; s.aiKeys = filled(otherKeys); s.aiModels = filled(models);
+      s.searchKey = tavily; s.searchKeys = filled(otherFinders);
+      s.aiProvider = provider; s.searchProvider = finder;
       s.aiAuto = fd.get('aiAuto') === 'on';
       const want = fd.get('planner'), share = fd.get('share') === 'on';
       save();
@@ -2442,23 +2449,43 @@ function openSettings(msg, pane) {
   });
   el.dlg.addEventListener('close', applyTheme, { once: true });
 
-  // The key box follows the chosen AI service.
-  const keyBox = $('[name=aiKey]', el.dlg);
-  const showFacts = () => {
-    const [label, kind] = factsState(), t = $('#factsState', el.dlg);
+  // The boxes follow the chosen AI service and search service.
+  const box = name => $(`[name=${name}]`, el.dlg), part = id => $(`#${id}`, el.dlg);
+  const setTag = (id, on) => { const t = part(id); t.textContent = on ? 'Saved' : 'Not added'; t.className = `stag ${on ? 'ok' : ''}`; };
+  function keep() { // what is typed in the boxes right now
+    keys[provider] = box('aiKey').value.trim();
+    models[provider] = box('aiModel').value.trim();
+    findKeys[finder] = box('searchKey').value.trim();
+  }
+  function showStates() {
+    const [label, kind] = factsState(), t = part('factsState');
     t.textContent = label; t.className = `stag ${kind}`;
-    const k = $('#aiKeyTag', el.dlg);
-    k.textContent = keys[provider] ? 'Saved' : 'Not added'; k.className = `stag ${keys[provider] ? 'ok' : ''}`;
-  };
-  $('[name=aiProvider]', el.dlg).addEventListener('change', e => {
-    keys[provider] = keyBox.value.trim();
-    provider = e.target.value;
-    keyBox.value = keys[provider];
-    $('#aiKeyLabel', el.dlg).textContent = FACT_PROVIDERS[provider].label;
-    $('#aiKeyHelp', el.dlg).innerHTML = FACT_PROVIDERS[provider].help;
-    $('#searchKeyPart', el.dlg).hidden = provider !== 'google';
-    showFacts();
-  });
+    setTag('aiKeyTag', keys[provider]); setTag('searchKeyTag', findKeys[finder]);
+  }
+  function showServices() {
+    const svc = S.aiService(provider), find = S.searchService(finder);
+    part('aiKeyPart').hidden = !!svc.noKey;
+    part('aiKeyLabel').textContent = svc.label || '';
+    box('aiKey').value = keys[provider] || '';
+    part('aiHelpTitle').textContent = svc.noKey ? `How to set ${svc.name} up` : 'How to get this key';
+    part('aiKeyHelp').innerHTML = svc.help;
+    part('aiHelpBox').open = !!svc.noKey;
+    part('aiModelPart').hidden = svc.kind !== 'chat';
+    box('aiModel').value = models[provider] || '';
+    part('aiModelHint').textContent = svc.local ? 'Leave empty to use the first model you have downloaded.' : `Leave empty and Weftday picks a good one${svc.model ? ` (${svc.model})` : ''}.`;
+    part('ownSearchNote').hidden = !svc.ownSearch;
+    part('ownSearchText').textContent = `${svc.name} searches the web by itself, so no search key is needed.`;
+    part('searchPart').hidden = !!svc.ownSearch;
+    part('searchWhy').textContent = svc.kind === 'google' ? 'Optional. Finds facts about the person, not only their company.' : `Needed: ${svc.name} cannot search the web by itself.`;
+    part('searchKeyLabel').textContent = `${find.name} key`;
+    box('searchKey').value = findKeys[finder] || '';
+    part('searchKeyHelp').innerHTML = find.help;
+    showStates();
+  }
+  showServices();
+  box('aiProvider').addEventListener('change', e => { keep(); provider = e.target.value; showServices(); });
+  box('searchProvider').addEventListener('change', e => { keep(); finder = e.target.value; showServices(); });
+  for (const name of ['aiKey', 'searchKey']) box(name).addEventListener('input', () => { keep(); showStates(); });
   AI.status().then(st => {
     const line = $('#aiState', el.dlg);
     if (!line) return;

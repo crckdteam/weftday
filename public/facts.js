@@ -1,13 +1,13 @@
-// "Get facts": looks a person and their company up on the web with Google's AI, using your own
-// Google AI key. It only runs when asked. Your browser talks to the services directly; the person's
+// "Get facts": looks a person and their company up on the web with an AI service of your choice, using
+// your own key. It only runs when asked. Your browser talks to the services directly; the person's
 // name, their company and the meeting's title are what is sent.
 //
-// Three ways, best first:
-// 1. Google's own web search. Google only allows this for keys with billing switched on.
-// 2. Free: a search service made for AI tools (Tavily, with your own free key) finds pages, and
-//    Google's AI writes the brief from those results.
-// 3. Free, no search key: Google's AI reads the company's own website, with Wikipedia's summary of
+// How the facts are found, best first:
+// 1. The AI searches the web by itself (Claude, OpenAI, Perplexity, or Google with billing on).
+// 2. A search service (your own key, see services.js) finds pages, and the AI writes from those results.
+// 3. Google's AI only, no search key: it reads the company's own website, with Wikipedia's summary of
 //    the company. This covers the company well and the person only if the site mentions them.
+import { aiService, webSearch, chat, searchChat } from './services.js';
 
 const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/interactions';
 const SEARCH_MODELS = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite']; // the next is tried when one is too busy
@@ -65,19 +65,6 @@ function websiteQuestion(who, meeting, wiki) {
     SOURCES, 'Only say what you actually found.', 'If the website could not be read at all, answer with exactly: COULD NOT READ'].filter(Boolean).join('\n');
 }
 
-// One search with Tavily, a search service made for AI tools. Returns [{ title, url, content }].
-async function webSearch(query, searchKey, signal) {
-  const res = await fetch('https://api.tavily.com/search', {
-    method: 'POST', signal,
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${searchKey}` },
-    body: JSON.stringify({ query, search_depth: 'basic', max_results: 5, include_answer: false }),
-  });
-  const data = await res.json().catch(() => null);
-  if (res.status === 401 || res.status === 403) throw new Error('The search service did not accept that search key. Check it in Settings.');
-  if (res.status === 429 || res.status === 432 || res.status === 433) throw new Error('The free search key has used up its searches for now. It refills every month.');
-  if (!res.ok) throw new Error('The search service could not answer. Please try again.');
-  return (data?.results || []).filter(r => r && r.url).map(r => ({ title: String(r.title || ''), url: String(r.url), content: String(r.content || '').slice(0, 700) }));
-}
 // Wikipedia's short summary of the company, if it has one. Free and open to web pages.
 async function wikiSummary(who, signal) {
   try {
@@ -91,7 +78,9 @@ async function wikiSummary(who, signal) {
 }
 
 // Strips any markdown the model slipped in, so the labels can be read back.
-export const tidyText = text => text.replace(/\*\*/g, '').replace(/^#+\s*/gm, '').replace(/^\s*[*•]\s+/gm, '- ').replace(/\n{3,}/g, '\n\n').trim();
+export const tidyText = text => text.replace(/\*\*/g, '').replace(/^#+\s*/gm, '').replace(/^\s*[*•]\s+/gm, '- ')
+  .replace(/^- (?=(role|location|background|education|expertise|recent|ideas|linkedin|company|team size|funding|key people|clients|sources)\s*:)/gim, '') // a label written as a list item
+  .replace(/\n{3,}/g, '\n\n').trim();
 
 // Google's reply is a list of steps. The answer text and its sources are picked out wherever they sit,
 // leaving out the model's private reasoning and the raw pages it read.
@@ -162,27 +151,39 @@ async function firstThatAnswers(models, run) {
 }
 
 // Returns { text, sources: [{ url, title }], queries: [..], how: 'search' | 'results' | 'website' }.
-// keys = { google, search }: your Google AI key and, optionally, your free search key.
+// keys = { provider, key, model, google, search, searchKind }: the AI service chosen in Settings with
+// its key and (optional) model, your Google AI key, and your search key with the service it is for.
 // trySearch = false skips Google's own search (for keys already known not to have it).
 // hint is anything you already know about the person, used to find the right one.
 export async function personFacts(who, meeting, keys, signal, trySearch = true, hint = '') {
-  if (trySearch) {
+  const svc = aiService(keys.provider), google = svc.kind === 'google';
+  const write = input => (google
+    ? firstThatAnswers(READ_MODELS, m => ask(m, input, '', keys.google, signal))
+    : chat(svc, keys.key, keys.model, input, signal).then(a => ({ ...a, text: tidyText(a.text) })));
+  if (google && trySearch) {
     try {
       const found = await firstThatAnswers(SEARCH_MODELS, m => ask(m, searchQuestion(who, meeting, hint), 'google_search', keys.google, signal));
       return { ...found, how: 'search' };
     } catch (err) { if (err.kind !== 'billing') throw err; } // no web search on this key: use a free way
   }
+  if (!google && svc.ownSearch) { // an AI that searches the web by itself
+    try {
+      const found = await searchChat(svc, keys.key, keys.model, `${searchQuestion(who, meeting, hint)}\n${SOURCES}`, signal);
+      return { ...found, text: tidyText(found.text), how: 'search' };
+    } catch (err) { if (!['model', 'nosearch'].includes(err.kind) || !keys.search || !svc.base) throw err; } // no model of theirs can search: use the search key
+  }
   if (keys.search) {
     const person = `${who.fullName ? `"${who.name}"` : who.name}${who.company ? ` ${who.company}` : ''}${hint ? ` ${hint}` : ''}`;
     const queries = [person, `${person} LinkedIn education career`];
     if (who.company) queries.push(`${who.company} ${who.domain} funding rounds investors number of employees`, `${who.company} ${who.domain} customers clients leadership team`);
-    const found = (await Promise.all(queries.map(q => webSearch(q, keys.search, signal)))).flat();
+    const found = (await Promise.all(queries.map(q => webSearch(keys.searchKind, q, keys.search, signal)))).flat();
     const pages = [...new Map(found.map(r => [r.url, r])).values()].slice(0, 16);
     if (!pages.length) throw new Error('The search found nothing about this person. Try “Not them?” with a hint.');
     const digest = pages.map((r, i) => `[${i + 1}] ${r.title}\n${r.url}\n${r.content}`).join('\n\n');
-    const answer = await firstThatAnswers(READ_MODELS, m => ask(m, resultsQuestion(who, meeting, hint, digest), '', keys.google, signal));
+    const answer = await write(resultsQuestion(who, meeting, hint, digest));
     return { ...answer, queries, how: 'results' };
   }
+  if (!google) throw Object.assign(new Error(`${svc.name} cannot search the web by itself. Add a free search key in Settings → AI.`), { kind: 'needsSearch' });
   if (!who.company) throw Object.assign(new Error('To look up a person without a company website, add a free search key in Settings → AI.'), { kind: 'needsSearch' });
   const wiki = await wikiSummary(who, signal);
   const answer = await firstThatAnswers(READ_MODELS, m => ask(m, websiteQuestion(who, meeting, wiki), 'url_context', keys.google, signal));

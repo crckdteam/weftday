@@ -539,6 +539,13 @@ label.srow { cursor: pointer; }
 .srow .btn { flex: none; }
 .sfield { display: grid; gap: 7px; padding: 12px 13px; }
 .sfield[hidden] { display: none; }
+.srow[hidden] { display: none; }
+.sgroup > #searchPart > * + * { border-top: 1px solid var(--line2); }
+.sfield details + details { margin-top: 2px; }
+.sfield details input { margin-top: 8px; }
+.sfield details .hint { display: block; margin-top: 6px; }
+.sets optgroup { color: var(--muted); font-style: normal; }
+.sets option { color: var(--text); }
 .sfield label { display: flex; align-items: center; gap: 8px; font-size: 14px; }
 .sfield label b { font-weight: 550; }
 .sfield input { width: 100%; }
