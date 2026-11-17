@@ -56,35 +56,67 @@ function enabledEvent(ev) {
 let toastTimer;
 function toast(msg, o = {}) {
   if (o === true) o = { err: true };
-  (el.dlg.open ? el.dlg : document.body).append(el.toast);
+  (el.dlg.open && !el.dlg.classList.contains('closing') ? el.dlg : document.body).append(el.toast);
   el.toast.innerHTML = `<span>${esc(msg)}</span>${o.undo ? '<button data-act="undo">Undo</button>' : ''}`;
   el.toast.className = 'show' + (o.err ? ' err' : '');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { el.toast.className = ''; }, o.err || o.undo ? 6000 : 3200);
 }
 function setStatus(text, isErr) {
+  document.body.classList.toggle('loading', /…$/.test(text));
   el.status.textContent = text;
   el.status.className = isErr ? 'err' : '';
 }
 
-let dlgOpenedAt = 0;
+let dlgOpenedAt = 0, closeTimer = 0;
 function dialog(html, handlers = {}, cls = '') {
+  clearTimeout(closeTimer); // a box that was fading out is taken over by the new one
   document.body.append(el.toast);
   el.dlg.className = cls;
   el.dlg.innerHTML = html;
   dlgOpenedAt = Date.now();
   if (!el.dlg.open) el.dlg.showModal();
   el.dlg.onclick = e => {
-    if (e.target === el.dlg) { if (Date.now() - dlgOpenedAt > 250) el.dlg.close(); return; }
+    if (e.target === el.dlg) { if (Date.now() - dlgOpenedAt > 250) closeDialog(); return; }
     const x = e.target.closest('[data-x]');
     if (!x) return;
-    if (x.dataset.x === 'close') return el.dlg.close();
+    if (x.dataset.x === 'close') return closeDialog();
     handlers[x.dataset.x]?.(x, e);
   };
   const f = $('form', el.dlg);
   if (f) f.onsubmit = e => { e.preventDefault(); handlers.submit?.(new FormData(f), f); };
 }
-const closeDialog = () => { if (el.dlg.open) el.dlg.close(); };
+// Boxes fade out briefly instead of vanishing.
+function closeDialog() {
+  if (!el.dlg.open || el.dlg.classList.contains('closing')) return;
+  if (calm()) return el.dlg.close();
+  el.dlg.classList.add('closing');
+  closeTimer = setTimeout(() => { el.dlg.classList.remove('closing'); if (el.dlg.open) el.dlg.close(); }, 130);
+}
+
+// ---------------------------------------------------------------- motion
+const calm = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+// Redraws through a short animated hand-over where the browser supports it. "dir" picks the movement:
+// 'next' and 'prev' slide sideways, 'fade' cross-fades.
+function smooth(dir, fn) {
+  if (!document.startViewTransition || calm() || document.hidden) { fn(); return Promise.resolve(); }
+  const root = document.documentElement;
+  root.dataset.dir = dir;
+  let ran = false;
+  const vt = document.startViewTransition(() => { ran = true; fn(); });
+  vt.ready.catch(() => {}); // a newer move replaced this one: nothing to report
+  vt.finished.catch(() => {}).finally(() => { if (root.dataset.dir === dir) delete root.dataset.dir; });
+  setTimeout(() => { if (!ran) vt.skipTransition(); }, 150); // never keep the screen waiting for the animation
+  return vt.updateCallbackDone.catch(() => {});
+}
+// Briefly marks what just changed (ticked, added, moved) so it settles into place instead of jumping.
+function flash(id, cls = 'settle') {
+  if (calm()) return;
+  for (const n of document.querySelectorAll(`[data-id="${CSS.escape(id)}"]`)) {
+    n.classList.add(cls);
+    n.addEventListener('animationend', () => n.classList.remove(cls), { once: true });
+  }
+}
 const opts = (list, cur) => list.map(([v, l]) => `<option value="${esc(v)}"${String(v) === String(cur) ? ' selected' : ''}>${esc(l)}</option>`).join('');
 
 // ---------------------------------------------------------------- tasks
@@ -248,6 +280,7 @@ function quickAdd() {
   input.value = '';
   quickHint();
   commit();
+  flash(t.id, 'born');
   if (!t.date) toast('Added to your inbox', { undo: true });
   else toast(`Scheduled ${relDay(t.date)}${t.start != null ? ', ' + fmtTime(t.start) : ''}`, { undo: true });
 }
@@ -261,6 +294,7 @@ function scheduleToday(t) {
   if (hadTime) t.start = nextFreeSlot(today, t.duration);
   touch(t);
   commit();
+  flash(t.id);
   toast(t.start != null ? `Scheduled today at ${fmtTime(t.start)}` : 'Moved to today', { undo: true });
 }
 
@@ -270,6 +304,7 @@ function toggleDone(t) {
   if (t.done && !t.date) { t.date = todayYmd(); t.start = null; toast('Done. Logged on today.', { undo: true }); }
   touch(t);
   commit();
+  flash(t.id, 'tick');
 }
 
 // ---------------------------------------------------------------- render
@@ -512,24 +547,27 @@ function updateNowLine() {
   line.style.top = `${nowMinutes() * PXM}px`;
   col.append(line);
 }
-function scrollToNow() {
-  el.grid.scrollTop = Math.max(0, (nowMinutes() - 120) * PXM);
+function scrollToNow(gently) {
+  el.grid.scrollTo({ top: Math.max(0, (nowMinutes() - 120) * PXM), behavior: gently && !calm() ? 'smooth' : 'auto' });
 }
 
 // ---------------------------------------------------------------- navigation
 function setView(v) { view = v; state.settings.view = v; save(); nav(); }
-function nav() { render(); refresh(); }
+function nav(dir = 'fade') { smooth(dir, render).then(() => refresh()); }
 function step(n) {
   cursor = view === 'month' ? new Date(cursor.getFullYear(), cursor.getMonth() + n, 1) : addDays(cursor, n * (view === 'day' ? 1 : 7));
   miniMonth = null;
-  nav();
+  nav(n > 0 ? 'next' : 'prev');
 }
 function goTo(d, v) {
+  const before = range()[0].getTime();
   cursor = startOfDay(d);
   miniMonth = null;
-  if (v && v !== view) setView(v); else nav();
+  if (v && v !== view) return setView(v);
+  const after = range()[0].getTime();
+  nav(after > before ? 'next' : after < before ? 'prev' : 'fade');
 }
-function goToday() { goTo(new Date()); if (!el.grid.hidden) scrollToNow(); }
+function goToday() { goTo(new Date()); if (!el.grid.hidden) scrollToNow(true); }
 
 // ---------------------------------------------------------------- interactions
 function colAt(x, y) {
@@ -656,6 +694,7 @@ function onGridPointerDown(e) {
     suppressClick = Date.now() + 350;
     mark();
     Object.assign(t, cur); touch(t); commit();
+    flash(t.id);
     toast(mode === 'resize' ? `Now ${fmtDur(t.duration)}` : `Moved to ${relDay(t.date)}, ${fmtTime(t.start)}`, { undo: true });
   }
   function cancel() { end(); if (moved) render(); }
@@ -810,6 +849,7 @@ function bind() {
   addEventListener('offline', () => setStatus('Offline. Changes are kept and sent later.', true));
   addEventListener('online', () => { setStatus(''); scheduleFlush(); refresh(); });
   el.dlg.addEventListener('close', () => document.body.append(el.toast));
+  el.dlg.addEventListener('cancel', e => { if (!calm()) { e.preventDefault(); closeDialog(); } }); // Escape fades out too
 }
 
 // ---------------------------------------------------------------- task editor
