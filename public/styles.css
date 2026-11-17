@@ -564,3 +564,6 @@ button.nm:hover { color: var(--accent); }
 .bwho .tags { margin-top: 5px; }
 .brief .fsec p i { font-style: normal; color: var(--muted); margin-right: 4px; }
 .brief .fsec { font-size: 13.5px; }
+.avatar.photo { background-size: cover; background-position: center; color: transparent; }
+img.logo { width: 18px; height: 18px; border-radius: 4px; vertical-align: -3px; margin-right: 7px; background: #fff; object-fit: contain; }
+h3 img.logo { width: 22px; height: 22px; vertical-align: -4px; margin-right: 9px; }

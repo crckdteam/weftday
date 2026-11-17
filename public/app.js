@@ -1216,6 +1216,24 @@ function aboutLine(email) {
 }
 const initials = name => name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('') || '?';
 
+// Pictures (can be switched off in Settings). A company's logo is its website icon, fetched through
+// Google's site-icon service. A person's photo comes from Gravatar, if they have set one up there; it
+// is looked up by a scrambled form of their email address. LinkedIn does not let other apps fetch
+// profile photos, so those cannot be shown. Without a photo the coloured initials stay.
+const logoHtml = domain => (state.settings.pictures !== false && domain && !FREE_MAIL.has(domain)
+  ? `<img class="logo" alt="" loading="lazy" src="https://www.google.com/s2/favicons?domain=${G.enc(domain)}&sz=128">` : '');
+const avatarHtml = (who, small) => `<div class="avatar${small ? ' sm' : ''}" data-photo="${esc(who.email)}" style="--tc:${tagColor(who.email)}">${esc(initials(who.name))}</div>`;
+async function showPictures() {
+  for (const logo of el.dlg.querySelectorAll('img.logo')) logo.addEventListener('error', () => logo.remove());
+  if (state.settings.pictures === false) return;
+  for (const spot of el.dlg.querySelectorAll('.avatar[data-photo]')) {
+    const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(spot.dataset.photo.trim().toLowerCase())));
+    const photo = new Image();
+    photo.onload = () => { if (spot.isConnected) { spot.style.backgroundImage = `url("${photo.src}")`; spot.classList.add('photo'); } };
+    photo.src = `https://gravatar.com/avatar/${[...bytes].map(b => b.toString(16).padStart(2, '0')).join('')}?s=160&d=404`;
+  }
+}
+
 // The facts found on the web, laid out as a card: first the person, then their company.
 function factsHtml(f, day, who) {
   const part = (label, items) => (items.length ? `<div class="fsec${items.length > 1 ? ' multi' : ''}"><h5>${label}</h5>${items.map(x => `<p>${esc(x)}</p>`).join('')}</div>` : '');
@@ -1224,7 +1242,7 @@ function factsHtml(f, day, who) {
   const them = part('Background', f.background) + one('Education', f.education) + tags('Expertise', f.expertise);
   const firm = one('What they do', f.company) + one('Team size', f.teamSize) + part('Funding', f.funding) + part('Key people', f.people) + tags('Clients', f.clients);
   return `${them ? `<div class="fgroup"><h4>About ${esc(who.name.split(' ')[0])}</h4>${them}</div>` : ''}
-    ${firm ? `<div class="fgroup"><h4>${esc(who.company || 'Their company')}</h4>${firm}</div>` : ''}
+    ${firm ? `<div class="fgroup"><h4>${logoHtml(who.domain)}${esc(who.company || 'Their company')}</h4>${firm}</div>` : ''}
     ${f.recent.length || f.ideas.length || f.other.length ? `<div class="fgroup"><h4>For this meeting</h4>${part('Recently', f.recent)}${part('Worth asking', f.ideas)}${part('Also', f.other)}</div>` : ''}
     ${f.sources.length ? `<div class="chips2">${f.sources.map(x => `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.host)}</a>`).join('')}</div>` : ''}
     ${f.coverage ? '<div class="note">This comes from the company’s own website, so it says little about the person. Add a free search key in Settings → AI for more.</div>' : ''}
@@ -1254,7 +1272,7 @@ function openPerson(guest, from) {
   }
   const link = (label, url) => `<a class="btn" href="${esc(url)}" target="_blank" rel="noopener">${label}</a>`;
   dialog(`<div class="dbody">
-    <div class="phead"><div class="avatar" style="--tc:${tagColor(p.email)}">${esc(initials(p.name))}</div>
+    <div class="phead">${avatarHtml(p)}
       <div class="pmain"><h3>${esc(p.name)}</h3>
         ${f?.role ? `<div class="prole">${esc(f.role)}</div>` : ''}
         <div class="meta">${esc([f?.location, p.email].filter(Boolean).join(' · '))}</div></div></div>
@@ -1305,6 +1323,7 @@ function openPerson(guest, from) {
     },
   });
 
+  showPictures();
   // Your own words save by themselves; the facts found on the web ride along in the same note.
   const box = $('[name=about]', el.dlg), saved = $('#aboutState', el.dlg);
   let timer = 0;
@@ -1347,6 +1366,7 @@ function openBrief(ev) {
   for (const x of withFacts) if (x.who.company) counts.set(x.who.company, (counts.get(x.who.company) || 0) + 1);
   const firmName = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] || '';
   const firm = withFacts.find(x => x.who.company === firmName && x.f && (x.f.company || x.f.funding.length || x.f.teamSize))?.f || null;
+  const firmDomain = withFacts.find(x => x.who.company === firmName)?.who.domain || '';
   const key = noteKey(ev), emails = others.map(x => x.who.email);
   const earlier = N.withPeople(emails, key), last = earlier.find(n => (n.when || 0) < ev.s) || null;
   const open = [];
@@ -1360,16 +1380,16 @@ function openBrief(ev) {
   const list = items => items.map(x => `<p>${esc(x)}</p>`).join('');
   const tags = items => `<div class="tags">${items.map(x => `<span>${esc(x)}</span>`).join('')}</div>`;
   dialog(`<div class="dbody brief">
-    <h3>${esc(ev.title)}</h3>
+    <h3>${logoHtml(firmDomain)}${esc(ev.title)}</h3>
     <div class="meta">${esc(eventWhen(ev))}</div>
     <h4>Who you’re meeting</h4>
     <div class="whos">${withFacts.map(x => `<div class="bwho">
-      <div class="avatar sm" style="--tc:${tagColor(x.who.email)}">${esc(initials(x.who.name))}</div>
+      ${avatarHtml(x.who, true)}
       <div><button type="button" class="nm" data-x="person" data-email="${esc(x.who.email)}">${esc(x.who.name)} ›</button>
         <div class="wm">${esc(x.f ? [x.f.role, x.f.location].filter(Boolean).join(' · ') || 'Profile saved' : x.own ? AI.gistOf(x.own, 120) : 'No profile yet')}</div>
         ${x.f?.expertise.length ? tags(x.f.expertise.slice(0, 4)) : ''}</div></div>`).join('')}</div>
     ${missing.length ? `<div><button type="button" class="mini" data-x="fill">Get the missing ${missing.length === 1 ? 'profile' : `${missing.length} profiles`}</button></div>` : ''}
-    ${firm ? `<h4>${esc(firmName)}</h4><div class="fsec">${firm.company ? `<p>${esc(firm.company)}</p>` : ''}
+    ${firm ? `<h4>${logoHtml(firmDomain)}${esc(firmName)}</h4><div class="fsec">${firm.company ? `<p>${esc(firm.company)}</p>` : ''}
       ${firm.teamSize ? `<p><i>Team</i> ${esc(firm.teamSize)}</p>` : ''}${firm.funding.length ? `<p><i>Funding</i> ${esc(firm.funding[0])}</p>` : ''}
       ${firm.clients.length ? tags(firm.clients.slice(0, 6)) : ''}</div>` : ''}
     ${last ? `<h4>Last time${last.when ? ` · ${esc(dayLabel(new Date(last.when)))}` : ''}</h4><div class="fsec"><p>${esc(AI.gistOf(last.text, 320))}</p></div>` : ''}
@@ -1399,6 +1419,7 @@ function openBrief(ev) {
       if (!job.signal.aborted && btn.isConnected) openBrief(ev);
     },
   });
+  showPictures();
 }
 
 function openEvent(ev) {
@@ -2251,6 +2272,8 @@ function openSettings(msg) {
     <p class="note">Tidying runs inside your browser, so your notes stay on this device. “Ask AI” and “Get facts” send the person’s name, company and the meeting title to that AI, and only when you press them.</p>
     <h4>Look</h4>
     <label>Theme<select name="theme">${opts([['auto', 'Match this device'], ['light', 'Light'], ['dark', 'Dark']], s.theme)}</select></label>
+    <label class="check"><input type="checkbox" name="pictures"${s.pictures !== false ? ' checked' : ''}>Show people’s photos and company logos</label>
+    <p class="note">Logos come from Google’s site-icon service. Photos come from Gravatar, for people who have one there. LinkedIn photos cannot be shown, because LinkedIn does not let other apps fetch them.</p>
     <h4>Your data</h4>
     <div class="rowline"><span class="note">${state.tasks.length} tasks stored on this device</span><button type="button" class="btn" data-x="backup">Download backup</button></div>
     <div class="actions"><span class="sp"></span>
@@ -2264,6 +2287,7 @@ function openSettings(msg) {
       s.dayStart = +fd.get('dayStart'); s.dayEnd = +fd.get('dayEnd');
       s.morning = +fd.get('morning');
       s.theme = fd.get('theme');
+      s.pictures = fd.get('pictures') === 'on';
       s.aiApp = fd.get('aiApp');
       keys[provider] = fd.get('aiKey').trim();
       if (s.aiKey !== keys.google) s.aiFreeSince = 0; // a new key may have Google's own search
