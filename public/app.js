@@ -3,6 +3,7 @@ import * as G from './google.js';
 import * as V from './vault.js';
 import * as N from './notes.js';
 import * as AI from './ai.js';
+import * as F from './facts.js';
 import { qrSvg } from './qr.js';
 import { PUBLIC_URL } from './config.js';
 import {
@@ -1175,6 +1176,22 @@ function metLine(list, key) {
   return `Met ${past.length === 1 ? 'once' : `${past.length} times`} in the past year · last on ${dayLabel(new Date(past[past.length - 1].s))}`;
 }
 
+// Shown when "Get facts" is pressed before an AI key has been added.
+function openFactsHelp(guest, from) {
+  dialog(`<div class="dbody"><h3>Get facts needs a key</h3>
+    <p>To look people up on the web, Weftday uses Google’s AI with a key that belongs to you.</p>
+    <ol class="steps">
+      <li>Open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> and press <b>Create API key</b>.</li>
+      <li>Web search needs billing switched on for that key (Google asks for a card). The first 5,000 searches each month are not charged.</li>
+      <li>Paste the key into <b>Settings → AI</b>.</li>
+    </ol>
+    <p class="note">Each time you press Get facts, the person’s name, their company and the meeting title go to Google. Nothing is sent before that.</p>
+    <div class="actions"><button type="button" class="btn ghost" data-x="back">Back</button><span class="sp"></span><button type="button" class="btn primary" data-x="settings">Open Settings</button></div></div>`, {
+    back: () => openPerson(guest, from),
+    settings: () => openSettings(),
+  });
+}
+
 // Everything Weftday knows about one person: what you wrote about them, your meetings, your notes
 // from those meetings and what is still open. "from" is the meeting to go back to.
 function openPerson(guest, from) {
@@ -1192,13 +1209,41 @@ function openPerson(guest, from) {
     ${links ? `<div class="who"><div class="wm"><span class="look">${links}</span></div></div>` : ''}
     <label><span>About ${esc(p.name.split(' ')[0])} <i>· only you can see this</i></span>
       <textarea name="about" rows="4" maxlength="${N.MAX_LENGTH}" placeholder="Their role, background, what matters to them. Press “Ask AI” above and paste what you learn here. It shows in every meeting with them.">${esc(about?.text || '')}</textarea></label>
-    <div class="airow"><span class="sp"></span><span class="saved" id="aboutState"></span></div>
+    <div class="airow">${links ? '<button type="button" class="mini" data-x="facts">Get facts</button>' : ''}<span class="sp"></span><span class="saved" id="aboutState"></span></div>
+    <div class="note" id="searched" hidden></div>
     <h4>Your meetings</h4>
     <div class="plist2" id="metList"><div class="note">Checking your calendar…</div></div>
     ${open.length ? `<h4>Still open</h4><div class="todo2">${open.slice(0, 12).map(x => `<div>• ${esc(x)}</div>`).join('')}</div>` : ''}
     ${notes.length ? `<h4>Your notes from meetings with them</h4><div class="past">${notes.slice(0, 8).map(n => `<div><b>${esc(n.title || 'Meeting')}</b>${n.when ? ` <i>· ${esc(dayLabel(new Date(n.when)))}</i>` : ''}<div class="desc">${esc(AI.gistOf(n.text, 400))}</div></div>`).join('')}</div>` : ''}
     <div class="actions">${from ? '<button type="button" class="btn" data-x="back">Back to the meeting</button>' : ''}<span class="sp"></span><button type="button" class="btn primary" data-x="close">Close</button></div></div>`, {
     back: () => openEvent(from),
+    // Looks the person up on the web with Google's AI and writes what it finds into the About box.
+    async facts(btn) {
+      const aiKey = state.settings.aiKey;
+      if (!aiKey) return openFactsHelp(guest, from);
+      const job = aiJob = new AbortController(), label = btn.textContent;
+      btn.disabled = box.readOnly = true;
+      btn.textContent = 'Looking…';
+      saved.textContent = 'Searching the web. This takes about 20 seconds.';
+      try {
+        const answer = await F.personFacts(p, from?.title, aiKey, job.signal);
+        if (job.signal.aborted || !box.isConnected) return;
+        box.value = F.mergeInto(box.value, answer, dayLabel(new Date())).slice(0, N.MAX_LENGTH);
+        commitAbout();
+        saved.textContent = 'Facts added';
+        const line = $('#searched', el.dlg);
+        if (answer.queries.length) {
+          line.hidden = false;
+          line.innerHTML = `Google searched for: ${answer.queries.map(q => `<a href="https://www.google.com/search?q=${G.enc(q)}" target="_blank" rel="noopener">${esc(q)}</a>`).join(' · ')}`;
+        }
+      } catch (err) {
+        if (err.name !== 'AbortError' && box.isConnected) { saved.textContent = ''; toast(err.message, true); }
+      } finally {
+        if (aiJob === job) aiJob = null;
+        btn.disabled = box.readOnly = false;
+        btn.textContent = label;
+      }
+    },
   });
 
   const box = $('[name=about]', el.dlg), saved = $('#aboutState', el.dlg);
@@ -1952,7 +1997,13 @@ function openSettings(msg) {
     <h4>AI</h4>
     <div class="rowline"><span class="note">Tidying notes: <b id="aiState">checking…</b></span></div>
     <label>“Ask AI” about a person opens<select name="aiApp">${opts(Object.entries(AI_APPS).map(([k, v]) => [k, v[0]]), s.aiApp)}</select></label>
-    <p class="note">Tidying runs inside your browser, so your notes stay on this device. “Ask AI” opens that app with a question about the person, and only when you press it.</p>
+    <label><span>Google AI key <i>· optional, for “Get facts” about a person</i></span><input name="aiKey" type="password" value="${esc(s.aiKey || '')}" autocomplete="off" spellcheck="false"></label>
+    <details><summary>How to get this key</summary><ol>
+      <li>Open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> and press <b>Create API key</b>.</li>
+      <li>Web search needs billing switched on for that key (Google asks for a card). The first 5,000 searches each month are not charged.</li>
+      <li>Paste the key above and press Save. It is kept only in this browser.</li>
+    </ol></details>
+    <p class="note">Tidying runs inside your browser, so your notes stay on this device. “Ask AI” and “Get facts” send the person’s name, company and the meeting title to that AI, and only when you press them.</p>
     <h4>Look</h4>
     <label>Theme<select name="theme">${opts([['auto', 'Match this device'], ['light', 'Light'], ['dark', 'Dark']], s.theme)}</select></label>
     <h4>Your data</h4>
@@ -1969,6 +2020,7 @@ function openSettings(msg) {
       s.morning = +fd.get('morning');
       s.theme = fd.get('theme');
       s.aiApp = fd.get('aiApp');
+      s.aiKey = fd.get('aiKey').trim();
       const want = fd.get('planner'), share = fd.get('share') === 'on';
       save();
       applyTheme();

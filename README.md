@@ -11,6 +11,7 @@ All your Google calendars and your tasks in one place. Schedule tasks as time bl
 - Tasks can also be saved in a "Weftday" calendar in your own Google account, which keeps your devices in step and lets your phone remind you.
 - Meeting prep: private notes on any meeting (kept as hidden entries in the "Weftday" calendar, see `public/notes.js`), your history with each guest, quick look-up links, and buttons for notes apps and attached files.
 - AI without a server or a key: "Tidy my notes" uses the browser's built-in model (Chrome's Prompt API, see `public/ai.js`), so notes never leave the device. "Ask AI" about a person opens the user's own AI app with a ready-made question.
+- "Get facts" about a person (optional, bring your own key): calls Google's Gemini API with web search straight from the browser (`public/facts.js`) and writes a short brief into that person's About note.
 - Optionally, the list of connected accounts is kept (encrypted) in that same calendar, so all your devices show the same accounts and a new device needs no Google login. See `public/vault.js`.
 
 ## Company Teams calendar

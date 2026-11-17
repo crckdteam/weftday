@@ -528,4 +528,4 @@ button.nm:hover { color: var(--accent); }
 .who .abt { font-size: 12.5px; margin: 1px 0; }
 .plist2, .todo2 { display: grid; gap: 3px; font-size: 13px; }
 .plist2 i { color: var(--muted); font-style: normal; display: inline-block; min-width: 92px; }
-.dbody textarea[name="about"] { min-height: 84px; }
+.dbody textarea[name="about"] { min-height: 150px; }
