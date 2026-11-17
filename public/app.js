@@ -60,10 +60,10 @@ let toastTimer;
 function toast(msg, o = {}) {
   if (o === true) o = { err: true };
   (el.dlg.open && !el.dlg.classList.contains('closing') ? el.dlg : document.body).append(el.toast);
-  el.toast.innerHTML = `<span>${esc(msg)}</span>${o.undo ? '<button data-act="undo">Undo</button>' : ''}`;
+  el.toast.innerHTML = `<span>${esc(msg)}</span>${o.undo ? '<button data-act="undo">Undo</button>' : ''}${o.reload ? '<button data-act="reload">Refresh</button>' : ''}`;
   el.toast.className = 'show' + (o.err ? ' err' : '');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.toast.className = ''; }, o.err || o.undo ? 6000 : 3200);
+  toastTimer = setTimeout(() => { el.toast.className = ''; }, o.reload ? 30000 : o.err || o.undo ? 6000 : 3200);
 }
 function setStatus(text, isErr) {
   document.body.classList.toggle('loading', /…$/.test(text));
@@ -99,6 +99,19 @@ function closeDialog() {
   if (calm()) return el.dlg.close();
   el.dlg.classList.add('closing');
   closeTimer = setTimeout(() => { el.dlg.classList.remove('closing'); if (el.dlg.open) el.dlg.close(); }, 130);
+}
+
+// Tells you when a newer Weftday has been published while this page was open, so you are never
+// left looking at an old version without knowing.
+let loadedVersion = '', toldAboutUpdate = false;
+async function checkForUpdate() {
+  if (toldAboutUpdate) return;
+  try {
+    const version = (await fetch('sw.js', { cache: 'no-store' }).then(r => r.text())).match(/planner-shell-v\d+/)?.[0];
+    if (!version) return;
+    if (!loadedVersion) loadedVersion = version;
+    else if (version !== loadedVersion && !el.dlg.open) { toldAboutUpdate = true; toast('A newer Weftday is ready.', { reload: true }); }
+  } catch { /* offline: try again later */ }
 }
 
 // ---------------------------------------------------------------- motion
@@ -621,6 +634,7 @@ function onClick(e) {
 function doAct(btn) {
   const act = btn.dataset.act;
   if (act === 'undo') return undo();
+  if (act === 'reload') return location.reload();
   if (act === 'plan') return openPlan();
   if (act === 'mini-prev' || act === 'mini-next') {
     const m = miniMonth || monthStart(cursor);
@@ -1288,9 +1302,10 @@ function openEvent(ev) {
   const shown = others.slice(0, 4), rest = others.slice(4, 40);
   const extras = [...(ev.links || []), ...(ev.files || []).filter(f => !(ev.links || []).some(l => l.url === f.url))].slice(0, 6);
   const who = (p, lookup) => `<div class="who" data-email="${esc(p.email)}">
-      <div><button type="button" class="nm" data-x="person" data-email="${esc(p.email)}" title="Everything about this person">${esc(p.name)}</button>${p.organizer ? ' <i>· organiser</i>' : ''}${STATUS_LABEL[p.status] ? ` <i>· ${STATUS_LABEL[p.status]}</i>` : ''}</div>
-      ${N.has(N.aboutKey(p.email)) ? `<div class="abt">${esc(AI.gistOf(N.get(N.aboutKey(p.email)).text, 160))}</div>` : ''}
-      <div class="wm">${lookup ? '<span class="met">Checking your past meetings…</span>' : ''}<span class="look">${lookupLinks(p, ev.title)}</span></div></div>`;
+      <div><button type="button" class="nm" data-x="person" data-email="${esc(p.email)}" title="Everything about this person">${esc(p.name)} ›</button>${p.organizer ? ' <i>· organiser</i>' : ''}${STATUS_LABEL[p.status] ? ` <i>· ${STATUS_LABEL[p.status]}</i>` : ''}</div>
+      ${N.has(N.aboutKey(p.email)) ? `<div class="abt">${esc(AI.gistOf(N.get(N.aboutKey(p.email)).text.replace(/^— Facts from the web[^\n]*\n?/m, ''), 160))}</div>` : ''}
+      <div class="wm">${lookup ? '<span class="met">Checking your past meetings…</span>' : ''}<span class="look">${lookupLinks(p, ev.title)}</span></div>
+      ${lookupLinks(p, ev.title) ? `<div><button type="button" class="mini" data-x="facts" data-email="${esc(p.email)}">${hasFacts(p.email) ? 'See facts' : 'Get facts'}</button></div>` : ''}</div>`;
   dialog(`<div class="dbody">
     <h3>${esc(ev.title)}</h3>
     <div class="meta">${esc(eventWhen(ev))}</div>
@@ -1330,6 +1345,28 @@ function openEvent(ev) {
     </div></div>`, {
     edit: () => openEventForm(ev),
     person: btn => openPerson(guests.find(g => (g.email || '').toLowerCase() === btn.dataset.email), ev),
+    // Looks the person up on the web, saves what it finds about them, then shows their page.
+    async facts(btn) {
+      const guest = guests.find(g => (g.email || '').toLowerCase() === btn.dataset.email), who = person(guest);
+      if (hasFacts(who.email)) return openPerson(guest, ev);
+      if (!state.settings.aiKey) return openFactsHelp(guest, ev);
+      const job = aiJob = new AbortController();
+      btn.disabled = true;
+      btn.textContent = 'Searching the web… about 20 seconds';
+      try {
+        const answer = await F.personFacts(who, ev.title, state.settings.aiKey, job.signal);
+        if (job.signal.aborted) return;
+        const aboutKey = N.aboutKey(who.email);
+        N.set(aboutKey, F.mergeInto(N.get(aboutKey)?.text || '', answer, dayLabel(new Date())).slice(0, N.MAX_LENGTH), { title: who.name, when: Date.now(), people: [who.email] });
+        scheduleFlush();
+        if (btn.isConnected) openPerson(guest, ev);
+      } catch (err) {
+        if (err.name !== 'AbortError') toast(err.message, true);
+      } finally {
+        if (aiJob === job) aiJob = null;
+        if (btn.isConnected) { btn.disabled = false; btn.textContent = 'Get facts'; }
+      }
+    },
     // Copies the reminder of last time to the top of this meeting's notes.
     uselast(btn) {
       const open = lastActions.filter(x => !x.done).map(x => `- ${x.text}`);
@@ -1432,7 +1469,7 @@ function openEvent(ev) {
       if (!row) return;
       row.querySelector('.met').textContent = metLine(list, key);
       const better = person(guests.find(g => (g.email || '').toLowerCase() === p.email)); // a fuller name may have turned up
-      if (better.name !== p.name) { row.querySelector('.nm').textContent = better.name; row.querySelector('.look').innerHTML = lookupLinks(better, ev.title); }
+      if (better.name !== p.name) { row.querySelector('.nm').textContent = `${better.name} ›`; row.querySelector('.look').innerHTML = lookupLinks(better, ev.title); }
       saveNames();
     }).catch(() => {});
   }
@@ -1543,6 +1580,7 @@ function noteLinks(text) {
   return out;
 }
 const noteKey = ev => ev.nk || ev.id;
+const hasFacts = email => (N.get(N.aboutKey(email))?.text || '').includes(F.MARK);
 
 let refreshSeq = 0;
 async function refresh() {
@@ -2197,7 +2235,8 @@ async function boot() {
   await refresh();
   tick();
   setInterval(tick, 30000);
-  const catchUp = () => shareSync().then(refresh);
+  const catchUp = () => { checkForUpdate(); return shareSync().then(refresh); };
+  checkForUpdate();
   setInterval(() => { if (!document.hidden) catchUp(); }, 5 * 60000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { tick(); catchUp(); } });
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
