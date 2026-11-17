@@ -36,7 +36,7 @@ export async function personFacts(who, meeting, key, signal, hint = '') {
       for (const block of response.content) {
         if (block.type !== 'text') continue;
         parts.push(block.text);
-        for (const cite of block.citations || []) if (cite.url && !sources.has(cite.url)) sources.set(cite.url, String(cite.title || '').slice(0, 80));
+        for (const cite of block.citations || []) if (/^https:\/\//i.test(cite.url || '') && !sources.has(cite.url)) sources.set(cite.url, String(cite.title || '').slice(0, 80));
       }
       const text = tidyText(parts.join(''));
       if (!text) throw new Error('Claude gave no answer. Please try again.');

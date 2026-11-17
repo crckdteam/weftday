@@ -1,1 +1,5 @@
 .DS_Store
+# local tooling, not part of the app
+.claude/skills/
+.venv/
+test/.out/

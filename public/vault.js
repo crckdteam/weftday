@@ -172,8 +172,10 @@ export function forgetAccount(id) {
 
 // Removes the shared list from Google (used when sharing is switched off, or the home account changes).
 export async function clearShared() {
-  if (!state.settings.plannerCalendarId || !home() || home().needsReconnect) return;
-  for (const e of await findEntries()) await G.api(home(), `${eventsPath()}/${G.enc(e.id)}`, { method: 'DELETE' }).catch(() => {});
+  if (!state.settings.plannerCalendarId) return;
+  // If the copy at Google cannot be removed, say so: the switch must not look off while the copy is still there.
+  if (!home() || home().needsReconnect) throw new Error('The shared copy is kept in an account that is signed out. Reconnect it first, then switch this off again.');
+  for (const e of await findEntries()) await G.api(home(), `${eventsPath()}/${G.enc(e.id)}`, { method: 'DELETE' });
   state.sharedSeen = false;
   save();
 }

@@ -346,7 +346,7 @@ export function parse(raw) {
       if (!out.sources.some(x => x.host === link.host)) out.sources.push(link); // one tag per site
     } else if (section === 'linkedin') {
       const link = asLink(line);
-      if (link && /linkedin\.com$/.test(link.host)) out.linkedin = link.url; else out.other.push(line);
+      if (link && /(^|\.)linkedin\.com$/.test(link.host)) out.linkedin = link.url; else out.other.push(line);
       section = 'other';
     } else if (TAG_LISTS.includes(section)) {
       for (const tag of line.split(/[,;]| and (?=[A-Z])/)) { const t = tag.trim().replace(/\.$/, ''); if (t && out[section].length < 10) out[section].push(t); }

@@ -169,3 +169,10 @@ export function parseQuick(text, now = new Date()) {
   if (out.repeat && out.date) out.date = firstRepeatDay(out.date, out.repeat); // not on a day it skips
   return out;
 }
+
+// ---- text from outside that becomes a link or a colour
+// A meeting link found in an invite's text. The site name must be the address's own host, so that
+// "https://some-other-site/?next=zoom.us/j/1" is never taken for a Zoom link.
+export const VIDEO_RE = /https:\/\/(?:[\w-]+\.)*(?:zoom\.us\/(?:j|my|w)\/|teams\.microsoft\.com\/(?:l\/meetup-join|meet\/)|teams\.live\.com\/meet\/|meet\.google\.com\/|webex\.com\/)[^\s"'<>]*/i;
+export const webLink = u => (/^https:\/\//i.test(u || '') ? u : ''); // only a real web address may become a link
+export const hue = c => (/^#[0-9a-f]{3,8}$/i.test(c || '') ? c : '#888'); // a colour is only ever a plain colour code

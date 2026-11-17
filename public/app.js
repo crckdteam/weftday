@@ -6,12 +6,14 @@ import * as AI from './ai.js';
 import * as F from './facts.js';
 import * as S from './services.js';
 import * as R from './recorder.js';
+
+// Weftday never runs inside another site's page, where a press could be tricked out of someone.
+if (self !== top) { document.documentElement.innerHTML = ''; throw new Error('Weftday does not run inside another page.'); }
 import { qrSvg } from './qr.js';
 import { PUBLIC_URL } from './config.js';
 import {
   pad, ymd, fromYmd, addDays, startOfDay, startOfWeek, localIso, hhmm, parseHhmm, clamp,
-  fmtTime, fmtRange, fmtDur, dayLabel, uid, esc, parseQuick, days, monthStart, repeatsOn, repeatLabel, repeatDays, firstRepeatDay,
-} from './util.js';
+  fmtTime, fmtRange, fmtDur, dayLabel, uid, esc, parseQuick, days, monthStart, repeatsOn, repeatLabel, repeatDays, firstRepeatDay, VIDEO_RE, webLink, hue } from './util.js';
 
 const HOUR = 52, PXM = HOUR / 60, SNAP = 15;
 const INBOX_DATE = '2000-01-01'; // inbox tasks are parked on this day in the "Weftday" calendar
@@ -412,7 +414,7 @@ function renderView() {
 }
 
 function itemHtml(t, meta) {
-  return `<div class="item" data-id="${t.id}" style="${tagStyle(t)}">
+  return `<div class="item" data-id="${esc(t.id)}" style="${tagStyle(t)}">
     <button class="chk" data-act="toggle" aria-label="Mark done"></button>
     <div class="it"><div class="t">${pri(t)}${esc(t.title)}</div><div class="m">${meta}</div></div>
     <button class="mini" data-act="today" title="Put this on today's schedule">→ Today</button>
@@ -439,7 +441,7 @@ function upNextHtml() {
   const items = dayItems(startOfDay(new Date())).timed
     .filter(i => i.kind === 'task' ? !i.t.done : i.ev.selfStatus !== 'declined').sort((a, b) => a.s - b.s);
   const row = (label, i, when) => {
-    const attr = i.kind === 'task' ? `class="un task" data-id="${i.t.id}"` : `class="un" data-key="${esc(i.ev.key)}"`;
+    const attr = i.kind === 'task' ? `class="un task" data-id="${esc(i.t.id)}"` : `class="un" data-key="${esc(i.ev.key)}"`;
     const join = i.kind === 'ev' && i.ev.meet ? `<a class="mini join" href="${esc(i.ev.meet)}" target="_blank" rel="noopener">Join</a>` : '';
     return `<div ${attr}><span class="ul${label === 'Now' ? ' now' : ''}">${label}</span>
       <div class="ut"><div class="t">${esc(i.kind === 'task' ? i.t.title : i.ev.title)}</div><div class="m">${when}</div></div>${join}</div>`;
@@ -486,11 +488,11 @@ function renderSide() {
   h += `<div class="sec"><h4><span>Calendars</span></h4>`;
   if (!state.accounts.length) h += '<div class="empty">No accounts connected yet.</div>';
   for (const a of state.accounts) {
-    h += `<div class="acct" data-acct="${esc(a.id)}"><button class="dot" data-act="acct-color" title="Change colour" style="background:${a.color}"></button><span class="em" title="${esc(a.email)}">${esc(a.email)}</span>${
+    h += `<div class="acct" data-acct="${esc(a.id)}"><button class="dot" data-act="acct-color" title="Change colour" style="background:${hue(a.color)}"></button><span class="em" title="${esc(a.email)}">${esc(a.email)}</span>${
       a.needsReconnect ? '<button class="mini warn" data-act="reconnect">Reconnect</button>' : '<button class="mini" data-act="rm-acct">Remove</button>'}</div>`;
     for (const c of a.calendars) {
       if (isPlannerCal(a, c)) continue;
-      h += `<label class="cal"><input type="checkbox" style="accent-color:${a.color}" data-cal="${esc(a.id)}|${esc(c.id)}"${c.enabled ? ' checked' : ''}><span>${esc(c.summary)}</span></label>`;
+      h += `<label class="cal"><input type="checkbox" style="accent-color:${hue(a.color)}" data-cal="${esc(a.id)}|${esc(c.id)}"${c.enabled ? ' checked' : ''}><span>${esc(c.summary)}</span></label>`;
     }
   }
   h += '</div>';
@@ -521,7 +523,7 @@ function layout(items) {
 }
 
 const evClass = ev => ev.selfStatus === 'needsAction' ? ' pending' : ev.selfStatus === 'declined' ? ' declined' : '';
-const evColor = ev => acct(ev.accountId)?.color || '#888';
+const evColor = ev => hue(acct(ev.accountId)?.color);
 
 function blockHtml(it) {
   const h = Math.max((it.e - it.s) * PXM, 20);
@@ -529,7 +531,7 @@ function blockHtml(it) {
   const sm = h < 34 ? ' sm' : '';
   if (it.kind === 'task') {
     const t = it.t;
-    return `<div class="blk task${t.done ? ' done' : ''}${sm}" data-id="${t.id}" style="${style}${tagStyle(t)}">
+    return `<div class="blk task${t.done ? ' done' : ''}${sm}" data-id="${esc(t.id)}" style="${style}${tagStyle(t)}">
       <button class="chk" data-act="toggle" aria-label="Mark done"></button>
       <div class="bt"><div class="t">${pri(t)}${esc(t.title)}</div><div class="m">${fmtRange(it.s, it.e)}${t.tag ? ' · #' + esc(t.tag) : ''}</div></div>
       <div class="rs"></div></div>`;
@@ -542,7 +544,7 @@ function blockHtml(it) {
 function chipHtml(it) {
   const tm = it.s != null ? `<i>${fmtTime(it.s)}</i> ` : '';
   if (it.kind === 'task') {
-    return `<div class="chip task${it.t.done ? ' done' : ''}" data-id="${it.t.id}"><button class="chk" data-act="toggle" aria-label="Mark done"></button><span>${tm}${esc(it.t.title)}</span></div>`;
+    return `<div class="chip task${it.t.done ? ' done' : ''}" data-id="${esc(it.t.id)}"><button class="chk" data-act="toggle" aria-label="Mark done"></button><span>${tm}${esc(it.t.title)}</span></div>`;
   }
   return `<div class="chip ev${it.ev.selfStatus === 'declined' ? ' declined' : ''}" data-key="${esc(it.ev.key)}" style="--c:${evColor(it.ev)}"><span>${tm}${esc(it.ev.title)}</span></div>`;
 }
@@ -593,7 +595,7 @@ function renderMonth() {
 function listRow(it, when) {
   if (it.kind === 'task') {
     const t = it.t;
-    return `<div class="lrow task${t.done ? ' done' : ''}" data-id="${t.id}"><span class="ltime">${when}</span>
+    return `<div class="lrow task${t.done ? ' done' : ''}" data-id="${esc(t.id)}"><span class="ltime">${when}</span>
       <button class="chk" data-act="toggle" aria-label="Mark done"></button>
       <div class="lt"><div class="t">${pri(t)}${esc(t.title)}</div>${t.tag ? `<div class="m">#${esc(t.tag)}</div>` : ''}</div></div>`;
   }
@@ -720,6 +722,7 @@ function doAct(btn) {
     const everywhere = V.sharingReady() && a.id !== state.settings.plannerAccountId;
     if (!confirm(`Remove ${a.email} from this app${everywhere ? ' on all your devices' : ''}?\n\nNothing is deleted from Google. The app just stops showing this account.`)) return;
     if (everywhere) V.forgetAccount(a.id);
+    if (everywhere || !V.sharingReady()) G.revoke(a.refreshToken); // nothing of yours uses this sign-in any more: end it at Google too
     state.accounts.splice(state.accounts.indexOf(a), 1);
     if (state.settings.plannerAccountId === a.id) { // the home account: this device simply leaves
       Object.assign(state.settings, { plannerAccountId: '', plannerCalendarId: '', shareAccounts: false });
@@ -975,7 +978,7 @@ function openTask(t, isNew = false) {
       <input name="title" class="ttl" required value="${esc(t.title)}" placeholder="What needs doing?" aria-label="Task" autocomplete="off"></div>
     <h4>When</h4>
     <div class="row">
-      <label>Day<input type="date" name="date" value="${t.date || ''}"></label>
+      <label>Day<input type="date" name="date" value="${esc(t.date || '')}"></label>
       <label>Start<input type="time" name="start" value="${t.start != null ? hhmm(t.start) : ''}"></label>
       <label>Length<select name="duration">${opts(durs.map(d => [d, fmtDur(d)]), t.duration)}</select></label>
     </div>
@@ -1067,7 +1070,7 @@ function openPlan() {
   const carried = state.tasks.filter(t => t.date && t.date < ds && !t.done).sort((a, b) => byPri(a, b) || a.date.localeCompare(b.date));
   const inbox = state.tasks.filter(t => !t.date && !t.done).sort((a, b) => byPri(a, b) || b.created - a.created);
   const hr = new Date().getHours();
-  const pick = (t, on, meta) => `<label class="prow"><input type="checkbox" name="pick" value="${t.id}"${on ? ' checked' : ''}>
+  const pick = (t, on, meta) => `<label class="prow"><input type="checkbox" name="pick" value="${esc(t.id)}"${on ? ' checked' : ''}>
     <span class="pt">${pri(t)}${esc(t.title)}</span><span class="pd">${meta}</span></label>`;
   dialog(`<form class="dbody">
     <h3>${hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening'}</h3>
@@ -1330,7 +1333,7 @@ const initials = name => name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => 
 // (see findPhotos). LinkedIn does not let other apps fetch profile photos, so those are never used.
 // Without a photo the coloured initials stay.
 const logoHtml = domain => (state.settings.pictures !== false && domain && !FREE_MAIL.has(domain)
-  ? `<img class="logo" alt="" loading="lazy" src="https://www.google.com/s2/favicons?domain=${G.enc(domain)}&sz=128">` : '');
+  ? `<img class="logo" alt="" loading="lazy" referrerpolicy="no-referrer" src="https://www.google.com/s2/favicons?domain=${G.enc(domain)}&sz=128">` : '');
 const savedFacts = email => { const raw = F.split(N.get(N.aboutKey(email))?.text || '').raw; return raw ? F.parse(raw) : null; };
 const avatarHtml = (who, small) => `<div class="avatar${small ? ' sm' : ''}" data-photo="${esc(who.email)}" data-web="${esc(savedFacts(who.email)?.photo || '')}" style="--tc:${tagColor(who.email)}">${esc(initials(who.name))}</div>`;
 // Loads a picture without telling its website which page asked for it. Resolves to the image, or null.
@@ -1613,7 +1616,7 @@ function openEvent(ev, writeNotes) { // writeNotes: put the cursor in the notes 
   dialog(`<div class="dbody">
     <h3>${esc(ev.title)}</h3>
     <div class="meta">${esc(eventWhen(ev))}</div>
-    <div class="meta"><span class="dot" style="background:${a?.color || '#888'}"></span>${esc(a?.email || '')}${c && !c.primary ? ' · ' + esc(c.summary) : ''}</div>
+    <div class="meta"><span class="dot" style="background:${hue(a?.color)}"></span>${esc(a?.email || '')}${c && !c.primary ? ' · ' + esc(c.summary) : ''}</div>
     ${ev.location ? `<div class="meta">${esc(ev.location)}</div>` : ''}
     ${ev.meet || extras.length || others.length || R.supported() ? `<div class="btnrow">
       ${ev.meet ? `<a class="btn primary" href="${esc(ev.meet)}" target="_blank" rel="noopener">Join video call</a>` : ''}
@@ -1882,7 +1885,6 @@ function openEventForm(ev) {
 }
 
 // ---------------------------------------------------------------- Google sync
-const VIDEO_RE = /https:\/\/[^\s"'<>]*(?:zoom\.us\/j\/|teams\.microsoft\.com\/l\/meetup-join|teams\.microsoft\.com\/meet\/|teams\.live\.com\/meet\/|meet\.google\.com\/|webex\.com\/)[^\s"'<>]*/i;
 
 function normalize(e, a, c) {
   learnNames(e);
@@ -1900,8 +1902,8 @@ function normalize(e, a, c) {
     title: e.summary || '(No title)',
     s: allDay ? fromYmd(e.start.date).getTime() : Date.parse(e.start.dateTime),
     e: allDay ? fromYmd(e.end.date).getTime() : Date.parse(e.end.dateTime),
-    allDay, location: e.location || '', htmlLink: e.htmlLink || '',
-    meet: e.hangoutLink || entry || `${e.location || ''} ${e.description || ''}`.match(VIDEO_RE)?.[0] || '',
+    allDay, location: e.location || '', htmlLink: webLink(e.htmlLink),
+    meet: webLink(e.hangoutLink) || webLink(entry) || `${e.location || ''} ${e.description || ''}`.match(VIDEO_RE)?.[0] || '',
     description: text.slice(0, 2000),
     att: e.attendees || [], selfStatus: self?.responseStatus || null,
     organizerSelf: !!e.organizer?.self, calWritable,
@@ -1941,7 +1943,9 @@ const factsKey = () => { const svc = S.aiService(state.settings.aiProvider); ret
 async function getFacts(who, meeting, signal, hint = '') {
   const photos = findPhotos(who, hint, signal); // runs alongside the lookup
   const answer = await lookUp(who, meeting, signal, hint);
-  return { ...answer, text: answer.text + await photoLines(await photos, savedFacts(who.email), hint) };
+  // The AI's words may have been steered by a page it read: any picture address in them is dropped.
+  const text = answer.text.split('\n').filter(line => !/^\s*[-*•]?\s*photos?\s*:/i.test(line)).join('\n');
+  return { ...answer, text: text + await photoLines(await photos, savedFacts(who.email), hint) };
 }
 // What is already saved about the person's company (from a colleague's profile, in the last month) is
 // not searched for again: it is copied in, which saves half the searches.
@@ -2102,7 +2106,7 @@ function whyFailed(err) {
 function openSyncProblems() {
   if (!syncProblems.length) return;
   const cut = syncProblems.every(x => x.err.kind === 'unreachable');
-  const rows = syncProblems.slice(0, 12).map((x, i) => `<div class="srow"><span class="dot" style="background:${x.a.color || '#888'}"></span>
+  const rows = syncProblems.slice(0, 12).map((x, i) => `<div class="srow"><span class="dot" style="background:${hue(x.a.color)}"></span>
     <div class="st"><b>${esc(x.c.summary || 'Calendar')}</b><span>${esc(x.a.email)} · ${esc(whyFailed(x.err))}</span></div>
     ${[403, 404, 410].includes(x.err.status) ? `<button type="button" class="btn" data-x="hide" data-i="${i}">Hide it</button>` : ''}</div>`).join('');
   dialog(`<div class="dbody">
@@ -2327,7 +2331,7 @@ function setupLink(mine) {
   const data = btoa(JSON.stringify(d)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   return `${isLocal ? PUBLIC_URL : G.redirectUri()}#setup=${data}`;
 }
-let homeFromLink = '';
+let homeFromLink = '', linkUndo = null; // linkUndo: how to put things back if a link's sign-in turns out not to be that account's
 // text: a setup link pasted into Settings; without it, the link this page was opened with.
 function importSetup(text) {
   const m = text ? text.match(/#setup=([\w-]+)\s*$/) : location.hash.match(/^#setup=([\w-]+)$/);
@@ -2342,13 +2346,21 @@ function importSetup(text) {
     // it is never done without a clear yes.
     if (own) {
       const has = s.plannerAccountId && s.plannerAccountId !== d.e ? `\n\nThis device now keeps its tasks in ${s.plannerAccountId}. They would move to the new account.` : '';
-      if (!confirm(`Set this device up with the Google account ${d.e}?\n\nYour tasks, notes and connected accounts on this device will be kept in that account. Only continue if this link came from one of your own devices.${has}`)) return false;
+      const others = state.accounts.filter(a => a.id !== d.e).length;
+      const keys = [s.aiKey, s.claudeKey, s.searchKey, ...Object.values(s.aiKeys || {}), ...Object.values(s.searchKeys || {})].some(Boolean);
+      const copied = [others ? `${others} connected Google account${others === 1 ? '' : 's'}` : '', keys ? 'your AI and search keys' : ''].filter(Boolean).join(' and ');
+      const warn = copied ? `\n\nThis device already has ${copied}. If you continue, they are copied into ${d.e} so your other devices get them. Anyone who can open that Google account can then use them.` : '';
+      if (!confirm(`Set this device up with the Google account ${d.e}?\n\nYour tasks, notes and connected accounts on this device will be kept in that account.${warn}\n\nContinue only if ${d.e} is your own account and this link came from one of your own devices.${has}`)) return false;
     }
-    if (s.clientId && s.clientId !== d.i && !confirm('Replace the Google keys saved on this device with the ones from this link?')) return false;
+    // Keys from a link are never taken without a yes (a link with an account has just been asked about).
+    const differ = s.clientId !== d.i || (s.clientSecret || '') !== d.s;
+    if (differ && s.clientId && !confirm('Replace the Google keys saved on this device with the ones from this link?\n\nContinue only if the link came from you or from someone you trust. Signing in stops working if the keys are wrong.')) return false;
+    if (differ && !s.clientId && !own && !confirm('Set this device up with the Google keys from this link?\n\nContinue only if the link came from you or from someone you trust.')) return false;
     s.clientId = d.i; s.clientSecret = d.s;
     if (own) {
       let a = acct(d.e);
       if (!a) { a = { id: d.e, email: d.e, color: G.COLORS[state.accounts.length % G.COLORS.length], calendars: [] }; state.accounts.push(a); }
+      linkUndo = { id: d.e, was: a.refreshToken ? { refreshToken: a.refreshToken, needsReconnect: !!a.needsReconnect } : null };
       Object.assign(a, { refreshToken: d.r, accessToken: null, expiresAt: 0, needsReconnect: false, t: a.t || Date.now() });
       homeFromLink = d.e;
     }
@@ -2360,6 +2372,17 @@ function importSetup(text) {
 async function adoptHome(id) {
   setStatus('Bringing in your accounts…');
   try {
+    // The sign-in in the link must really belong to the account the link names. If it does not, it is
+    // thrown away (and an account that was already here gets its own sign-in back) before anything is saved there.
+    const main = await G.api(acct(id), '/calendars/primary');
+    if (String(main?.id || '').toLowerCase() !== id.toLowerCase()) {
+      const a = acct(id);
+      if (linkUndo?.id === id && linkUndo.was) Object.assign(a, linkUndo.was, { accessToken: null, expiresAt: 0 });
+      else state.accounts.splice(state.accounts.indexOf(a), 1);
+      linkUndo = null; save(); render();
+      return toast('That setup link does not belong to the account it names, so it was not used.', true);
+    }
+    linkUndo = null;
     await setPlanner(acct(id));
     state.settings.shareAccounts = true;
     state.sharedSeen = false;
