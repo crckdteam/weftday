@@ -134,11 +134,19 @@ def run(p):
     check('typing a task adds it', after == before + 1, f'{before} -> {after}')
 
     # ---- a meeting opens
-    ev = page.locator('#gridBody [data-key]').first
+    ev = page.locator('#gridBody [data-key]', has_text='Client call').first
     if ev.count():
         ev.click()
-        page.wait_for_timeout(600)
+        page.wait_for_timeout(900)
         check('a meeting opens', dialog_open(page))
+        check('a meeting shows its people, the notes and little else', page.locator('#dlg .pchip').count() >= 2 and page.locator('#dlg textarea[name=note]').is_visible()
+              and not page.locator('#dlg .whos').first.is_visible() and page.locator('#dlg .rfold').count() >= 2)
+        page.screenshot(path=os.path.join(OUT, 'meeting.png'))
+        page.locator('#dlg .rfold summary', has_text='People').click()
+        check('the people in full are one press away', page.locator('#dlg .whos .who').first.is_visible())
+        page.locator('#dlg .pchip').first.click()
+        page.wait_for_timeout(600)
+        check('a person’s chip opens their page', dialog_open(page) and page.locator('#dlg textarea[name=note]').count() == 0)
         close_dialog(page)
 
     # ---- the recorder
@@ -426,6 +434,14 @@ def run(p):
     pp = open_app(phone, 'phone')
     check('no sideways scrolling on a phone', pp.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'))
     pp.screenshot(path=os.path.join(OUT, 'phone.png'))
+    pp.evaluate("document.querySelector('#viewSeg [data-view=list]')?.click()")  # the list shows the whole week's meetings
+    pp.wait_for_timeout(500)
+    opened = pp.evaluate("(() => { const m = [...document.querySelectorAll('[data-key]')].find(x => x.textContent.includes('Client call')) || document.querySelector('[data-key]'); m?.click(); return !!m; })()")
+    pp.wait_for_timeout(800)
+    check('the meeting box fits a phone', opened and dialog_open(pp) and pp.evaluate('document.documentElement.scrollWidth <= innerWidth + 1')
+          and pp.evaluate("document.querySelector('#dlg').getBoundingClientRect().width <= innerWidth"))
+    pp.screenshot(path=os.path.join(OUT, 'phone-meeting.png'))
+    close_dialog(pp)
     pp.evaluate("document.querySelector('[data-act=record]').click()")
     pp.wait_for_timeout(600)
     check('the Record box fits a phone', dialog_open(pp) and pp.evaluate('document.documentElement.scrollWidth <= innerWidth + 1')

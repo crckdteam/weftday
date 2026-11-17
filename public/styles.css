@@ -936,3 +936,12 @@ h3 img.logo { width: 22px; height: 22px; vertical-align: -4px; margin-right: 9px
 .rfold { border-top: 1px solid var(--line2); padding-top: 9px; }
 .rfold > summary { color: var(--text); font-weight: 600; font-size: 13.5px; }
 .rfold > :not(summary) { margin-top: 9px; }
+.pchips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: -2px; }
+.pchip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 11px 3px 3px; border: 1px solid var(--line); border-radius: 99px; background: var(--panel); color: var(--text); font-size: 13px; font-weight: 550; max-width: 100%; transition: border-color .15s; }
+.pchip:hover { border-color: var(--muted); }
+.pchip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pchip .avatar.sm { width: 22px; height: 22px; font-size: 9.5px; margin: 0; }
+.pmore { color: var(--muted); font-size: 12.5px; }
+.evbox textarea[name="note"] { min-height: 150px; }
+.rfold > summary i { font-style: normal; font-weight: 400; color: var(--muted); margin-left: 8px; font-size: 12.5px; }
+.rfold .last { margin-top: 9px; }

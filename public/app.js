@@ -1613,45 +1613,54 @@ function openEvent(ev, writeNotes) { // writeNotes: put the cursor in the notes 
       ${aboutLine(p.email) ? `<div class="abt">${esc(aboutLine(p.email))}</div>` : ''}
       <div class="wm">${lookup ? '<span class="met">Checking your past meetings…</span>' : ''}<span class="look">${lookupLinks(p, ev.title)}</span></div>
       ${lookupLinks(p, ev.title) ? `<div><button type="button" class="mini" data-x="facts" data-email="${esc(p.email)}">${hasFacts(p.email) ? 'See profile' : 'Get facts'}</button></div>` : ''}</div></div>`;
-  dialog(`<div class="dbody">
+  // The box is laid out the way the meeting is used: who and when, the few things to press, and the
+  // notes. Everything else (the people in full, last time, the invitation's details) is folded away.
+  const where = ev.location && !/^https?:\/\//i.test(ev.location) && ev.location.length <= 60 ? ev.location : '';
+  const chips = others.slice(0, 6), needsReply = ev.selfStatus === 'needsAction';
+  const short = (text, max) => (text.length > max ? `${text.slice(0, max).replace(/\s+\S*$/, '')}…` : text);
+  const replyButtons = `<span>
+      <button class="btn" data-x="rsvp" data-s="accepted">Yes</button>
+      <button class="btn" data-x="rsvp" data-s="tentative">Maybe</button>
+      <button class="btn" data-x="rsvp" data-s="declined">No</button></span>`;
+  dialog(`<div class="dbody evbox">
     <h3>${esc(ev.title)}</h3>
-    <div class="meta">${esc(eventWhen(ev))}</div>
-    <div class="meta"><span class="dot" style="background:${hue(a?.color)}"></span>${esc(a?.email || '')}${c && !c.primary ? ' · ' + esc(c.summary) : ''}</div>
-    ${ev.location ? `<div class="meta">${esc(ev.location)}</div>` : ''}
-    ${ev.meet || extras.length || others.length || R.supported() ? `<div class="btnrow">
+    <div class="meta">${esc([eventWhen(ev), where].filter(Boolean).join(' · '))}</div>
+    ${others.length ? `<div class="pchips">${chips.map(p => `<button type="button" class="pchip" data-x="person" data-email="${esc(p.email)}" title="Everything about this person">${face(p)}<span>${esc(p.name)}</span></button>`).join('')}${others.length > chips.length ? `<span class="pmore">+${others.length - chips.length} more</span>` : ''}</div>` : ''}
+    ${ev.meet || others.length || R.supported() ? `<div class="btnrow">
       ${ev.meet ? `<a class="btn primary" href="${esc(ev.meet)}" target="_blank" rel="noopener">Join video call</a>` : ''}
-      ${others.length ? '<button type="button" class="btn" data-x="brief">Brief me</button>' : ''}
       ${R.supported() && !ev.allDay ? '<button type="button" class="btn" data-x="record">Record</button>' : ''}
-      <button type="button" class="btn" data-x="recs" id="recsBtn" hidden></button>
-      ${extras.map(x => `<a class="btn" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.label)}</a>`).join('')}</div>` : ''}
-    ${others.length ? `<h4>Who’s there</h4><div class="whos">${shown.map(p => who(p, true)).join('')}
-      ${rest.length ? `<details><summary>${rest.length} more</summary><div class="whos">${rest.map(p => who(p, false)).join('')}</div></details>` : ''}</div>` : ''}
-    ${last ? `<h4>Last time${lastDay ? ` · ${esc(lastDay)}` : ''}</h4>
-    <div class="last"><div class="lt2">${esc(last.title || 'Meeting')}</div>
-      <div class="desc">${esc(lastGist)}</div>
-      ${lastActions.length ? `<div class="todo">${lastActions.map(x => `<div class="${x.done ? 'done' : ''}">${x.done ? '✓' : '•'} ${esc(x.text)}</div>`).join('')}</div>` : ''}
-      <div><button type="button" class="mini" data-x="uselast">Add to my notes</button></div></div>` : ''}
+      ${others.length ? '<button type="button" class="btn" data-x="brief">Brief me</button>' : ''}
+      <button type="button" class="btn" data-x="recs" id="recsBtn" hidden></button></div>` : ''}
+    ${needsReply ? `<div class="rowline"><span class="note">Are you going?</span>${replyButtons}</div>` : ''}
     <label><span>Your notes <i>· only you can see these</i></span>
-      <textarea name="note" rows="4" maxlength="${N.MAX_LENGTH}" placeholder="What do you want to cover? What was decided?">${esc(note?.text || '')}</textarea></label>
+      <textarea name="note" rows="7" maxlength="${N.MAX_LENGTH}" placeholder="What do you want to cover? What was decided?">${esc(note?.text || '')}</textarea></label>
     <div class="airow">
       ${AI.supported() ? '<button type="button" class="mini" data-x="tidy">Tidy my notes</button>' : ''}
       <button type="button" class="mini" data-x="mktasks" hidden>Make tasks</button>
       <button type="button" class="mini" data-x="untidy" hidden>Undo tidy</button>
       <button type="button" class="mini" data-x="followup" hidden>Follow-up email</button>
-      ${AI.supported() ? '' : '<span class="note">Tidying notes with AI works in Chrome on your computer.</span>'}
       <span class="sp"></span><span class="saved" id="noteState"></span></div>
-    ${earlier.length ? `<details><summary>All earlier notes with ${others.length === 1 ? esc(others[0].name) : 'these people'} (${earlier.length})</summary>
+    ${last ? `<details class="rfold"${ev.e > Date.now() ? ' open' : ''}><summary>Last time${lastDay ? ` · ${esc(lastDay)}` : ''}<i>${esc(short(lastGist, 64))}</i></summary>
+    <div class="last"><div class="lt2">${esc(last.title || 'Meeting')}</div>
+      <div class="desc">${esc(lastGist)}</div>
+      ${lastActions.length ? `<div class="todo">${lastActions.map(x => `<div class="${x.done ? 'done' : ''}">${x.done ? '✓' : '•'} ${esc(x.text)}</div>`).join('')}</div>` : ''}
+      <div><button type="button" class="mini" data-x="uselast">Add to my notes</button></div></div></details>` : ''}
+    ${others.length ? `<details class="rfold"><summary>People<i>${others.length} · look them up, see what you know</i></summary>
+      <div class="whos">${shown.map(p => who(p, true)).join('')}${rest.map(p => who(p, false)).join('')}</div></details>` : ''}
+    <details class="rfold"><summary>Details<i>${esc(short([a?.email, ev.description ? 'invitation text' : '', extras.length ? 'links' : ''].filter(Boolean).join(' · '), 64))}</i></summary>
+      <div class="meta"><span class="dot" style="background:${hue(a?.color)}"></span>${esc(a?.email || '')}${c && !c.primary ? ' · ' + esc(c.summary) : ''}</div>
+      ${ev.location && !where ? `<div class="meta">${esc(ev.location)}</div>` : ''}
+      ${extras.length ? `<div class="btnrow">${extras.map(x => `<a class="btn" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.label)}</a>`).join('')}</div>` : ''}
+      ${ev.description ? `<div class="desc">${esc(ev.description)}</div>` : ''}
+      ${earlier.length ? `<details><summary>All earlier notes with ${others.length === 1 ? esc(others[0].name) : 'these people'} (${earlier.length})</summary>
       <div class="past">${earlier.map(n => `<div><b>${esc(n.title || 'Meeting')}</b>${n.when ? ` <i>· ${esc(dayLabel(new Date(n.when)))}</i>` : ''}<div class="desc">${esc(n.text)}</div></div>`).join('')}</div></details>` : ''}
-    ${ev.description ? `<div class="desc">${esc(ev.description)}</div>` : ''}
-    ${ev.selfStatus ? `<div class="rowline"><span class="note">Are you going? <b>${STATUS_LABEL[ev.selfStatus] || ''}</b></span><span>
-      <button class="btn" data-x="rsvp" data-s="accepted">Yes</button>
-      <button class="btn" data-x="rsvp" data-s="tentative">Maybe</button>
-      <button class="btn" data-x="rsvp" data-s="declined">No</button></span></div>` : ''}
+      ${ev.selfStatus && !needsReply ? `<div class="rowline"><span class="note">Are you going? <b>${STATUS_LABEL[ev.selfStatus] || ''}</b></span>${replyButtons}</div>` : ''}
+      ${ev.htmlLink ? `<div><a class="linkbtn" href="${esc(ev.htmlLink)}" target="_blank" rel="noopener">Open in Google Calendar</a></div>` : ''}
+    </details>
     <div class="actions">
       ${ev.calWritable ? '<button class="btn danger" data-x="del">Delete</button>' : ''}
       ${ev.canEdit && !ev.allDay ? '<button class="btn" data-x="edit">Edit</button>' : ''}
       <span class="sp"></span>
-      ${ev.htmlLink ? `<a class="btn ghost" href="${esc(ev.htmlLink)}" target="_blank" rel="noopener">Open in Google</a>` : ''}
       <button class="btn${ev.meet ? '' : ' primary'}" data-x="close">Close</button>
     </div></div>`, {
     edit: () => openEventForm(ev),
@@ -1811,7 +1820,7 @@ function openEvent(ev, writeNotes) { // writeNotes: put the cursor in the notes 
       if (!row) return;
       row.querySelector('.met').textContent = metLine(list, key);
       const better = person(guests.find(g => (g.email || '').toLowerCase() === p.email)); // a fuller name may have turned up
-      if (better.name !== p.name) { row.querySelector('.nm').textContent = `${better.name} ›`; row.querySelector('.look').innerHTML = lookupLinks(better, ev.title); }
+      if (better.name !== p.name) { const chip = el.dlg.querySelector(`.pchip[data-email="${CSS.escape(p.email)}"] span`); if (chip) chip.textContent = better.name; row.querySelector('.nm').textContent = `${better.name} ›`; row.querySelector('.look').innerHTML = lookupLinks(better, ev.title); }
       saveNames();
     }).catch(() => {});
   }
