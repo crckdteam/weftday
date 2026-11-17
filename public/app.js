@@ -1161,6 +1161,7 @@ function openHelp() {
     <h4>Things you can type in “Add a task”</h4>
     <div class="keys ex">${ex.map(x => `<div><kbd>${esc(x)}</kbd></div>`).join('')}</div>
     <p class="note">On the calendar: click an empty time to add a task, drag across empty space to draw one, drag a task to move it, and drag its bottom edge to make it longer.</p>
+    <p class="note">New here? The <a href="guide.html" target="_blank" rel="noopener" style="color:var(--accent)">guide</a> shows the whole app in ten short steps.</p>
     <div class="actions"><span class="sp"></span><button class="btn primary" data-x="close">Close</button></div></div>`);
 }
 
@@ -2687,8 +2688,9 @@ function openSettings(msg, pane) {
         ${section('data', 'Your data', 'Weftday has no server. Everything lives in this browser and in your own Google accounts.', `
           <div class="sgroup">
             ${row(`${state.tasks.length} task${state.tasks.length === 1 ? '' : 's'} on this device`, 'Save a copy as a file', '<button type="button" class="btn" data-x="backup">Download backup</button>')}
+            ${row('Guide', 'The whole app in ten short steps', '<a class="btn" href="guide.html" target="_blank" rel="noopener">Open</a>')}
             ${row('Privacy', 'What is kept, and where', '<a class="btn" href="privacy.html" target="_blank" rel="noopener">Read</a>')}
-            ${row('About Weftday', '', '<a class="btn" href="about.html" target="_blank" rel="noopener">Open</a>')}
+            ${row('About Weftday', 'What it is, in one screen', '<a class="btn" href="home.html" target="_blank" rel="noopener">Open</a>')}
           </div>`)}
 
         ${section('advanced', 'Advanced', 'Weftday talks to Google with keys of your own. If this device was set up from another one, they are already filled in.', `
@@ -3583,6 +3585,13 @@ function seedDemo() {
 
 // ---------------------------------------------------------------- start
 async function boot() {
+  // Someone opening Weftday for the very first time sees what it is before an empty planner.
+  if (!DEMO && !location.search && !location.hash && !localStorage.getItem('weftday.seenHome')
+    && !state.accounts.length && !state.tasks.length && !state.settings.clientId) {
+    localStorage.setItem('weftday.seenHome', '1');
+    location.replace('home.html');
+    return;
+  }
   applyTheme();
   applySide();
   bind();

@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Weftday guide: the whole app in ten short steps</title>
+<meta name="description" content="A short walkthrough of Weftday: connect your calendars, add tasks in one line, plan your day, prepare for meetings, keep notes, share your free times.">
+<meta name="theme-color" content="#121211" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f6f3" media="(prefers-color-scheme: light)">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="site.css">
+<style>
+  body { min-height: 100dvh; display: grid; grid-template-rows: auto 1fr auto; overflow-x: hidden; }
+  header, main, footer { width: min(1180px, 100%); margin: 0 auto; padding: 0 clamp(18px, 4vw, 44px); }
+  header { display: flex; align-items: center; gap: 6px; height: 72px; }
+  header .sp { flex: 1; }
+  main { display: grid; grid-template-columns: 216px minmax(0, 1fr) minmax(0, 1.05fr); gap: clamp(22px, 4vw, 56px); align-items: center; padding-top: 6px; padding-bottom: 6px; }
+
+  /* the list of steps */
+  nav { display: grid; gap: 2px; align-self: center; }
+  nav button { display: flex; align-items: center; gap: 11px; padding: 7px 9px; border: 0; border-radius: 9px; background: transparent; color: var(--muted);
+    font: inherit; font-size: 13.5px; font-weight: 550; text-align: left; cursor: pointer; transition: background .15s, color .15s; }
+  nav button i { width: 22px; height: 22px; border-radius: 50%; flex: none; display: grid; place-items: center; font-style: normal; font-size: 11px; font-weight: 700;
+    border: 1px solid var(--line); font-variant-numeric: tabular-nums; transition: background .2s, color .2s, border-color .2s; }
+  nav button:hover { color: var(--text); background: color-mix(in srgb, var(--muted) 9%, transparent); }
+  nav button.on { color: var(--text); background: var(--panel); box-shadow: 0 1px 2px rgba(0, 0, 0, .08); }
+  nav button.on i { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  nav button.done i { background: color-mix(in srgb, var(--c2) 16%, transparent); border-color: transparent; color: var(--c2); }
+
+  /* the step itself */
+  .step { display: grid; gap: 16px; align-content: center; min-width: 0; }
+  .count { font-size: 12.5px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); font-variant-numeric: tabular-nums; }
+  h1 { font-size: clamp(30px, 3.6vw, 46px); line-height: 1.05; letter-spacing: -.03em; font-weight: 720; margin: 0; text-wrap: balance; }
+  .say { font-size: clamp(15.5px, 1.25vw, 17.5px); line-height: 1.6; color: var(--muted); margin: 0; max-width: 31em; text-wrap: pretty; }
+  .say b { color: var(--text); font-weight: 600; }
+  .say kbd, .tip kbd { font: inherit; font-size: .86em; font-weight: 650; padding: 1px 6px; border-radius: 6px; border: 1px solid var(--line); border-bottom-width: 2px; background: var(--panel); color: var(--text); white-space: nowrap; }
+  .tip { display: flex; gap: 10px; align-items: flex-start; padding: 11px 13px; border-radius: 12px; font-size: 13.5px; line-height: 1.5; color: var(--muted);
+    border: 1px dashed var(--line); max-width: 34em; }
+  .tip svg { flex: none; color: var(--amber); margin-top: 2px; }
+  .move { display: flex; gap: 10px; align-items: center; margin-top: 6px; }
+  .move .keys { margin-left: 6px; font-size: 12.5px; color: var(--muted); }
+  .swap { animation: swap .45s var(--ease) both; }
+  @keyframes swap { from { opacity: 0; transform: translateY(10px); } }
+
+  /* the drawing for the step */
+  .art { position: relative; min-width: 0; display: grid; place-items: center; }
+  .art::before { content: ''; position: absolute; inset: -8% -6%; background: radial-gradient(closest-side, var(--glow), transparent 72%); pointer-events: none; }
+  .art .wf { position: relative; width: min(100%, 470px); padding: 16px; display: grid; gap: 11px; }
+  .art .row { display: flex; align-items: center; gap: 9px; min-width: 0; }
+  .art .sp { flex: 1; }
+  .art p { margin: 0; font-size: 12.5px; line-height: 1.45; }
+  .art .mut { color: var(--muted); }
+  .art b { font-size: 13px; }
+  .box { display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 8px 0 11px; border-radius: 11px; border: 1px solid var(--accent); background: var(--panel);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent); font-size: 13px; font-weight: 550; }
+  .box span { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .box i { width: 26px; height: 26px; border-radius: 8px; flex: none; display: grid; place-items: center; font-style: normal; color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+  .mini { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+  .mini.go { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  .grid5 { position: relative; height: 150px; display: grid; grid-template-columns: repeat(5, 1fr); border: 1px solid var(--line2); border-radius: 10px; overflow: hidden;
+    background: repeating-linear-gradient(to bottom, transparent 0 24px, var(--line2) 24px 25px); }
+  .grid5 > div { position: relative; border-left: 1px solid var(--line2); }
+  .grid5 > div:first-child { border-left: 0; }
+  .grid5 .slot { position: absolute; left: 3px; right: 3px; border-radius: 6px; border: 1.5px dashed var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  .tiles3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .tiles3 span { display: grid; justify-items: center; gap: 4px; padding: 9px 4px 7px; border-radius: 11px; border: 1px solid var(--line); font-size: 11px; font-weight: 600; }
+  .tiles3 span.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  .tiles3 svg { color: var(--accent); }
+  .lines { display: grid; grid-template-columns: 74px 1fr; gap: 6px 10px; align-items: start; }
+  .note { border: 1px solid var(--line); border-radius: 10px; padding: 10px 11px; background: var(--bg); display: grid; gap: 4px; }
+  .qr { width: 104px; height: 104px; border-radius: 12px; background:
+      conic-gradient(from 90deg at 2px 2px, transparent 90deg, var(--text) 0) 0 0 / 13px 13px,
+      linear-gradient(var(--panel), var(--panel)); border: 8px solid var(--panel); outline: 1px solid var(--line); opacity: .9; }
+  .phone { width: 92px; height: 150px; border-radius: 18px; border: 2px solid var(--line); padding: 12px 8px; display: grid; gap: 6px; align-content: start; background: var(--bg); }
+  .flow { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: center; text-align: center; }
+  .flow .node { border: 1px solid var(--line); border-radius: 14px; padding: 14px 8px; display: grid; gap: 6px; justify-items: center; font-size: 12.5px; font-weight: 650; }
+  .flow .wire { display: grid; gap: 4px; justify-items: center; font-size: 10.5px; color: var(--muted); }
+  .flow .wire i { width: 64px; height: 2px; border-radius: 2px; background: linear-gradient(90deg, var(--accent), var(--c2)); }
+  .no { text-align: center; font-size: 12px; color: var(--muted); text-decoration: line-through; text-decoration-color: var(--now); }
+
+  footer { display: flex; align-items: center; gap: 14px; min-height: 60px; padding-bottom: 12px; font-size: 12.5px; color: var(--muted); }
+  .track { flex: 1; height: 3px; border-radius: 99px; background: var(--line); overflow: hidden; }
+  .track i { display: block; height: 100%; width: 10%; border-radius: 99px; background: var(--accent); transition: width .45s var(--ease); }
+
+  @media (max-width: 980px) {
+    main { grid-template-columns: 1fr; gap: 20px; align-items: start; padding-top: 0; }
+    nav { grid-auto-flow: column; grid-auto-columns: max-content; overflow-x: auto; gap: 4px; padding-bottom: 4px; scrollbar-width: none; }
+    nav::-webkit-scrollbar { display: none; }
+    nav button span { display: none; }
+    nav button { padding: 4px; }
+    nav button.on { background: transparent; box-shadow: none; }
+    .art { order: 2; }
+    .step { order: 1; }
+    .art .wf { width: min(100%, 520px); }
+    .move .keys { display: none; }
+    header .hide-s { display: none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <a class="brand" href="home.html"><img src="icon.svg" alt="">Weftday</a>
+  <span class="sp"></span>
+  <a class="btn small quiet hide-s" href="home.html">Home</a>
+  <a class="btn small quiet hide-s" href="./?demo">Try a demo</a>
+  <a class="btn small" href="./">Open Weftday</a>
+</header>
+
+<main>
+  <nav id="rail" aria-label="Steps"></nav>
+
+  <section class="step" id="step" aria-live="polite">
+    <span class="count" id="count"></span>
+    <h1 id="title"></h1>
+    <p class="say" id="say"></p>
+    <div class="tip"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.900c.6.500 1 1.200 1 2.100h5c0-.900.4-1.600 1-2.100A6 6 0 0 0 12 3z"/></svg><span id="tip"></span></div>
+    <div class="move">
+      <button class="btn" id="back" type="button">Back</button>
+      <button class="btn primary" id="next" type="button">Next</button>
+      <span class="keys">or use <kbd>←</kbd> <kbd>→</kbd></span>
+    </div>
+  </section>
+
+  <section class="art" id="art" aria-hidden="true"></section>
+</main>
+
+<footer>
+  <span id="where"></span>
+  <span class="track"><i id="bar"></i></span>
+  <a href="./" style="text-decoration:none">Skip to the app</a>
+</footer>
+
+<script>
+const ico = d => `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+const SPARK = '<path d="M11 3.500l1.900 5.100L18 10.500l-5.100 1.900L11 17.500l-1.900-5.100L4 10.500l5.100-1.900z"/>';
+const STEPS = [
+  { name: 'Connect', title: 'Bring your calendars together',
+    say: 'Press <b>+ Connect Google account</b> once for each account you use. Work, personal, a side project: they all show in one view, each in its own colour.',
+    tip: 'The very first time, Weftday needs your own Google keys. Settings → Advanced walks you through it, or scan a setup link from a device that is already set up.',
+    art: `<div class="wf"><span class="lbl">Calendars</span>
+      <div class="row"><i class="dotc"></i><b>work@company.com</b><span class="sp"></span><span class="chip ok">Connected</span></div>
+      <div class="row"><i class="dotc" style="background:var(--c2)"></i><b>me@gmail.com</b><span class="sp"></span><span class="chip ok">Connected</span></div>
+      <div class="row"><i class="dotc" style="background:var(--c3)"></i><b>side@project.io</b><span class="sp"></span><span class="chip ok">Connected</span></div>
+      <span class="mini go" style="justify-content:center;height:34px">+ Connect Google account</span></div>` },
+  { name: 'Your week', title: 'See everything in one place',
+    say: 'Switch between <b>Day, Week, Month and List</b>. Tick a calendar off in the side panel to hide it. Drag the edge of the side panel to make it wider.',
+    tip: 'Shortcuts: <kbd>T</kbd> today, <kbd>D</kbd> <kbd>W</kbd> <kbd>M</kbd> <kbd>L</kbd> for the views, <kbd>/</kbd> to search tasks, meetings, people and companies.',
+    art: `<div class="wf"><div class="row"><span class="bar ink" style="width:96px"></span><span class="sp"></span><span class="mini">Day</span><span class="mini go">Week</span><span class="mini">Month</span></div>
+      <div class="grid5"><div><span class="ev" style="--c:var(--c1);top:14px;height:30px">Stand-up</span><span class="ev" style="--c:var(--c3);top:96px;height:34px">Dentist</span></div>
+        <div><span class="ev" style="--c:var(--c4);top:38px;height:46px">Pricing call</span><span class="ev" style="--c:var(--c2);top:104px;height:34px">Dinner</span></div>
+        <div><span class="ev" style="--c:var(--c2);top:20px;height:28px">School run</span><span class="ev" style="--c:var(--c1);top:62px;height:52px">Design review</span></div>
+        <div><span class="ev" style="--c:var(--c1);top:14px;height:30px">Stand-up</span><span class="ev" style="--c:var(--c3);top:78px;height:44px">Flight</span></div>
+        <div><span class="ev" style="--c:var(--c4);top:44px;height:40px">Intro</span></div></div></div>` },
+  { name: 'Add a task', title: 'Add a task in one line',
+    say: 'Type it the way you would say it: <b>gym tomorrow 7am 1h</b>. Weftday reads the day, the time, the length and repeats like <b>except Sundays</b>. For a whole sentence with several things in it, press <b>✦</b> and AI splits it into tasks.',
+    tip: 'You always see what was understood before it is added, and every add has an Undo.',
+    art: `<div class="wf"><div class="box"><span>gym 7:30pm except sundays</span><i>✦</i></div>
+      <div class="row" style="flex-wrap:wrap;gap:5px"><span class="chip">Tomorrow</span><span class="chip">7:30pm</span><span class="chip">every day except Sun</span></div>
+      <span class="lbl" style="margin-top:4px">Or say several at once</span>
+      <div class="note"><p class="mut">“call the bank tomorrow morning, then send the proposal on Friday”</p></div>
+      <div class="tpill">Call the bank <span class="sp"></span><span class="mut" style="font-weight:500">Tomorrow · 9am</span></div>
+      <div class="tpill">Send the proposal <span class="sp"></span><span class="mut" style="font-weight:500">Fri · 3pm</span></div></div>` },
+  { name: 'Plan', title: 'Give every task a time',
+    say: 'A task with no day waits in your <b>Inbox</b>. Drag it onto the calendar, press <b>→ Today</b>, or open <b>Plan my day</b> and let Weftday fit your tasks around your meetings.',
+    tip: 'On the calendar: click an empty time to add a task there, drag a task to move it, and drag its bottom edge to make it longer.',
+    art: `<div class="wf"><div class="row" style="align-items:stretch;gap:12px"><div style="flex:0 0 42%;display:grid;gap:7px;align-content:start"><span class="lbl">Inbox</span>
+        <div class="tpill">Send pricing</div><div class="tpill">Book flights</div><div class="tpill" style="opacity:.45">Read contract</div></div>
+      <div class="grid5" style="flex:1;grid-template-columns:repeat(2,1fr);height:164px"><div><span class="ev" style="--c:var(--c1);top:12px;height:34px">Stand-up</span><span class="slot" style="top:58px;height:38px"></span><span class="ev" style="--c:var(--c4);top:108px;height:40px">Call</span></div>
+        <div><span class="ev t" style="top:30px;height:34px">Read contract</span><span class="ev" style="--c:var(--c2);top:92px;height:44px">Lunch</span></div></div></div></div>` },
+  { name: 'Prepare', title: 'Walk into every meeting prepared',
+    say: '<b>Prepare</b> lays out today’s meetings: who is coming, what you talked about last time, what is still open, and one thing worth asking. <b>Brief me</b> does the same for a single meeting.',
+    tip: 'Ten minutes before a meeting, the reminder carries a Brief me button, so the brief is one press away.',
+    art: `<div class="wf"><div class="row"><span class="mut" style="font-size:12px">7:00 – 7:45pm</span><span class="chip">in 25 min</span><span class="sp"></span><span class="mini go">Join</span></div>
+      <b style="font-size:15px">Acme · pricing call</b>
+      <div class="row"><span class="ava">JD</span><div><b>Jane Doe</b><p class="mut">VP Operations · Acme</p></div></div>
+      <div class="lines"><span class="lbl">Last time</span><p>Liked the demo. Wants pricing for 50 seats.</p>
+        <span class="lbl">Still open</span><p>Send pricing <span class="mut">· 9 days ago</span></p>
+        <span class="lbl">Worth asking</span><p>How the March pilot fits their peak season.</p></div>
+      <div class="row"><span class="mini">Brief me</span></div></div>` },
+  { name: 'People', title: 'Know who you are meeting',
+    say: '<b>Get facts</b> looks a guest up on the web and fills in their profile: role, background, their company, its funding and team, and a photo. <b>People</b> lists everyone you meet, and every company gets its own page.',
+    tip: 'This uses a key of your own. Google AI with a Tavily search key is free and takes about three minutes to set up in Settings → AI.',
+    art: `<div class="wf"><div class="row"><span class="ava" style="width:44px;height:44px;font-size:15px">JD</span><div><b style="font-size:15px">Jane Doe</b><p>VP Operations at Acme</p><p class="mut">Berlin</p></div></div>
+      <div class="note"><span class="lbl">Background</span><p>Fifteen years in logistics. Led the Hamburg hub.</p>
+        <span class="lbl" style="margin-top:5px">Acme</span><p>Delivery robots for warehouses. About 120 people. Series B, $40M.</p>
+        <div class="row" style="gap:5px;margin-top:4px"><span class="chip plain">DHL</span><span class="chip plain">Zalando</span><span class="chip plain">robotics</span></div></div>
+      <div class="row"><span class="mini">LinkedIn</span><span class="mini">Acme</span><span class="mini">Ask AI</span></div></div>` },
+  { name: 'Notes', title: 'Notes that turn into action',
+    say: 'Write private notes on any meeting; guests never see them. <b>Tidy my notes</b> turns them into a summary, decisions and action points, on your own device. Then <b>Make tasks</b>, or open a <b>Follow-up email</b> draft in Gmail.',
+    tip: 'After a meeting with outside guests, Weftday asks once how it went, so the notes actually get written.',
+    art: `<div class="wf"><span class="lbl">Your notes · only you can see these</span>
+      <div class="note"><b>Summary</b><p class="mut">Jane accepted the price. Legal still has to check the contract.</p>
+        <b style="margin-top:5px">Action points</b><p>– Get legal to check the contract by Friday</p><p>– Book the demo</p></div>
+      <div class="row" style="flex-wrap:wrap;gap:6px"><span class="mini">Tidy my notes</span><span class="mini go">Make 2 tasks</span><span class="mini">Follow-up email</span></div></div>` },
+  { name: 'Free times', title: 'Share when you are free',
+    say: '<b>Free times</b> writes out your open slots across every calendar, ready to paste into an email, in any time zone you pick. The <b>globe</b> in the top bar shows a second time zone next to your own on the calendar.',
+    tip: 'When you write for another zone, Weftday keeps only their daytime, so you never offer someone 4am.',
+    art: `<div class="wf"><div class="row"><span class="mut" style="font-size:12.5px">Written in</span><span class="sp"></span><span class="mini">Central Europe (CET)</span></div>
+      <div class="note"><p>Here are some times that work for me (CET):</p><p>• Wed 18 Nov: 8am – 10:30am, 11:30am – 1:30pm</p><p>• Thu 19 Nov: 8am – 1:30pm</p><p>• Fri 20 Nov: 8am – 1:30pm</p></div>
+      <div class="row"><span class="sp"></span><span class="mini go">Copy</span></div></div>` },
+  { name: 'Devices', title: 'Take it everywhere',
+    say: 'Open <b>Set up a device</b> and scan the square with your phone. Your accounts and keys follow you, locked inside your own Google account. Add Weftday to your home screen and it opens like an app.',
+    tip: 'Tasks are kept in a calendar called “Weftday” in your Google account, so your phone’s own calendar can remind you even when Weftday is closed.',
+    art: `<div class="wf"><div class="row" style="justify-content:center;gap:26px"><div class="qr"></div>
+      <div class="phone"><span class="bar ink w60"></span><span class="tpill" style="font-size:9.5px;padding:4px 6px">Gym</span><span class="ev" style="--c:var(--c1);position:static;display:block;height:26px">Stand-up</span><span class="ev" style="--c:var(--c4);position:static;display:block;height:34px">Call</span></div></div>
+      <p class="mut" style="text-align:center">Scan once. No Google login on the new device.</p></div>` },
+  { name: 'Private', title: 'Yours alone',
+    say: 'There is <b>no Weftday server</b>. Your browser talks to Google directly, the AI features use keys that belong to you, and you can host the whole app yourself. <b>Settings</b> holds every choice in six short sections.',
+    tip: 'That is the whole tour. Open Weftday and try it, or use the demo to play with sample data first.',
+    art: `<div class="wf"><div class="flow"><div class="node">${ico('<rect x="3.500" y="5" width="17" height="12" rx="2.500"/><path d="M8 20.500h8"/>')}Your browser</div>
+        <div class="wire"><i></i>direct</div><div class="node">${ico('<rect x="3.500" y="5" width="17" height="15" rx="3"/><path d="M3.500 10h17M8 3v4M16 3v4"/>')}Your Google account</div></div>
+      <p class="no">a server in the middle</p>
+      <div class="row" style="justify-content:center;flex-wrap:wrap;gap:6px"><span class="chip ok">Your own keys</span><span class="chip ok">Self-hostable</span><span class="chip ok">No tracking</span></div></div>` },
+];
+
+const $ = id => document.getElementById(id);
+let at = Math.min(Math.max((parseInt(location.hash.slice(1), 10) || 1) - 1, 0), STEPS.length - 1);
+$('rail').innerHTML = STEPS.map((s, i) => `<button type="button" data-i="${i}"><i>${i + 1}</i><span>${s.name}</span></button>`).join('');
+function show(i, quiet) {
+  at = Math.min(Math.max(i, 0), STEPS.length - 1);
+  const s = STEPS[at], last = at === STEPS.length - 1;
+  $('count').textContent = `Step ${at + 1} of ${STEPS.length}`;
+  $('title').textContent = s.title;
+  $('say').innerHTML = s.say;
+  $('tip').innerHTML = s.tip;
+  $('art').innerHTML = s.art;
+  $('back').disabled = at === 0;
+  $('back').style.visibility = at === 0 ? 'hidden' : '';
+  $('next').textContent = last ? 'Open Weftday' : 'Next';
+  $('bar').style.width = `${(at + 1) / STEPS.length * 100}%`;
+  $('where').textContent = s.name;
+  for (const b of $('rail').children) { const n = +b.dataset.i; b.className = n === at ? 'on' : n < at ? 'done' : ''; if (n === at) b.scrollIntoView({ block: 'nearest', inline: 'center' }); }
+  if (!quiet) { history.replaceState(null, '', `#${at + 1}`); for (const el of [$('step'), $('art')]) { el.classList.remove('swap'); void el.offsetWidth; el.classList.add('swap'); } }
+}
+$('rail').onclick = e => { const b = e.target.closest('button'); if (b) show(+b.dataset.i); };
+$('back').onclick = () => show(at - 1);
+$('next').onclick = () => (at === STEPS.length - 1 ? location.assign('./') : show(at + 1));
+addEventListener('keydown', e => { if (e.key === 'ArrowRight') show(at + 1); else if (e.key === 'ArrowLeft') show(at - 1); });
+show(at, true);
+</script>
+</body>
+</html>

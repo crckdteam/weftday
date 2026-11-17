@@ -1,0 +1,59 @@
+/* Shared by the home page and the guide: colours, type, buttons and the small drawings of the app. */
+:root {
+  --bg: #f6f6f3; --panel: #ffffff; --line: #e5e4df; --line2: #efeeea; --text: #1c1c1a; --muted: #75736d;
+  --accent: #2f6fed; --accent-text: #ffffff; --task: #fdf8ea; --task-line: #e2d4a6; --amber: #f0b429; --now: #e5484d;
+  --c1: #2f6fed; --c2: #1a9a6c; --c3: #e8833a; --c4: #8e5bd9;
+  --glow: rgba(47, 111, 237, .16); --shadow: 0 30px 80px rgba(20, 30, 60, .16), 0 2px 6px rgba(20, 30, 60, .06);
+  --ease: cubic-bezier(.2, .8, .2, 1);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121211; --panel: #1c1c1a; --line: #32322e; --line2: #262623; --text: #efefec; --muted: #9b9993;
+    --accent: #6b9bff; --accent-text: #0d1220; --task: #2b281f; --task-line: #62583a;
+    --glow: rgba(107, 155, 255, .2); --shadow: 0 30px 90px rgba(0, 0, 0, .55), 0 2px 6px rgba(0, 0, 0, .4);
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif; color: var(--text); background: var(--bg);
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+}
+a { color: inherit; }
+.brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 650; font-size: 17px; letter-spacing: -.01em; text-decoration: none; }
+.brand img { width: 26px; height: 26px; border-radius: 7px; }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 20px; border-radius: 12px;
+  font: inherit; font-weight: 600; font-size: 15px; text-decoration: none; cursor: pointer; white-space: nowrap;
+  border: 1px solid var(--line); background: var(--panel); color: var(--text);
+  transition: transform .15s var(--ease), box-shadow .15s, border-color .15s, background .15s;
+}
+.btn:hover { border-color: var(--muted); transform: translateY(-1px); }
+.btn:active { transform: scale(.97); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); box-shadow: 0 6px 20px var(--glow); }
+.btn.primary:hover { box-shadow: 0 10px 28px var(--glow); }
+.btn.small { height: 36px; padding: 0 14px; font-size: 14px; border-radius: 10px; }
+.btn.quiet { border-color: transparent; background: transparent; color: var(--muted); }
+.btn.quiet:hover { color: var(--text); transform: none; }
+:is(a, button):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 10px; }
+
+/* ---- drawings of the app (wireframes) */
+.wf { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; }
+.bar { display: block; height: 7px; border-radius: 99px; background: var(--line); }
+.bar.dim { background: var(--line2); }
+.bar.ink { background: color-mix(in srgb, var(--text) 62%, transparent); }
+.w20 { width: 20%; } .w30 { width: 30%; } .w40 { width: 40%; } .w50 { width: 50%; } .w60 { width: 60%; } .w70 { width: 70%; } .w80 { width: 80%; } .w90 { width: 90%; }
+.dotc { width: 9px; height: 9px; border-radius: 3px; flex: none; background: var(--c1); }
+.ava { width: 30px; height: 30px; border-radius: 50%; flex: none; display: grid; place-items: center; color: #fff; font-size: 11px; font-weight: 700; background: var(--c4); }
+.chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 99px; font-size: 11.5px; font-weight: 600; white-space: nowrap;
+  background: color-mix(in srgb, var(--accent) 13%, transparent); color: var(--accent); }
+.chip.plain { background: color-mix(in srgb, var(--muted) 15%, transparent); color: var(--muted); }
+.chip.ok { background: color-mix(in srgb, var(--c2) 15%, transparent); color: var(--c2); }
+.tpill { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-radius: 9px; background: var(--task); border: 1px solid var(--task-line); font-size: 12px; font-weight: 600; }
+.tpill::before { content: ''; width: 11px; height: 11px; border-radius: 50%; border: 1.6px solid color-mix(in srgb, var(--text) 55%, transparent); flex: none; }
+.ev { position: absolute; left: 3px; right: 3px; border-radius: 6px; padding: 4px 6px; font-size: 10.5px; font-weight: 600; line-height: 1.25; overflow: hidden;
+  background: color-mix(in srgb, var(--c) 17%, var(--panel)); border-left: 3px solid var(--c); color: color-mix(in srgb, var(--c) 70%, var(--text)); }
+.ev.t { background: var(--task); border: 1px solid var(--task-line); border-left-width: 1px; color: var(--text); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+.lbl { font-size: 10px; letter-spacing: .07em; text-transform: uppercase; font-weight: 650; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }

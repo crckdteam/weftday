@@ -42,3 +42,7 @@ The website is the `public` folder, published from the `gh-pages` branch:
 ```bash
 sh tools/publish.sh
 ```
+
+## Home page and guide
+
+`public/home.html` is a one-screen introduction (first-time visitors are sent there once), and `public/guide.html` walks through the whole app in ten short steps. Both are plain static pages that share `public/site.css`.
