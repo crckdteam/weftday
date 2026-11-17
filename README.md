@@ -35,6 +35,10 @@ node serve.mjs
 
 Then open http://localhost:4321. Add `?demo` to the address to try it with sample data.
 
+## Notes
+
+The **Notes** view lists every note: what you wrote on a meeting, notes of your own, and notes written from a recording. Notes are typed in a small block editor (`public/editor.js`: `- ` bullet, `[] ` tick-box, `# ` heading) but are kept as plain text, one line per block, so they sync through the hidden entries in your “Weftday” calendar exactly as before.
+
 ## The recorder
 
 **Record** (in the side panel, and on every meeting) keeps a meeting's sound, your screen, or your camera, with your face in a corner of the screen if you like. It also takes single screenshots. Everything is stored in the browser (IndexedDB) and never uploaded. **Make notes** sends only the sound of one recording, in short pieces, to Google's AI with your own key and writes the summary into the meeting's notes.

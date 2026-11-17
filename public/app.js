@@ -7,6 +7,7 @@ import * as F from './facts.js';
 import * as S from './services.js';
 import * as R from './recorder.js';
 import * as D from './drive.js';
+import * as E from './editor.js';
 
 // Weftday never runs inside another site's page, where a press could be tricked out of someone.
 if (self !== top) { document.documentElement.innerHTML = ''; throw new Error('Weftday does not run inside another page.'); }
@@ -18,13 +19,13 @@ import {
 
 const HOUR = 52, PXM = HOUR / 60, SNAP = 15;
 const INBOX_DATE = '2000-01-01'; // inbox tasks are parked on this day in the "Weftday" calendar
-const VIEWS = ['day', 'week', 'month', 'list'];
+const VIEWS = ['day', 'week', 'month', 'list'];        // the calendar's views; 'notes' is a view too, but is never the one the app opens on
 const TZ = (zone => (zone === 'Asia/Calcutta' ? 'Asia/Kolkata' : zone))(Intl.DateTimeFormat().resolvedOptions().timeZone); // the old name for India's zone is still common
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const el = {
   side: $('#sideBody'), head: $('#gridHead'), body: $('#gridBody'), grid: $('#grid'),
-  month: $('#month'), list: $('#list'), hint: $('#quickHint'),
+  month: $('#month'), list: $('#list'), notes: $('#notes'), hint: $('#quickHint'),
   title: $('#title'), status: $('#status'), dlg: $('#dlg'), toast: $('#toast'),
 };
 
@@ -389,7 +390,9 @@ function render() {
 
 function renderBar() {
   const dates = visibleDates();
-  if (view === 'day') el.title.textContent = dayLabel(cursor, true);
+  document.body.classList.toggle('innotes', view === 'notes');
+  if (view === 'notes') el.title.textContent = 'Notes';
+  else if (view === 'day') el.title.textContent = dayLabel(cursor, true);
   else if (view === 'month') el.title.textContent = cursor.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
   else {
     const a = dates[0], b = dates[dates.length - 1];
@@ -411,7 +414,8 @@ function renderView() {
   el.grid.hidden = !timeGrid;
   el.month.hidden = view !== 'month';
   el.list.hidden = view !== 'list';
-  if (timeGrid) renderGrid(); else if (view === 'month') renderMonth(); else renderList();
+  el.notes.hidden = view !== 'notes';
+  if (timeGrid) renderGrid(); else if (view === 'month') renderMonth(); else if (view === 'notes') renderNotes(); else renderList();
 }
 
 function itemHtml(t, meta) {
@@ -634,9 +638,10 @@ function scrollToNow(gently) {
 }
 
 // ---------------------------------------------------------------- navigation
-function setView(v) { view = v; state.settings.view = v; save(); nav(); }
+function setView(v) { view = v; if (v !== 'notes') { state.settings.view = v; save(); } nav(); }
 function nav(dir = 'fade') { smooth(dir, render).then(() => refresh()); }
 function step(n) {
+  if (view === 'notes') return;
   cursor = view === 'month' ? new Date(cursor.getFullYear(), cursor.getMonth() + n, 1) : addDays(cursor, n * (view === 'day' ? 1 : 7));
   miniMonth = null;
   nav(n > 0 ? 'next' : 'prev');
@@ -877,7 +882,7 @@ function onKey(e) {
   if (tourOn) return;
   const mod = e.metaKey || e.ctrlKey, key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (mod && key === 'k') { e.preventDefault(); return openPalette(); }
-  if (el.dlg.open || e.target.closest?.('input, textarea, select')) return;
+  if (el.dlg.open || e.target.closest?.('input, textarea, select, [contenteditable]')) return;
   if (mod && key === 'z') { e.preventDefault(); return undo(); }
   if (mod || e.altKey) return;
   const run = {
@@ -1115,7 +1120,7 @@ function openPalette() {
     <div id="palList"></div><div class="palfoot">↑ ↓ to move · Enter to open · Esc to close</div></div>`, {}, 'palette');
   const input = $('#palIn', el.dlg), list = $('#palList', el.dlg);
   const cmds = [
-    ['Go to today', goToday], ['Today: prepare for my meetings', openToday], ['People and companies', () => openPeople()], ['Share my free times', () => openFreeTimes()], ['Record a meeting or my screen', () => openRecordSetup(null)], ['Recordings', () => openRecordings(null)], ['Take a screenshot', () => takeShot(null)], ['Ask my meetings a question', openAskAll], ['Show me around (tour)', () => setTimeout(startTour, 250)], ['Show a second time zone', openSecondZone], ['Plan my day', openPlan], ['New task', newTaskHere], ['New event', () => openEventForm(null)],
+    ['Go to today', goToday], ['Today: prepare for my meetings', openToday], ['People and companies', () => openPeople()], ['Share my free times', () => openFreeTimes()], ['Record a meeting or my screen', () => openRecordSetup(null)], ['Recordings', () => openRecordings(null)], ['Take a screenshot', () => takeShot(null)], ['Ask my meetings a question', openAskAll], ['Notes: everything you have written', () => setView('notes')], ['Show me around (tour)', () => setTimeout(startTour, 250)], ['Show a second time zone', openSecondZone], ['Plan my day', openPlan], ['New task', newTaskHere], ['New event', () => openEventForm(null)],
     ['Day view', () => setView('day')], ['Week view', () => setView('week')], ['Month view', () => setView('month')], ['List view', () => setView('list')],
     ['Settings', () => openSettings()], ['Set up phone or another device', openDeviceSetup], ['Keyboard shortcuts', openHelp],
   ].map(([label, run]) => ({ kind: 'Go', label, sub: '', run }));
@@ -1633,8 +1638,8 @@ function openEvent(ev, writeNotes) { // writeNotes: put the cursor in the notes 
       ${others.length ? '<button type="button" class="btn" data-x="brief">Brief me</button>' : ''}
       <button type="button" class="btn" data-x="recs" id="recsBtn" hidden></button></div>` : ''}
     ${needsReply ? `<div class="rowline"><span class="note">Are you going?</span>${replyButtons}</div>` : ''}
-    <label><span>Your notes <i>· only you can see these</i></span>
-      <textarea name="note" rows="7" maxlength="${N.MAX_LENGTH}" placeholder="What do you want to cover? What was decided?">${esc(note?.text || '')}</textarea></label>
+    <div class="field"><span>Your notes <i>· only you can see these</i></span>
+      <textarea name="note" rows="7" maxlength="${N.MAX_LENGTH}" aria-label="Your notes" placeholder="What do you want to cover? What was decided?  Type - for a bullet, [] for a tick-box.">${esc(note?.text || '')}</textarea></div>
     <div class="airow">
       ${AI.supported() ? '<button type="button" class="mini" data-x="tidy">Tidy my notes</button>' : ''}
       <button type="button" class="mini" data-x="mktasks" hidden>Make tasks</button>
@@ -1782,6 +1787,7 @@ function openEvent(ev, writeNotes) { // writeNotes: put the cursor in the notes 
 
   // Notes save by themselves a moment after you stop typing, and when the box closes.
   const box = $('[name=note]', el.dlg), saved = $('#noteState', el.dlg);
+  E.attach(box); // headings, bullets and tick-boxes; the box itself still holds the plain text
   let timer = 0, beforeTidy = null;
   const showTaskButton = () => {
     const n = AI.actionsIn(box.value).length, b = $('[data-x=mktasks]', el.dlg);
@@ -2556,6 +2562,7 @@ const TOOL_ICONS = {
   prepare: '<path d="M11 3.5l1.9 5.1L18 10.5l-5.1 1.9L11 17.5l-1.9-5.1L4 10.5l5.1-1.9z"/><path d="M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/>',
   people: '<circle cx="9" cy="8" r="3.3"/><path d="M2.8 19.2c.7-3.1 3-4.9 6.2-4.9s5.5 1.8 6.2 4.9"/><circle cx="17.2" cy="9" r="2.5"/><path d="M17 14.3c2.2.3 3.7 1.7 4.3 4"/>',
   free: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.3V12l3.2 2"/>',
+  notes: '<path d="M6 3.500h9l4 4V20.500H6z"/><path d="M15 3.500v4h4M9 12h7M9 15.500h7M9 8.500h3"/>',
   record: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.4" fill="currentColor" stroke="none"/>',
 };
 const toolIcon = name => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${TOOL_ICONS[name]}</svg>`;
@@ -4374,6 +4381,110 @@ async function openRecordings(ev) {
     if (!spot) return;
     if (thumb) spot.insertAdjacentHTML('afterbegin', `<img alt="" src="${recUrl(thumb)}">`);
   }
+}
+
+// ---------------------------------------------------------------- the Notes page
+// Every note in one place: what you wrote on a meeting, notes of your own, and notes written from a
+// recording. The list is on the left, the note you pick opens beside it and is edited right there.
+let noteOpen = '', noteFind = '', noteDraft = null; // the note showing, the search, and a new note not yet typed in
+const isOwnNote = id => id.startsWith('note:');
+async function noteDocs() {
+  const recs = await R.all().catch(() => []), recorded = new Set(recs.filter(r => r.key && r.kind !== 'shot').map(r => r.key));
+  const docs = Object.entries(state.notes || {}).filter(([key, n]) => !key.startsWith('person:') && (n.text || key === noteOpen))
+    .map(([key, n]) => ({ id: key, kind: isOwnNote(key) ? 'own' : 'meeting', title: n.title || (isOwnNote(key) ? 'Untitled' : 'Meeting'), when: n.when || n.t || 0, text: n.text || '', people: n.people || [], recorded: recorded.has(key) }));
+  for (const r of recs) if (!r.key && r.notes) docs.push({ id: `rec:${r.id}`, kind: 'rec', title: r.title, when: r.at, text: r.notes, people: [], recorded: true });
+  if (noteDraft && !docs.some(d => d.id === noteDraft.id)) docs.push(noteDraft);
+  return docs.sort((a, b) => b.when - a.when);
+}
+const noteGist = text => { const body = AI.gistOf(text, 110); return body || text.replace(/\s+/g, ' ').trim().slice(0, 110); };
+function noteRows(docs) {
+  const q = noteFind.trim().toLowerCase(), hits = q ? docs.filter(d => `${d.title}\n${d.text}`.toLowerCase().includes(q)) : docs;
+  if (!hits.length) return `<p class="nnone">${q ? 'No note has those words.' : 'No notes yet.'}</p>`;
+  const today = startOfDay(new Date()).getTime(), week = startOfWeek(new Date()).getTime();
+  const group = d => (d.when >= today ? 'Today' : d.when >= week ? 'This week' : d.when >= today - 30 * 86400000 ? 'Last 30 days' : 'Earlier');
+  let html = '', last = '';
+  for (const d of hits) {
+    const g = group(d);
+    if (g !== last) { html += `<h4>${g}</h4>`; last = g; }
+    html += `<button type="button" class="nrow${d.id === noteOpen ? ' on' : ''}" data-note="${esc(d.id)}"><b>${esc(d.title)}</b>
+      <i>${esc(dayLabel(new Date(d.when)))}${d.kind === 'own' ? ' · your note' : d.recorded ? ' · recorded' : ''}</i><span>${esc(noteGist(d.text))}</span></button>`;
+  }
+  return html;
+}
+async function renderNotes() {
+  const docs = await noteDocs();
+  if (view !== 'notes') return;
+  if (!docs.some(d => d.id === noteOpen)) noteOpen = innerWidth >= 760 && docs.length ? docs[0].id : '';
+  const typing = el.notes.contains(document.activeElement) && $('.ndoc', el.notes)?.dataset.id === noteOpen && !!document.activeElement.closest('.ndoc');
+  if (!$('.nlist', el.notes)) {
+    el.notes.innerHTML = `<div class="nlist"><div class="nhead"><input type="search" id="noteFind" placeholder="Search your notes" aria-label="Search your notes" autocomplete="off"><button type="button" class="btn" id="noteNew">New note</button></div><div class="nrows"></div></div><div class="ndoc"></div>`;
+    $('#noteFind', el.notes).addEventListener('input', e => { noteFind = e.target.value; noteDocs().then(all => { $('.nrows', el.notes).innerHTML = noteRows(all); }); });
+    $('#noteNew', el.notes).addEventListener('click', () => {
+      noteDraft = { id: `note:${uid()}`, kind: 'own', title: 'Untitled', when: Date.now(), text: '', people: [], recorded: false };
+      noteOpen = noteDraft.id;
+      renderNotes().then(() => $('.ndoc .ntitle', el.notes)?.select());
+    });
+    el.notes.addEventListener('click', e => {
+      const row = e.target.closest('[data-note]');
+      if (row) { noteOpen = row.dataset.note; renderNotes(); }
+      else if (e.target.closest('#noteBack')) { noteOpen = ''; renderNotes(); }
+    });
+  }
+  $('.nrows', el.notes).innerHTML = noteRows(docs);
+  el.notes.classList.toggle('reading', !!noteOpen); // on a phone: the note takes the place of the list
+  if (typing) return; // never redraw a note while it is being typed in
+  const doc = docs.find(d => d.id === noteOpen), pane = $('.ndoc', el.notes);
+  pane.dataset.id = noteOpen;
+  if (!doc) {
+    pane.innerHTML = `<div class="nempty">${toolIcon('notes')}<b>${docs.length ? 'Pick a note' : 'Your notes will gather here'}</b><span>${docs.length ? 'Choose one from the list to read or change it.' : 'Notes you write on a meeting, notes written for you from a recording, and notes of your own are all kept here.'}</span></div>`;
+    return;
+  }
+  const ev = doc.kind === 'meeting' ? eventFor(doc.id) : null, names = doc.people.map(e => knownNames.get(e) || person({ email: e }).name).slice(0, 4);
+  pane.innerHTML = `<div class="ndochead"><button type="button" class="icon only-mobile" id="noteBack" aria-label="Back to the list">‹</button>
+      <input class="ntitle" value="${esc(doc.title)}" maxlength="140" aria-label="Title"${doc.kind === 'own' ? '' : ' readonly'}></div>
+    <div class="meta">${esc([dayLabel(new Date(doc.when), true), names.join(', '), doc.kind === 'rec' ? 'written from a recording' : doc.kind === 'own' ? 'your note' : doc.recorded ? 'recorded' : ''].filter(Boolean).join(' · '))}</div>
+    <textarea name="ndoc" maxlength="${N.MAX_LENGTH}" aria-label="The note" placeholder="Start writing.  - makes a bullet, [] a tick-box, # a heading.">${esc(doc.text)}</textarea>
+    <div class="ndocfoot"><span class="saved" id="ndocState"></span><span class="sp"></span>
+      <button type="button" class="btn" id="ndocTasks" hidden>Make tasks</button>
+      ${ev ? '<button type="button" class="btn" id="ndocMeeting">Open the meeting</button>' : ''}${doc.kind === 'rec' ? '<button type="button" class="btn" id="ndocRec">Open the recording</button>' : ''}
+      ${doc.kind === 'own' ? '<button type="button" class="btn danger" id="ndocDel">Delete</button>' : ''}</div>`;
+  const box = $('textarea', pane), title = $('.ntitle', pane), state2 = $('#ndocState', pane), tasks = $('#ndocTasks', pane);
+  E.attach(box);
+  const about = () => ({ title: (title.value.trim() || 'Untitled').slice(0, 140), when: doc.when, people: doc.people });
+  const showTasks = () => { const n = AI.actionsIn(box.value).length; tasks.hidden = !n; tasks.textContent = n === 1 ? 'Make 1 task' : `Make ${n} tasks`; };
+  let timer = 0, last = box.value;
+  const keep = async () => {
+    clearTimeout(timer);
+    if (doc.kind === 'rec') { if (box.value !== last) { last = box.value; await R.update(doc.id.slice(4), { notes: box.value }); } }
+    else {
+      const had = state.notes[doc.id];
+      if (box.value !== last) { last = box.value; N.set(doc.id, box.value, about()); }
+      else if (had && had.title !== about().title) { Object.assign(had, { title: about().title, t: Date.now(), dirty: true }); save(); } // only the title changed
+      if (noteDraft?.id === doc.id && state.notes[doc.id]) noteDraft = null;
+      scheduleFlush();
+    }
+    state2.textContent = 'Saved';
+    noteDocs().then(all => { if (view === 'notes') $('.nrows', el.notes).innerHTML = noteRows(all); });
+  };
+  const soon = () => { state2.textContent = ''; showTasks(); clearTimeout(timer); timer = setTimeout(keep, 600); };
+  box.addEventListener('input', soon);
+  box.addEventListener('change', keep);
+  title.addEventListener('input', soon);
+  title.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); box.focus(); } });
+  tasks.addEventListener('click', () => tasksFromNotes(box.value, `${about().title} (${dayLabel(new Date(doc.when))})`, new Date(doc.when)));
+  $('#ndocMeeting', pane)?.addEventListener('click', () => openEvent(ev));
+  $('#ndocRec', pane)?.addEventListener('click', () => openRecording(doc.id.slice(4)));
+  $('#ndocDel', pane)?.addEventListener('click', () => {
+    if (!confirm('Delete this note? It cannot be brought back.')) return;
+    clearTimeout(timer);
+    N.set(doc.id, '', about());
+    if (noteDraft?.id === doc.id) noteDraft = null;
+    scheduleFlush();
+    noteOpen = '';
+    renderNotes();
+    toast('Note deleted');
+  });
+  showTasks();
 }
 
 // ---------------------------------------------------------------- showing people around

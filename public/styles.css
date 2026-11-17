@@ -948,3 +948,61 @@ h3 img.logo { width: 22px; height: 22px; vertical-align: -4px; margin-right: 9px
 .rshare { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .rshare input { flex: 1 1 260px; min-width: 180px; font-size: 13px; }
 .dbody ol.steps { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: 13.5px; }
+
+/* ---- the notes editor (editor.js) */
+.edsrc { display: none !important; }
+.dbody .field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); min-width: 0; }
+.dbody .field i { color: var(--muted); font-style: normal; font-weight: 400; }
+.ed { position: relative; min-height: 150px; max-height: min(46vh, 440px); overflow: auto; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg);
+  color: var(--text); font-size: 14.5px; line-height: 1.55; outline: none; overflow-wrap: anywhere; white-space: pre-wrap; cursor: text; transition: border-color .15s; }
+.ed:focus { border-color: var(--accent); }
+.edsrc.pad + .ed { min-height: 230px; }
+.ed.blank::before { content: attr(data-placeholder); position: absolute; left: 12px; right: 12px; top: 10px; color: var(--muted); pointer-events: none; }
+.ed .b { min-height: 1.55em; }
+.ed .b.h { font-weight: 650; font-size: 16px; letter-spacing: -.01em; margin-top: 8px; }
+.ed .b.sec { font-weight: 650; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-top: 2px; }
+.ed .b.sec:first-child, .ed .b.h:first-child { margin-top: 0; }
+.ed .b.mark { margin: 12px 0 4px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.ed .b.next { margin: 2px 0; padding: 4px 10px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.ed .b.li, .ed .b.todo { position: relative; padding-left: 22px; }
+.ed .b.li::before { content: '•'; position: absolute; left: 7px; color: var(--muted); }
+.ed .b.todo::before { content: ''; position: absolute; left: 2px; top: .3em; width: 14px; height: 14px; border-radius: 4px; border: 1.6px solid var(--muted); cursor: pointer; background: var(--panel); transition: background .12s, border-color .12s; }
+.ed .b.todo[data-done]::before { background: var(--accent); border-color: var(--accent); }
+.ed .b.todo[data-done]::after { content: ''; position: absolute; left: 6.500px; top: calc(.3em + 2.500px); width: 4px; height: 8px; border: solid var(--accent-text); border-width: 0 2px 2px 0; transform: rotate(45deg); pointer-events: none; }
+.ed .b.todo[data-done] { color: var(--muted); text-decoration: line-through; }
+
+/* ---- the Notes page */
+body.innotes #prev, body.innotes #next, body.innotes #todayBtn, body.innotes #zoneBtn { visibility: hidden; }
+#notes { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); background: var(--panel); }
+.nlist { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); background: var(--bg); }
+.nhead { display: flex; gap: 8px; padding: 12px; }
+.nhead input { flex: 1; min-width: 0; padding: 7px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font-size: 14px; outline: none; }
+.nhead input:focus { border-color: var(--accent); }
+.nrows { flex: 1; overflow-y: auto; padding: 0 8px 14px; display: grid; gap: 2px; align-content: start; }
+.nrows h4 { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 650; padding: 12px 8px 4px; }
+.nrow { display: grid; gap: 1px; text-align: left; border: 0; background: transparent; color: var(--text); padding: 9px 10px; border-radius: 10px; min-width: 0; }
+.nrow:hover { background: var(--shade); }
+.nrow.on { background: var(--panel); box-shadow: var(--lift), 0 0 0 1px var(--line); }
+.nrow b { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nrow i { font-style: normal; font-size: 12px; color: var(--muted); }
+.nrow span { font-size: 12.5px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.4; }
+.nnone { color: var(--muted); font-size: 13px; padding: 14px 10px; }
+.ndoc { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 26px clamp(18px, 5vw, 64px) 14px; gap: 6px; }
+.ndochead { display: flex; align-items: center; gap: 6px; }
+.ntitle { flex: 1; min-width: 0; font: inherit; font-size: 26px; font-weight: 680; letter-spacing: -.02em; color: var(--text); border: 0; background: transparent; outline: none; padding: 0; text-overflow: ellipsis; }
+.ntitle[readonly] { cursor: default; }
+.ndoc .meta { margin-bottom: 8px; }
+.ndoc .ed { flex: 1; min-height: 0; max-height: none; border: 0; border-radius: 0; background: transparent; padding: 4px 0 30px; font-size: 15.5px; line-height: 1.65; max-width: 760px; }
+.ndoc .ed.blank::before { left: 0; top: 4px; }
+.ndocfoot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--line2); padding-top: 10px; min-height: 46px; }
+.ndocfoot .saved { font-size: 12px; color: var(--muted); }
+.nempty { margin: auto; display: grid; justify-items: center; gap: 6px; text-align: center; color: var(--muted); max-width: 340px; }
+.nempty svg { width: 30px; height: 30px; }
+.nempty b { color: var(--text); font-size: 16px; }
+.nempty span { font-size: 13.5px; }
+@media (max-width: 760px) {
+  #notes { grid-template-columns: 1fr; }
+  #notes.reading .nlist, #notes:not(.reading) .ndoc { display: none; }
+  .ndoc { padding: 14px 16px 10px; }
+  .ntitle { font-size: 21px; }
+}
