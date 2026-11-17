@@ -1198,8 +1198,8 @@ function openFactsHelp(guest, from) {
       <li>Open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> and press <b>Create API key</b>.</li>
       <li>Copy the key and paste it into <b>Settings → AI</b>.</li>
     </ol>
-    <p class="note">Each time you press Get facts, the person’s name, their company and the meeting title go to Google’s AI, which reads web search results about them. Nothing is sent before that.</p>
-    <p class="note">Want better results? In Settings → AI you can use a Claude key instead.</p>
+    <p class="note">Each time facts are fetched, the person’s name, their company and the meeting title go to that AI. Nothing is sent before that.</p>
+    <p class="note">Settings → AI also has a free search key for richer results, and the choice of using a Claude key instead.</p>
     <div class="actions"><button type="button" class="btn ghost" data-x="back">Back</button><span class="sp"></span><button type="button" class="btn primary" data-x="settings">Open Settings</button></div></div>`, {
     back: () => openPerson(guest, from),
     settings: () => openSettings(),
@@ -1227,6 +1227,7 @@ function factsHtml(f, day, who) {
     ${firm ? `<div class="fgroup"><h4>${esc(who.company || 'Their company')}</h4>${firm}</div>` : ''}
     ${f.recent.length || f.ideas.length || f.other.length ? `<div class="fgroup"><h4>For this meeting</h4>${part('Recently', f.recent)}${part('Worth asking', f.ideas)}${part('Also', f.other)}</div>` : ''}
     ${f.sources.length ? `<div class="chips2">${f.sources.map(x => `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.host)}</a>`).join('')}</div>` : ''}
+    ${f.coverage ? '<div class="note">This comes from the company’s own website, so it says little about the person. Add a free search key in Settings → AI for more.</div>' : ''}
     <div class="ffoot"><span>From the web${day ? ` · ${esc(day)}` : ''}${f.hint ? `, using your hint “${esc(f.hint)}”` : ''}. Check before relying on it.</span>
       <span class="flinks"><button type="button" class="linkbtn" data-x="notthem">Not them?</button><button type="button" class="linkbtn" data-x="facts">Refresh</button></span></div>
     <form class="hintrow" id="hintRow" hidden><input name="hint" maxlength="120" placeholder="A hint: their job, city, or LinkedIn address" autocomplete="off" value="${esc(f.hint || '')}"><button class="btn" data-x="retry" type="button">Look again</button></form>`;
@@ -1707,11 +1708,11 @@ async function getFacts(who, meeting, signal, hint = '') {
     return { ...(await C.personFacts(who, meeting, s.claudeKey, signal, hint)), hint };
   }
   const freeLately = s.aiFreeSince && Date.now() - s.aiFreeSince < 3 * 86400000;
-  const answer = await F.personFacts(who, meeting, s.aiKey, signal, !freeLately, hint);
+  const answer = await F.personFacts(who, meeting, { google: s.aiKey, search: s.searchKey }, signal, !freeLately, hint);
   const wasFree = !!s.aiFreeSince;
-  if (answer.how === 'reading' && !freeLately) s.aiFreeSince = Date.now();
+  if (answer.how !== 'search' && !freeLately) s.aiFreeSince = Date.now();
   if (answer.how === 'search') s.aiFreeSince = 0;
-  if (wasFree !== !!s.aiFreeSince || answer.how === 'reading') save();
+  if (wasFree !== !!s.aiFreeSince || answer.how !== 'search') save();
   return { ...answer, hint };
 }
 // Saves what was found into the person's note, keeping what you wrote about them yourself.
@@ -2186,7 +2187,8 @@ const FACT_PROVIDERS = {
   google: {
     choice: 'Google AI · free key', label: 'Google AI key',
     help: `<li>Open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> and press <b>Create API key</b>.</li>
-      <li>Copy the key, paste it above and press Save. It is kept only in this browser. The key is free.</li>`,
+      <li>Copy the key, paste it above and press Save. It is kept only in this browser. The key is free.</li>
+      <li>On its own this key reads the company’s website. Add the free search key below to also find facts about the person.</li>`,
   },
   claude: {
     choice: 'Claude · your own paid key, better results', label: 'Claude (Anthropic) key',
@@ -2238,6 +2240,12 @@ function openSettings(msg) {
     <label>“Get facts” about a person uses<select name="aiProvider">${opts(Object.entries(FACT_PROVIDERS).map(([k, v]) => [k, v.choice]), provider)}</select></label>
     <label><span id="aiKeyLabel">${FACT_PROVIDERS[provider].label}</span><input name="aiKey" type="password" value="${esc(keys[provider])}" autocomplete="off" spellcheck="false"></label>
     <details><summary>How to get this key</summary><ol id="aiKeyHelp">${FACT_PROVIDERS[provider].help}</ol></details>
+    <div id="searchKeyPart"${provider === 'google' ? '' : ' hidden'}>
+      <label><span>Search key <i>· free, finds facts about the person</i></span><input name="searchKey" type="password" value="${esc(s.searchKey || '')}" autocomplete="off" spellcheck="false"></label>
+      <details><summary>How to get this key</summary><ol>
+        <li>Open <a href="https://app.tavily.com" target="_blank" rel="noopener">Tavily</a>, a search service made for AI tools, and sign up. It is free and asks for no card.</li>
+        <li>Copy your API key, paste it above and press Save. It gives 1,000 searches a month; one lookup uses four.</li>
+      </ol></details></div>
     <label class="check"><input type="checkbox" name="aiAuto"${s.aiAuto ? ' checked' : ''}>Get facts by itself for the people I’m meeting today</label>
     <p class="note">With this on, Weftday looks up today’s guests in the background, so their profiles are ready when you open a meeting. Their names go to the AI without you pressing anything. People at your own company are skipped.</p>
     <p class="note">Tidying runs inside your browser, so your notes stay on this device. “Ask AI” and “Get facts” send the person’s name, company and the meeting title to that AI, and only when you press them.</p>
@@ -2261,6 +2269,7 @@ function openSettings(msg) {
       if (s.aiKey !== keys.google) s.aiFreeSince = 0; // a new key may have Google's own search
       s.aiKey = keys.google;
       s.claudeKey = keys.claude;
+      s.searchKey = fd.get('searchKey').trim();
       s.aiProvider = provider;
       s.aiAuto = fd.get('aiAuto') === 'on';
       const want = fd.get('planner'), share = fd.get('share') === 'on';
@@ -2300,6 +2309,7 @@ function openSettings(msg) {
     box.value = keys[provider];
     $('#aiKeyLabel', el.dlg).textContent = FACT_PROVIDERS[provider].label;
     $('#aiKeyHelp', el.dlg).innerHTML = FACT_PROVIDERS[provider].help;
+    $('#searchKeyPart', el.dlg).hidden = provider !== 'google';
   });
   AI.status().then(st => {
     const line = $('#aiState', el.dlg);
