@@ -1805,7 +1805,7 @@ function normalize(e, a, c) {
   const calWritable = ['owner', 'writer'].includes(c.accessRole);
   const entry = (e.conferenceData?.entryPoints || []).find(p => p.entryPointType === 'video' && /^https:\/\//.test(p.uri || ''))?.uri;
   // Meetings Google makes from an email carry two stock paragraphs, in the language of that Google
-  // account. They are left out, and the link to the email is offered as a button instead.
+  // account. They are left out.
   let text = (e.description || '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '');
   const mail = text.match(/https:\/\/mail\.google\.com\/mail\?extsrc=cal[^\s"'<>]*/)?.[0] || '';
   if (mail || e.eventType === 'fromGmail') text = text.split(/\n\s*\n/).filter(para => !/g\.co\/calendar|mail\.google\.com\/mail\?extsrc=cal/.test(para)).join('\n\n').trim();
@@ -1822,7 +1822,7 @@ function normalize(e, a, c) {
     canEdit: calWritable && (!!e.organizer?.self || !(e.attendees || []).length),
     nk: N.keyFor(e),
     files: (e.attachments || []).filter(f => /^https:\/\//.test(f.fileUrl || '')).slice(0, 6).map(f => ({ label: f.title || 'Attached file', url: f.fileUrl })),
-    links: [...(mail ? [{ label: 'Open in Gmail ↗', url: `${mail}&authuser=${G.enc(a.email)}` }] : []), ...noteLinks(`${e.description || ''} ${e.location || ''}`)],
+    links: noteLinks(`${e.description || ''} ${e.location || ''}`),
   };
 }
 
