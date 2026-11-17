@@ -98,6 +98,13 @@ export function originalOf(text) {
   return at < 0 ? text : text.slice(at + ORIGINAL_MARK.length).trim();
 }
 
+// The gist of a note: its "Summary" if it was tidied, otherwise the start of what was written.
+export function gistOf(text, max = 280) {
+  const tidy = /^Summary\n([^\n]+)/.exec(text.trim());
+  const gist = (tidy ? tidy[1] : originalOf(text)).replace(/\s+/g, ' ').trim();
+  return gist.length > max ? `${gist.slice(0, max).replace(/\s+\S*$/, '')}…` : gist;
+}
+
 // The "Action points" list in a note, whether the AI wrote it or you did.
 export function actionsIn(text) {
   const out = [];

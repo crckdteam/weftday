@@ -1143,7 +1143,7 @@ async function meetingsWith(email) {
   if (hit && Date.now() - hit.at < 10 * 60000) return hit.list;
   const found = new Map();
   if (DEMO) {
-    for (const ev of events.values()) if ((ev.att || []).some(p => (p.email || '').toLowerCase() === email)) found.set(noteKey(ev), { s: ev.s, nk: noteKey(ev) });
+    for (const ev of events.values()) if ((ev.att || []).some(p => (p.email || '').toLowerCase() === email)) found.set(noteKey(ev), { s: ev.s, nk: noteKey(ev), title: ev.title });
   } else {
     const now = new Date(), params = {
       q: email, timeMin: addDays(now, -365).toISOString(), timeMax: addDays(now, 90).toISOString(),
@@ -1160,7 +1160,7 @@ async function meetingsWith(email) {
           if (!(e.attendees || []).some(p => (p.email || '').toLowerCase() === email)) continue;
           if ((e.attendees || []).find(p => p.self)?.responseStatus === 'declined') continue;
           const nk = N.keyFor(e);
-          found.set(nk, { s: Date.parse(e.start.dateTime || `${e.start.date}T00:00:00`), nk });
+          found.set(nk, { s: Date.parse(e.start.dateTime || `${e.start.date}T00:00:00`), nk, title: e.summary || '(No title)' });
         }
       } catch (err) { console.warn(a.email, err); }
     }));
@@ -1175,6 +1175,56 @@ function metLine(list, key) {
   return `Met ${past.length === 1 ? 'once' : `${past.length} times`} in the past year · last on ${dayLabel(new Date(past[past.length - 1].s))}`;
 }
 
+// Everything Weftday knows about one person: what you wrote about them, your meetings, your notes
+// from those meetings and what is still open. "from" is the meeting to go back to.
+function openPerson(guest, from) {
+  const p = person(guest), key = N.aboutKey(p.email), about = N.get(key);
+  const notes = N.withPeople([p.email], null);
+  const open = [];
+  for (const n of notes) for (const text of AI.actionsIn(n.text)) {
+    const task = state.tasks.find(t => t.title.toLowerCase() === text.toLowerCase());
+    if (!task?.done && !open.includes(text)) open.push(text);
+  }
+  const links = lookupLinks(p, from?.title);
+  dialog(`<div class="dbody">
+    <h3>${esc(p.name)}</h3>
+    <div class="meta">${esc(p.email)}${p.company ? ` · ${esc(p.company)}` : ''}</div>
+    ${links ? `<div class="who"><div class="wm"><span class="look">${links}</span></div></div>` : ''}
+    <label><span>About ${esc(p.name.split(' ')[0])} <i>· only you can see this</i></span>
+      <textarea name="about" rows="4" maxlength="${N.MAX_LENGTH}" placeholder="Their role, background, what matters to them. Press “Ask AI” above and paste what you learn here. It shows in every meeting with them.">${esc(about?.text || '')}</textarea></label>
+    <div class="airow"><span class="sp"></span><span class="saved" id="aboutState"></span></div>
+    <h4>Your meetings</h4>
+    <div class="plist2" id="metList"><div class="note">Checking your calendar…</div></div>
+    ${open.length ? `<h4>Still open</h4><div class="todo2">${open.slice(0, 12).map(x => `<div>• ${esc(x)}</div>`).join('')}</div>` : ''}
+    ${notes.length ? `<h4>Your notes from meetings with them</h4><div class="past">${notes.slice(0, 8).map(n => `<div><b>${esc(n.title || 'Meeting')}</b>${n.when ? ` <i>· ${esc(dayLabel(new Date(n.when)))}</i>` : ''}<div class="desc">${esc(AI.gistOf(n.text, 400))}</div></div>`).join('')}</div>` : ''}
+    <div class="actions">${from ? '<button type="button" class="btn" data-x="back">Back to the meeting</button>' : ''}<span class="sp"></span><button type="button" class="btn primary" data-x="close">Close</button></div></div>`, {
+    back: () => openEvent(from),
+  });
+
+  const box = $('[name=about]', el.dlg), saved = $('#aboutState', el.dlg);
+  let timer = 0;
+  const commitAbout = () => {
+    clearTimeout(timer);
+    if (!N.set(key, box.value.trim() ? box.value : '', { title: p.name, when: Date.now(), people: [p.email] })) return;
+    scheduleFlush();
+    if (saved.isConnected) saved.textContent = plannerReady() ? 'Saved' : 'Saved on this device';
+  };
+  box.addEventListener('input', () => { saved.textContent = ''; clearTimeout(timer); timer = setTimeout(commitAbout, 600); });
+  box.addEventListener('change', commitAbout);
+  noteCommit = commitAbout;
+
+  meetingsWith(p.email).then(list => {
+    const box2 = $('#metList', el.dlg);
+    if (!box2) return;
+    const now = Date.now(), past = list.filter(m => m.s < now).reverse(), next = list.filter(m => m.s >= now);
+    const row = m => `<div><i>${esc(dayLabel(new Date(m.s)))}</i> ${esc(m.title || '')}${N.has(m.nk) ? ' ✎' : ''}</div>`;
+    box2.innerHTML = !list.length ? '<div class="note">No meetings with them in the past year.</div>'
+      : `<div class="note">${past.length ? `Met ${past.length === 1 ? 'once' : `${past.length} times`} in the past year` : 'Not met yet'}${next.length ? ` · ${next.length} coming up` : ''}</div>
+         ${next.slice(0, 3).map(row).join('')}${past.slice(0, 8).map(row).join('')}${past.length > 8 ? `<div class="note">and ${past.length - 8} earlier</div>` : ''}`;
+    saveNames();
+  }).catch(() => {});
+}
+
 function openEvent(ev) {
   const a = acct(ev.accountId), c = a?.calendars.find(c => c.id === ev.calendarId);
   const guests = (ev.att || []).filter(p => !p.resource), everyone = guests.map(person);
@@ -1182,10 +1232,19 @@ function openEvent(ev) {
   const key = noteKey(ev), note = N.get(key);
   const about = { title: ev.title, when: ev.s, people: others.slice(0, 30).map(p => p.email) };
   const earlier = N.withPeople(about.people, key).slice(0, 5);
+  // "Last time": the most recent earlier meeting with these people that you kept notes on.
+  const last = earlier.find(n => (n.when || 0) < ev.s) || null;
+  const lastDay = last?.when ? dayLabel(new Date(last.when)) : '';
+  const lastGist = last ? AI.gistOf(last.text) : '';
+  const lastActions = last ? AI.actionsIn(last.text).map(text => {
+    const task = state.tasks.find(t => t.title.toLowerCase() === text.toLowerCase());
+    return { text, done: !!task?.done };
+  }) : [];
   const shown = others.slice(0, 4), rest = others.slice(4, 40);
   const extras = [...(ev.links || []), ...(ev.files || []).filter(f => !(ev.links || []).some(l => l.url === f.url))].slice(0, 6);
   const who = (p, lookup) => `<div class="who" data-email="${esc(p.email)}">
-      <div><b class="nm">${esc(p.name)}</b>${p.organizer ? ' <i>· organiser</i>' : ''}${STATUS_LABEL[p.status] ? ` <i>· ${STATUS_LABEL[p.status]}</i>` : ''}</div>
+      <div><button type="button" class="nm" data-x="person" data-email="${esc(p.email)}" title="Everything about this person">${esc(p.name)}</button>${p.organizer ? ' <i>· organiser</i>' : ''}${STATUS_LABEL[p.status] ? ` <i>· ${STATUS_LABEL[p.status]}</i>` : ''}</div>
+      ${N.has(N.aboutKey(p.email)) ? `<div class="abt">${esc(AI.gistOf(N.get(N.aboutKey(p.email)).text, 160))}</div>` : ''}
       <div class="wm">${lookup ? '<span class="met">Checking your past meetings…</span>' : ''}<span class="look">${lookupLinks(p, ev.title)}</span></div></div>`;
   dialog(`<div class="dbody">
     <h3>${esc(ev.title)}</h3>
@@ -1197,6 +1256,11 @@ function openEvent(ev) {
       ${extras.map(x => `<a class="btn" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.label)}</a>`).join('')}</div>` : ''}
     ${others.length ? `<h4>Who’s there</h4><div class="whos">${shown.map(p => who(p, true)).join('')}
       ${rest.length ? `<details><summary>${rest.length} more</summary><div class="whos">${rest.map(p => who(p, false)).join('')}</div></details>` : ''}</div>` : ''}
+    ${last ? `<h4>Last time${lastDay ? ` · ${esc(lastDay)}` : ''}</h4>
+    <div class="last"><div class="lt2">${esc(last.title || 'Meeting')}</div>
+      <div class="desc">${esc(lastGist)}</div>
+      ${lastActions.length ? `<div class="todo">${lastActions.map(x => `<div class="${x.done ? 'done' : ''}">${x.done ? '✓' : '•'} ${esc(x.text)}</div>`).join('')}</div>` : ''}
+      <div><button type="button" class="mini" data-x="uselast">Add to my notes</button></div></div>` : ''}
     <label><span>Your notes <i>· only you can see these</i></span>
       <textarea name="note" rows="4" maxlength="${N.MAX_LENGTH}" placeholder="What do you want to cover? What was decided?">${esc(note?.text || '')}</textarea></label>
     <div class="airow">
@@ -1205,7 +1269,7 @@ function openEvent(ev) {
       <button type="button" class="mini" data-x="untidy" hidden>Undo tidy</button>
       ${AI.supported() ? '' : '<span class="note">Tidying notes with AI works in Chrome on your computer.</span>'}
       <span class="sp"></span><span class="saved" id="noteState"></span></div>
-    ${earlier.length ? `<details><summary>Earlier notes with ${others.length === 1 ? esc(others[0].name) : 'these people'} (${earlier.length})</summary>
+    ${earlier.length ? `<details><summary>All earlier notes with ${others.length === 1 ? esc(others[0].name) : 'these people'} (${earlier.length})</summary>
       <div class="past">${earlier.map(n => `<div><b>${esc(n.title || 'Meeting')}</b>${n.when ? ` <i>· ${esc(dayLabel(new Date(n.when)))}</i>` : ''}<div class="desc">${esc(n.text)}</div></div>`).join('')}</div></details>` : ''}
     ${ev.description ? `<div class="desc">${esc(ev.description)}</div>` : ''}
     ${ev.selfStatus ? `<div class="rowline"><span class="note">Are you going? <b>${STATUS_LABEL[ev.selfStatus] || ''}</b></span><span>
@@ -1220,6 +1284,16 @@ function openEvent(ev) {
       <button class="btn${ev.meet ? '' : ' primary'}" data-x="close">Close</button>
     </div></div>`, {
     edit: () => openEventForm(ev),
+    person: btn => openPerson(guests.find(g => (g.email || '').toLowerCase() === btn.dataset.email), ev),
+    // Copies the reminder of last time to the top of this meeting's notes.
+    uselast(btn) {
+      const open = lastActions.filter(x => !x.done).map(x => `- ${x.text}`);
+      const lines = [`Last time${lastDay ? ` (${lastDay})` : ''}: ${lastGist}`];
+      if (open.length) lines.push('Still open from last time:', ...open);
+      box.value = `${lines.join('\n')}${box.value.trim() ? `\n\n${box.value}` : ''}`;
+      btn.hidden = true;
+      commitNote();
+    },
     // The browser's own AI turns rough notes into a summary, decisions and action points.
     async tidy(btn) {
       const rough = AI.originalOf(box.value).trim();

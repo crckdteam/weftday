@@ -518,3 +518,14 @@ body.loading main::before { opacity: .9; animation: load 1.1s ease-in-out infini
 .past { display: grid; gap: 10px; margin-top: 8px; font-size: 13px; }
 .past .desc { max-height: 110px; margin-top: 2px; color: var(--muted); }
 .blk.ev.noted .t::after { content: " ✎"; font-weight: 400; opacity: .7; }
+.last { display: grid; gap: 6px; padding: 10px 12px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); font-size: 13px; margin-top: -4px; }
+.last .lt2 { font-weight: 600; }
+.last .desc { max-height: 90px; color: var(--text); }
+.last .todo { display: grid; gap: 2px; color: var(--muted); }
+.last .todo .done { text-decoration: line-through; opacity: .7; }
+button.nm { border: 0; background: none; padding: 0; font-weight: 650; cursor: pointer; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--muted) 45%, transparent); text-underline-offset: 3px; }
+button.nm:hover { color: var(--accent); }
+.who .abt { font-size: 12.5px; margin: 1px 0; }
+.plist2, .todo2 { display: grid; gap: 3px; font-size: 13px; }
+.plist2 i { color: var(--muted); font-style: normal; display: inline-block; min-width: 92px; }
+.dbody textarea[name="about"] { min-height: 84px; }

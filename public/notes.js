@@ -42,11 +42,15 @@ export function set(key, text, about) {
   return true;
 }
 
+// What you know about a person is kept as a note of its own, so it shows in every meeting with them.
+export const aboutKey = email => `person:${email}`;
+const isAbout = key => key.startsWith('person:');
+
 // Notes from other meetings that share at least one of these people, newest first.
 export function withPeople(emails, exceptKey) {
   const want = new Set(emails);
   return Object.entries(all())
-    .filter(([key, n]) => key !== exceptKey && n.text && (n.people || []).some(p => want.has(p)))
+    .filter(([key, n]) => key !== exceptKey && !isAbout(key) && n.text && (n.people || []).some(p => want.has(p)))
     .map(([key, n]) => ({ key, ...n }))
     .sort((a, b) => (b.when || 0) - (a.when || 0));
 }
@@ -61,7 +65,7 @@ export function forgetRemote() {
 
 function entry(key, n) {
   return {
-    summary: `Notes: ${n.title || 'meeting'}`,
+    summary: isAbout(key) ? `About: ${n.title || 'a person'}` : `Notes: ${n.title || 'meeting'}`,
     description: n.text,
     start: { date: DAY }, end: { date: NEXT_DAY }, transparency: 'transparent',
     reminders: { useDefault: false, overrides: [] },
