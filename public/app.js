@@ -2368,12 +2368,14 @@ function openSettings(msg, pane) {
             ${row('Teams or Outlook calendar', 'View-only, through a small helper in your Google account', '<button type="button" class="btn" data-x="teams">Add</button>')}
           </div>`)}
 
-        ${section('ai', 'AI', 'Each part is optional and uses your own keys. Nothing is sent anywhere unless you press its button.', `
-          <h4>Meeting notes</h4>
+        ${section('ai', 'AI', 'Three optional helpers for your meetings. Each is a button you press; here is what they do.', `
+          <h4>Tidy my notes</h4>
+          <p class="gintro">A button under your notes in a meeting. It turns rough notes into a short summary, decisions and action points.</p>
           <div class="sgroup">
-            ${row('Tidy my notes', 'Turns rough notes into a summary and action points. Runs inside your browser, so your notes stay on this device.', tag('Checking…', '', 'aiState'))}
+            ${row('Runs on this device', 'Inside your browser, so your notes are never sent anywhere. No key needed.', tag('Checking…', '', 'aiState'))}
           </div>
           <h4>Get facts about a person ${tag(...factsState(), 'factsState')}</h4>
+          <p class="gintro">A button on a person’s profile. It looks them up on the web and fills in their profile inside Weftday: role, background, company and photo. It needs a key of your own.</p>
           <div class="sgroup">
             ${row('AI service', 'Writes the brief', `<select name="aiProvider">${costly(Object.values(S.AI_SERVICES))}</select>`)}
             <div class="sfield" id="aiKeyPart">
@@ -2392,14 +2394,15 @@ function openSettings(msg, pane) {
               <div class="sfield">
                 <label for="searchKeyBox"><b id="searchKeyLabel"></b><i class="stag rec" id="searchRecTag" hidden>Recommended</i>${keyTag('', 'searchKeyTag')}</label>
                 <input id="searchKeyBox" name="searchKey" type="password" placeholder="Paste your key here" autocomplete="off" spellcheck="false">
-                <details><summary>How to get this key</summary><ol id="searchKeyHelp"></ol></details>
+                <details><summary id="searchHelpTitle"></summary><ol id="searchKeyHelp"></ol></details>
               </div>
             </div>
             ${toggle('aiAuto', s.aiAuto, 'Look up today’s guests by itself', 'Profiles are ready when you open a meeting. Their names go to the AI without you pressing anything. People at your own company are skipped.')}
           </div>
-          <h4>Ask AI</h4>
+          <h4>Ask AI ${tag('No key needed', 'ok')}</h4>
+          <p class="gintro">Another button on a person’s profile, for when you want to dig deeper. It opens a chat app in a new tab with a question about them already typed. You carry on the conversation there, with your own account in that app.</p>
           <div class="sgroup">
-            ${row('Opens in', 'A question about the person, ready to send', select('aiApp', Object.entries(AI_APPS).map(([k, v]) => [k, v[0]]), s.aiApp))}
+            ${row('Chat app to open', '', select('aiApp', Object.entries(AI_APPS).map(([k, v]) => [k, v[0]]), s.aiApp))}
           </div>
           <p class="note">“Get facts” and “Ask AI” send the person’s name, company and the meeting title to that AI. Keys are kept only in this browser.</p>`)}
 
@@ -2530,7 +2533,8 @@ function openSettings(msg, pane) {
     part('aiRecTag').hidden = !svc.recommended;
     part('searchRecTag').hidden = !find.recommended;
     box('aiKey').value = keys[provider] || '';
-    part('aiHelpTitle').textContent = svc.noKey ? `How to set ${svc.name} up` : 'How to get this key';
+    part('aiHelpTitle').textContent = `${svc.noKey ? `How to set ${svc.name} up` : 'How to get this key'} · ${svc.setup}`;
+    part('searchHelpTitle').textContent = `How to get this key · ${find.setup}`;
     part('aiKeyHelp').innerHTML = svc.help;
     part('aiHelpBox').open = !!svc.noKey;
     part('aiModelPart').hidden = svc.kind !== 'chat';

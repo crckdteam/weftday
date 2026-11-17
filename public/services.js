@@ -7,6 +7,7 @@ const link = (url, text) => `<a href="${url}" target="_blank" rel="noopener">${t
 const keySteps = (url, site, extra = '') => `<li>Open ${link(url, site)} and create an API key.</li>${extra}
   <li>Copy the key, paste it above and press Save. It is kept only in this browser.</li>`;
 
+// setup: roughly how long it takes to get the key (or, for Ollama, to install it), shown in Settings.
 // recommended: the easiest good choice, marked in Settings (one free, one paid, one search service).
 // kind: 'google' (Gemini), 'claude' (Anthropic) or 'chat' (the common chat format most AI services
 // share). model is the first one tried; if the service no longer has it, one is picked from the
@@ -15,23 +16,23 @@ const keySteps = (url, site, extra = '') => `<li>Open ${link(url, site)} and cre
 // Prices and model names were checked on each service's own pages in November 2026.
 export const AI_SERVICES = {
   google: {
-    name: 'Google AI', cost: 'free', recommended: true, kind: 'google', label: 'Google AI key',
+    name: 'Google AI', cost: 'free', setup: 'about 1 minute', recommended: true, kind: 'google', label: 'Google AI key',
     help: `<li>Open ${link('https://aistudio.google.com/apikey', 'Google AI Studio')} and press <b>Create API key</b>.</li>
       <li>Copy the key, paste it above and press Save. It is kept only in this browser. The key is free.</li>
       <li>On its own this key reads the company’s website. Add a free search key below to also find facts about the person.</li>`,
   },
   groq: {
-    name: 'Groq', cost: 'free', kind: 'chat', label: 'Groq key', base: 'https://api.groq.com/openai/v1',
+    name: 'Groq', cost: 'free', setup: 'about 2 minutes', kind: 'chat', label: 'Groq key', base: 'https://api.groq.com/openai/v1',
     model: 'openai/gpt-oss-120b', prefer: [/gpt-oss-120b/, /gpt-oss-20b/, /gpt-oss/, /qwen/, /llama/],
     help: keySteps('https://console.groq.com/keys', 'the Groq Console', '<li>Groq has a free plan with daily limits. It runs open models very fast.</li>'),
   },
   openrouter: {
-    name: 'OpenRouter', cost: 'free', kind: 'chat', label: 'OpenRouter key', base: 'https://openrouter.ai/api/v1',
+    name: 'OpenRouter', cost: 'free', setup: 'about 2 minutes', kind: 'chat', label: 'OpenRouter key', base: 'https://openrouter.ai/api/v1',
     model: 'openrouter/free', prefer: [/^openrouter\/free$/, /:free$/],
     help: keySteps('https://openrouter.ai/keys', 'OpenRouter', '<li>Weftday uses its free models: about 50 lookups a day. To use a paid model, type its name under “Choose a model”.</li>'),
   },
   ollama: {
-    name: 'Ollama', cost: 'free, runs on your computer', kind: 'chat', local: true, noKey: true, base: 'http://localhost:11434/v1',
+    name: 'Ollama', cost: 'free, runs on your computer', setup: 'about 15 minutes', kind: 'chat', local: true, noKey: true, base: 'http://localhost:11434/v1',
     model: '', prefer: [/^gpt-oss/, /^qwen/, /^llama/, /^gemma/, /^mistral/],
     help: `<li>Install ${link('https://ollama.com/download', 'Ollama')} on this computer and open it.</li>
       <li>Open the Terminal app and run <code>ollama pull gpt-oss:20b</code> to download a model. It is large (about 14 GB); <code>ollama pull qwen3:8b</code> is a smaller one.</li>
@@ -40,35 +41,35 @@ export const AI_SERVICES = {
       <li>It works on the computer Ollama is installed on, in Chrome, not on a phone. No key is needed, and nothing leaves your computer except the web search.</li>`,
   },
   mistral: {
-    name: 'Mistral', cost: 'free to try', kind: 'chat', label: 'Mistral key', base: 'https://api.mistral.ai/v1',
+    name: 'Mistral', cost: 'free to try', setup: 'about 3 minutes', kind: 'chat', label: 'Mistral key', base: 'https://api.mistral.ai/v1',
     model: 'mistral-small-latest', prefer: [/^mistral-small-latest$/, /^mistral-medium-latest$/, /^mistral-small/, /^mistral/],
     help: keySteps('https://console.mistral.ai/api-keys', 'the Mistral Console', '<li>New accounts start in a free mode with limits. Heavier use is paid.</li>'),
   },
   openai: {
-    name: 'OpenAI', cost: 'paid', kind: 'chat', ownSearch: true, label: 'OpenAI key', base: 'https://api.openai.com/v1',
+    name: 'OpenAI', cost: 'paid', setup: 'about 5 minutes', kind: 'chat', ownSearch: true, label: 'OpenAI key', base: 'https://api.openai.com/v1',
     model: 'gpt-6-luna', prefer: [/^gpt-6-luna$/, /^gpt-5-nano$/, /^gpt-\d[\w.-]*(luna|nano|mini)$/, /^gpt-\d/],
     responses: 'https://api.openai.com/v1/responses', searchModels: ['gpt-6-luna', 'gpt-6-astra'],
     help: keySteps('https://platform.openai.com/api-keys', 'the OpenAI Platform', '<li>OpenAI keys are paid: add a little credit under Billing. Each lookup costs a few cents, because it searches the web by itself.</li>'),
   },
   claude: {
-    name: 'Claude', cost: 'paid', recommended: true, kind: 'claude', ownSearch: true, label: 'Claude (Anthropic) key',
+    name: 'Claude', cost: 'paid', setup: 'about 5 minutes', recommended: true, kind: 'claude', ownSearch: true, label: 'Claude (Anthropic) key',
     help: `<li>Open the ${link('https://platform.claude.com/settings/keys', 'Anthropic Console')} and create an API key.</li>
       <li>Claude keys are paid: add a little credit in the Console. Each lookup uses a small amount of it.</li>
       <li>Copy the key, paste it above and press Save. It is kept only in this browser.</li>`,
   },
   perplexity: {
-    name: 'Perplexity', cost: 'paid', kind: 'chat', ownSearch: true, label: 'Perplexity key',
+    name: 'Perplexity', cost: 'paid', setup: 'about 5 minutes', kind: 'chat', ownSearch: true, label: 'Perplexity key',
     responses: 'https://api.perplexity.ai/v1/agent', searchModels: ['perplexity/sonar'],
     help: keySteps('https://console.perplexity.ai', 'the Perplexity console', '<li>Perplexity keys are paid: add a little credit there. Each lookup uses a small amount of it.</li>'),
   },
   xai: {
-    name: 'xAI Grok', cost: 'paid', kind: 'chat', ownSearch: true, label: 'xAI key', base: 'https://api.x.ai/v1',
+    name: 'xAI Grok', cost: 'paid', setup: 'about 5 minutes', kind: 'chat', ownSearch: true, label: 'xAI key', base: 'https://api.x.ai/v1',
     model: 'grok-4.3', prefer: [/^grok-4\.3/, /^grok-\d/],
     responses: 'https://api.x.ai/v1/responses', searchModels: ['grok-4.3', 'grok-4.7'],
     help: keySteps('https://console.x.ai', 'the xAI Console', '<li>xAI keys are paid: add a little credit there. Each lookup uses a small amount of it.</li>'),
   },
   deepseek: {
-    name: 'DeepSeek', cost: 'paid', kind: 'chat', label: 'DeepSeek key', base: 'https://api.deepseek.com',
+    name: 'DeepSeek', cost: 'paid', setup: 'about 5 minutes', kind: 'chat', label: 'DeepSeek key', base: 'https://api.deepseek.com',
     model: 'deepseek-flash', prefer: [/^deepseek-flash$/, /flash/, /^deepseek/],
     help: keySteps('https://platform.deepseek.com/api_keys', 'the DeepSeek Platform', '<li>DeepSeek keys are paid, and among the cheapest: add a little credit there.</li>'),
   },
@@ -80,35 +81,35 @@ export const aiService = id => AI_SERVICES[id] || AI_SERVICES.google;
 const json = (url, headers, body) => [url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) }];
 export const SEARCH_SERVICES = {
   tavily: {
-    name: 'Tavily', cost: 'free', recommended: true,
+    name: 'Tavily', cost: 'free', setup: 'about 2 minutes', recommended: true,
     request: (q, key) => json('https://api.tavily.com/search', { authorization: `Bearer ${key}` }, { query: q, search_depth: 'basic', max_results: 5, include_answer: false }),
     read: d => (d?.results || []).map(r => ({ title: r.title, url: r.url, content: r.content })),
     help: `<li>Open ${link('https://app.tavily.com', 'Tavily')}, a search service made for AI tools, and sign up. It is free and asks for no card.</li>
       <li>Copy your API key, paste it above and press Save. It gives 1,000 searches a month; one lookup uses five. It also finds a photo of the person.</li>`,
   },
   firecrawl: {
-    name: 'Firecrawl', cost: 'free',
+    name: 'Firecrawl', cost: 'free', setup: 'about 2 minutes',
     request: (q, key) => json('https://api.firecrawl.dev/v2/search', { authorization: `Bearer ${key}` }, { query: q, limit: 5 }),
     read: d => (Array.isArray(d?.data) ? d.data : d?.data?.web || []).map(r => ({ title: r.title, url: r.url, content: r.description || r.markdown })),
     help: `<li>Open ${link('https://www.firecrawl.dev', 'Firecrawl')} and sign up. It is free and asks for no card.</li>
       <li>Copy your API key, paste it above and press Save. The free plan refills every month and covers about 125 lookups.</li>`,
   },
   linkup: {
-    name: 'Linkup', cost: 'free with a work email',
+    name: 'Linkup', cost: 'free with a work email', setup: 'about 2 minutes',
     request: (q, key) => json('https://api.linkup.so/v1/search', { authorization: `Bearer ${key}` }, { q, depth: 'standard', outputType: 'searchResults' }),
     read: d => (d?.results || []).filter(r => r?.type !== 'image').map(r => ({ title: r.name, url: r.url, content: r.content })),
     help: `<li>Open ${link('https://app.linkup.so', 'Linkup')} and sign up with a work email address.</li>
       <li>Copy your API key, paste it above and press Save. The free credit refills every month and covers about 1,000 lookups.</li>`,
   },
   serper: {
-    name: 'Serper', cost: 'free to start',
+    name: 'Serper', cost: 'free to start', setup: 'about 2 minutes',
     request: (q, key) => json('https://google.serper.dev/search', { 'x-api-key': key }, { q, num: 5 }),
     read: d => (d?.organic || []).map(r => ({ title: r.title, url: r.link, content: r.snippet })),
     help: `<li>Open ${link('https://serper.dev', 'Serper')}, which gives Google’s search results, and sign up. No card is needed.</li>
       <li>Copy your API key, paste it above and press Save. New accounts get 2,500 free searches (about 600 lookups), once; after that it is paid.</li>`,
   },
   jina: {
-    name: 'Jina', cost: 'free to start',
+    name: 'Jina', cost: 'free to start', setup: 'about 1 minute',
     request: (q, key) => [`https://s.jina.ai/?q=${encodeURIComponent(q)}`, { headers: { authorization: `Bearer ${key}`, accept: 'application/json', 'x-respond-with': 'no-content' } }],
     read: d => (d?.data || []).map(r => ({ title: r.title, url: r.url, content: r.description || r.content })),
     help: `<li>Open ${link('https://jina.ai/api-dashboard', 'Jina')} and copy the API key it shows. No card is needed.</li>
