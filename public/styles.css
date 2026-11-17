@@ -555,6 +555,9 @@ label.srow { cursor: pointer; }
   font-style: normal; font-size: 11px; font-weight: 650; padding: 2px 8px; border-radius: 99px; flex: none; white-space: nowrap;
   letter-spacing: 0; text-transform: none; background: color-mix(in srgb, var(--muted) 16%, transparent); color: var(--muted);
 }
+.stag.rec { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); }
+.stag.rec::before { content: '★'; margin-right: 4px; font-size: 9px; vertical-align: 1px; }
+.stag[hidden] { display: none; }
 .stag.ok { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
 .stag.warn { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
 .adot {

@@ -7,6 +7,7 @@ const link = (url, text) => `<a href="${url}" target="_blank" rel="noopener">${t
 const keySteps = (url, site, extra = '') => `<li>Open ${link(url, site)} and create an API key.</li>${extra}
   <li>Copy the key, paste it above and press Save. It is kept only in this browser.</li>`;
 
+// recommended: the easiest good choice, marked in Settings (one free, one paid, one search service).
 // kind: 'google' (Gemini), 'claude' (Anthropic) or 'chat' (the common chat format most AI services
 // share). model is the first one tried; if the service no longer has it, one is picked from the
 // service's own list, in the order of "prefer". A service with "responses" can search the web by
@@ -14,7 +15,7 @@ const keySteps = (url, site, extra = '') => `<li>Open ${link(url, site)} and cre
 // Prices and model names were checked on each service's own pages in November 2026.
 export const AI_SERVICES = {
   google: {
-    name: 'Google AI', cost: 'free', kind: 'google', label: 'Google AI key',
+    name: 'Google AI', cost: 'free', recommended: true, kind: 'google', label: 'Google AI key',
     help: `<li>Open ${link('https://aistudio.google.com/apikey', 'Google AI Studio')} and press <b>Create API key</b>.</li>
       <li>Copy the key, paste it above and press Save. It is kept only in this browser. The key is free.</li>
       <li>On its own this key reads the company’s website. Add a free search key below to also find facts about the person.</li>`,
@@ -50,7 +51,7 @@ export const AI_SERVICES = {
     help: keySteps('https://platform.openai.com/api-keys', 'the OpenAI Platform', '<li>OpenAI keys are paid: add a little credit under Billing. Each lookup costs a few cents, because it searches the web by itself.</li>'),
   },
   claude: {
-    name: 'Claude', cost: 'paid', kind: 'claude', ownSearch: true, label: 'Claude (Anthropic) key',
+    name: 'Claude', cost: 'paid', recommended: true, kind: 'claude', ownSearch: true, label: 'Claude (Anthropic) key',
     help: `<li>Open the ${link('https://platform.claude.com/settings/keys', 'Anthropic Console')} and create an API key.</li>
       <li>Claude keys are paid: add a little credit in the Console. Each lookup uses a small amount of it.</li>
       <li>Copy the key, paste it above and press Save. It is kept only in this browser.</li>`,
@@ -79,7 +80,7 @@ export const aiService = id => AI_SERVICES[id] || AI_SERVICES.google;
 const json = (url, headers, body) => [url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) }];
 export const SEARCH_SERVICES = {
   tavily: {
-    name: 'Tavily', cost: 'free',
+    name: 'Tavily', cost: 'free', recommended: true,
     request: (q, key) => json('https://api.tavily.com/search', { authorization: `Bearer ${key}` }, { query: q, search_depth: 'basic', max_results: 5, include_answer: false }),
     read: d => (d?.results || []).map(r => ({ title: r.title, url: r.url, content: r.content })),
     help: `<li>Open ${link('https://app.tavily.com', 'Tavily')}, a search service made for AI tools, and sign up. It is free and asks for no card.</li>

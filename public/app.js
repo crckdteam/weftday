@@ -2289,8 +2289,13 @@ function openSettings(msg, pane) {
   const models = { ...(s.aiModels || {}) };
   const findKeys = { ...(s.searchKeys || {}), tavily: s.searchKey || '' };
   let provider = S.aiService(s.aiProvider).id, finder = S.searchService(s.searchProvider).id;
-  const costly = list => [['Free', list.filter(v => /^free/.test(v.cost))], ['Paid', list.filter(v => !/^free/.test(v.cost))]]
-    .map(([group, items]) => `<optgroup label="${group}">${items.map(v => [v.id, `${v.name} (${v.cost})`]).map(([k, l]) => `<option value="${k}"${k === provider || k === finder ? ' selected' : ''}>${esc(l)}</option>`).join('')}</optgroup>`).join('');
+  // A list of services for a menu: the recommended one first, grouped into Free and Paid when both exist.
+  const costly = list => {
+    const sorted = [...list].sort((a, b) => !!b.recommended - !!a.recommended);
+    const option = v => `<option value="${v.id}"${v.id === provider || v.id === finder ? ' selected' : ''}>${esc(`${v.name} (${v.cost})${v.recommended ? ' · Recommended' : ''}`)}</option>`;
+    const groups = [['Free', sorted.filter(v => /^free/.test(v.cost))], ['Paid', sorted.filter(v => !/^free/.test(v.cost))]].filter(([, items]) => items.length);
+    return groups.length < 2 ? sorted.map(option).join('') : groups.map(([name, items]) => `<optgroup label="${name}">${items.map(option).join('')}</optgroup>`).join('');
+  };
   const permNow = () => !('Notification' in window) ? 'none' : Notification.permission;
   const PERM = { none: ['Not available in this browser', ''], granted: ['On', 'ok'], denied: ['Blocked in browser settings', 'warn'], default: ['Off', ''] };
   const hours = Array.from({ length: 24 }, (_, h) => [h * 60, fmtTime(h * 60)]);
@@ -2372,7 +2377,7 @@ function openSettings(msg, pane) {
           <div class="sgroup">
             ${row('AI service', 'Writes the brief', `<select name="aiProvider">${costly(Object.values(S.AI_SERVICES))}</select>`)}
             <div class="sfield" id="aiKeyPart">
-              <label for="aiKeyBox"><b id="aiKeyLabel"></b>${keyTag('', 'aiKeyTag')}</label>
+              <label for="aiKeyBox"><b id="aiKeyLabel"></b><i class="stag rec" id="aiRecTag" hidden>Recommended</i>${keyTag('', 'aiKeyTag')}</label>
               <input id="aiKeyBox" name="aiKey" type="password" placeholder="Paste your key here" autocomplete="off" spellcheck="false">
             </div>
             <div class="sfield">
@@ -2385,7 +2390,7 @@ function openSettings(msg, pane) {
             <div id="searchPart">
               ${row('Search service', '<span id="searchWhy"></span>', `<select name="searchProvider">${costly(Object.values(S.SEARCH_SERVICES))}</select>`)}
               <div class="sfield">
-                <label for="searchKeyBox"><b id="searchKeyLabel"></b>${keyTag('', 'searchKeyTag')}</label>
+                <label for="searchKeyBox"><b id="searchKeyLabel"></b><i class="stag rec" id="searchRecTag" hidden>Recommended</i>${keyTag('', 'searchKeyTag')}</label>
                 <input id="searchKeyBox" name="searchKey" type="password" placeholder="Paste your key here" autocomplete="off" spellcheck="false">
                 <details><summary>How to get this key</summary><ol id="searchKeyHelp"></ol></details>
               </div>
@@ -2522,6 +2527,8 @@ function openSettings(msg, pane) {
     const svc = S.aiService(provider), find = S.searchService(finder);
     part('aiKeyPart').hidden = !!svc.noKey;
     part('aiKeyLabel').textContent = svc.label || '';
+    part('aiRecTag').hidden = !svc.recommended;
+    part('searchRecTag').hidden = !find.recommended;
     box('aiKey').value = keys[provider] || '';
     part('aiHelpTitle').textContent = svc.noKey ? `How to set ${svc.name} up` : 'How to get this key';
     part('aiKeyHelp').innerHTML = svc.help;
