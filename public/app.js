@@ -1120,6 +1120,15 @@ function openPalette() {
       if (p.date && !p.title) rows.push({ kind: 'Go', label: `Go to ${dayLabel(fromYmd(p.date), true)}`, sub: '', run: () => goTo(fromYmd(p.date)) });
     }
     rows.push(...cmds.filter(c => !q || has(c.label)));
+    if (q) { // people you meet and their companies
+      const everyone = [...allPeople().values()], mine = myDomains();
+      for (const w of everyone.filter(w => has(w.name) || has(w.email)).sort((a, b) => hasFacts(b.email) - hasFacts(a.email) || a.name.localeCompare(b.name)).slice(0, 5)) {
+        rows.push({ kind: 'Person', label: w.name, sub: roleOf(w) || w.company || w.email, run: () => openPerson({ email: w.email, displayName: w.name }, null) });
+      }
+      const firms = new Map();
+      for (const w of everyone) if (w.company && !mine.has(w.domain) && (has(w.company) || has(w.domain))) firms.set(w.domain, w.company);
+      for (const [domain, name] of [...firms].slice(0, 3)) rows.push({ kind: 'Company', label: name, sub: domain, run: () => openCompany(domain, null) });
+    }
     if (q) {
       const tasks = state.tasks.filter(t => has(t.title) || has(t.tag) || has(t.notes))
         .sort((a, b) => a.done - b.done || (a.date || '').localeCompare(b.date || '')).slice(0, 15);
@@ -1584,11 +1593,12 @@ function openEvent(ev, writeNotes) { // writeNotes: put the cursor in the notes 
   }) : [];
   const shown = others.slice(0, 4), rest = others.slice(4, 40);
   const extras = [...(ev.links || []), ...(ev.files || []).filter(f => !(ev.links || []).some(l => l.url === f.url))].slice(0, 6);
-  const who = (p, lookup) => `<div class="who" data-email="${esc(p.email)}">
+  const face = p => (hasFacts(p.email) ? avatarHtml(p, true) : `<div class="avatar sm" style="--tc:${tagColor(p.email)}">${esc(initials(p.name))}</div>`);
+  const who = (p, lookup) => `<div class="who" data-email="${esc(p.email)}">${face(p)}<div class="wbody">
       <div><button type="button" class="nm" data-x="person" data-email="${esc(p.email)}" title="Everything about this person">${esc(p.name)} ›</button>${p.organizer ? ' <i>· organiser</i>' : ''}${STATUS_LABEL[p.status] ? ` <i>· ${STATUS_LABEL[p.status]}</i>` : ''}</div>
       ${aboutLine(p.email) ? `<div class="abt">${esc(aboutLine(p.email))}</div>` : ''}
       <div class="wm">${lookup ? '<span class="met">Checking your past meetings…</span>' : ''}<span class="look">${lookupLinks(p, ev.title)}</span></div>
-      ${lookupLinks(p, ev.title) ? `<div><button type="button" class="mini" data-x="facts" data-email="${esc(p.email)}">${hasFacts(p.email) ? 'See profile' : 'Get facts'}</button></div>` : ''}</div>`;
+      ${lookupLinks(p, ev.title) ? `<div><button type="button" class="mini" data-x="facts" data-email="${esc(p.email)}">${hasFacts(p.email) ? 'See profile' : 'Get facts'}</button></div>` : ''}</div></div>`;
   dialog(`<div class="dbody">
     <h3>${esc(ev.title)}</h3>
     <div class="meta">${esc(eventWhen(ev))}</div>
@@ -1772,6 +1782,7 @@ function openEvent(ev, writeNotes) { // writeNotes: put the cursor in the notes 
   box.addEventListener('input', () => { saved.textContent = ''; showTaskButton(); clearTimeout(timer); timer = setTimeout(commitNote, 600); });
   box.addEventListener('change', commitNote);
   noteCommit = commitNote;
+  showPictures();
   if (writeNotes) { box.scrollIntoView({ block: 'center' }); box.focus(); }
 
   // Fill in the history with each of the first few people.
