@@ -13,11 +13,13 @@ const READ_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-3.6-fl
 export const MARK = '— Facts from the web'; // what follows this line in a note is replaced on the next run
 
 const BRIEF = [
-  'Write a short brief in plain text. No markdown, no asterisks, no headings other than these labels:',
-  'Role: their current job title and company.',
-  'Background: two or three short lines on their career and what they are known for.',
+  'Write a short brief in plain text. No markdown, no asterisks. Use exactly these labels, each starting its own line, and leave out a label when you found nothing for it:',
+  'Role: their current job title and company, in a few words.',
+  'Location: the city or country they are based in.',
+  'Background: two or three short lines on their career and what they are known for, each on its own line starting with "- ".',
   'Company: one line on what the company does.',
-  'Recent: up to three recent, relevant things (news, posts, launches), one line each.',
+  'Recent: up to three recent, relevant things (news, posts, launches), each on its own line starting with "- ".',
+  'Ideas: up to two short things worth asking them about in this meeting, based only on what you found, each on its own line starting with "- ".',
   'LinkedIn: the address of their LinkedIn profile, if you find it.',
 ];
 const CARE = 'Only say what you actually found. If you cannot tell which person this is, say so plainly and name the most likely matches instead of guessing.';
@@ -125,4 +127,45 @@ export function mergeInto(existing, answer, dayText) {
   const lines = [`${MARK} · ${dayText} —`, answer.text];
   if (answer.sources.length) lines.push('', 'Sources:', ...answer.sources.map(s => `- ${s.title ? `${s.title}: ` : ''}${s.url}`));
   return `${own ? `${own}\n\n` : ''}${lines.join('\n')}`;
+}
+
+// ---- reading a saved note back: your own words, and the facts as tidy parts for display
+// A person's note is "<what you wrote>\n\n— Facts from the web · <day> —\n<the brief>".
+export function split(note) {
+  const at = note.indexOf(MARK);
+  if (at < 0) return { own: note, raw: '', day: '' };
+  const rest = note.slice(at), firstLine = rest.split('\n', 1)[0];
+  return { own: note.slice(0, at).trim(), raw: rest.slice(firstLine.length).trim(), day: (/·\s*(.+?)\s*—\s*$/.exec(firstLine) || [])[1] || '' };
+}
+export const join = (own, raw, day) => `${own.trim()}${raw ? `${own.trim() ? '\n\n' : ''}${MARK} · ${day} —\n${raw}` : ''}`;
+
+const LABELS = { role: 'role', location: 'location', background: 'background', company: 'company', recent: 'recent', ideas: 'ideas', linkedin: 'linkedin', sources: 'sources' };
+const asLink = text => {
+  const found = /(https?:\/\/)?((?:[\w-]+\.)+[a-z]{2,}(?:\/[^\s,;)]*)?)/i.exec(text);
+  if (!found) return null;
+  const url = `https://${found[2].replace(/[.,;]+$/, '')}`;
+  try { return { url, host: new URL(url).hostname.replace(/^www\./, '') }; } catch { return null; }
+};
+// { role, location, company, linkedin, background: [], recent: [], ideas: [], sources: [{ url, host }], other: [] }
+export function parse(raw) {
+  const out = { role: '', location: '', company: '', linkedin: '', background: [], recent: [], ideas: [], sources: [], other: [] };
+  let section = 'other';
+  for (const line0 of raw.split('\n')) {
+    let line = line0.trim();
+    if (!line) continue;
+    const label = /^([A-Za-z]+)\s*:\s*(.*)$/.exec(line);
+    if (label && LABELS[label[1].toLowerCase()]) { section = LABELS[label[1].toLowerCase()]; line = label[2].trim(); if (!line) continue; }
+    line = line.replace(/^[-•*]\s*/, '').trim();
+    if (!line || /^(none|n\/a|not found|unknown)\.?$/i.test(line)) continue;
+    if (section === 'sources') {
+      const link = asLink(line);
+      if (link && !/duckduckgo\.com$/.test(link.host) && !out.sources.some(x => x.url === link.url)) out.sources.push(link);
+    } else if (section === 'linkedin') {
+      const link = asLink(line);
+      if (link && /linkedin\.com$/.test(link.host)) out.linkedin = link.url;
+    } else if (Array.isArray(out[section])) out[section].push(line);
+    else out[section] = out[section] ? `${out[section]} ${line}` : line;
+  }
+  out.role = out.role.replace(/\.$/, '');
+  return out;
 }

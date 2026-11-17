@@ -1205,67 +1205,96 @@ function openFactsHelp(guest, from) {
   });
 }
 
-// Everything Weftday knows about one person: what you wrote about them, your meetings, your notes
-// from those meetings and what is still open. "from" is the meeting to go back to.
+// The line shown under a person's name in a meeting: their role if facts were found, else the start
+// of what you wrote about them.
+function aboutLine(email) {
+  const text = N.get(N.aboutKey(email))?.text || '';
+  if (!text) return '';
+  const { own, raw } = F.split(text);
+  return (raw && F.parse(raw).role) || AI.gistOf(own, 160);
+}
+const initials = name => name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('') || '?';
+
+// The facts found on the web, laid out as a card.
+function factsHtml(f, day) {
+  const part = (label, items) => (items.length ? `<div class="fsec${items.length > 1 ? ' multi' : ''}"><h5>${label}</h5>${items.map(x => `<p>${esc(x)}</p>`).join('')}</div>` : '');
+  return `${part('Background', f.background)}${part('Company', f.company ? [f.company] : [])}${part('Recently', f.recent)}${part('Worth asking', f.ideas)}${part('Also', f.other)}
+    ${f.sources.length ? `<div class="chips2">${f.sources.map(x => `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.host)}</a>`).join('')}</div>` : ''}
+    <div class="ffoot"><span>From the web${day ? ` · ${esc(day)}` : ''}. Check before relying on it.</span><button type="button" class="linkbtn" data-x="facts">Refresh</button></div>`;
+}
+const FACTS_LOADING = `<div class="note">Reading the web. This takes a few seconds…</div>
+  <div class="sk w40"></div><div class="sk"></div><div class="sk w80"></div><div class="sk w60"></div>`;
+
+// Everything Weftday knows about one person: facts from the web, what you wrote about them, your
+// meetings, what is still open and your notes from those meetings. "from" is the meeting to go back to.
 function openPerson(guest, from) {
-  const p = person(guest), key = N.aboutKey(p.email), about = N.get(key);
+  const p = person(guest), key = N.aboutKey(p.email), first = p.name.split(' ')[0];
+  let { own, raw, day } = F.split(N.get(key)?.text || '');
+  const f = raw ? F.parse(raw) : null;
+  const canLook = p.fullName || !!p.company, at = p.company ? ` ${p.company}` : '';
+  const linkedin = f?.linkedin || (!canLook ? '' : p.fullName
+    ? `https://www.linkedin.com/search/results/people/?keywords=${G.enc(p.name + at)}`
+    : `https://www.google.com/search?q=${G.enc(`site:linkedin.com/in ${p.name}${at}`)}`);
   const notes = N.withPeople([p.email], null);
   const open = [];
   for (const n of notes) for (const text of AI.actionsIn(n.text)) {
     const task = state.tasks.find(t => t.title.toLowerCase() === text.toLowerCase());
     if (!task?.done && !open.includes(text)) open.push(text);
   }
-  const links = lookupLinks(p, from?.title);
+  const link = (label, url) => `<a class="btn" href="${esc(url)}" target="_blank" rel="noopener">${label}</a>`;
   dialog(`<div class="dbody">
-    <h3>${esc(p.name)}</h3>
-    <div class="meta">${esc(p.email)}${p.company ? ` · ${esc(p.company)}` : ''}</div>
-    ${links ? `<div class="who"><div class="wm"><span class="look">${links}</span></div></div>` : ''}
-    <label><span>About ${esc(p.name.split(' ')[0])} <i>· only you can see this</i></span>
-      <textarea name="about" rows="4" maxlength="${N.MAX_LENGTH}" placeholder="Their role, background, what matters to them. Press “Ask AI” above and paste what you learn here. It shows in every meeting with them.">${esc(about?.text || '')}</textarea></label>
-    <div class="airow">${links ? '<button type="button" class="mini" data-x="facts">Get facts</button>' : ''}<span class="sp"></span><span class="saved" id="aboutState"></span></div>
+    <div class="phead"><div class="avatar" style="--tc:${tagColor(p.email)}">${esc(initials(p.name))}</div>
+      <div class="pmain"><h3>${esc(p.name)}</h3>
+        ${f?.role ? `<div class="prole">${esc(f.role)}</div>` : ''}
+        <div class="meta">${esc([f?.location, p.email].filter(Boolean).join(' · '))}</div></div></div>
+    ${canLook ? `<div class="btnrow">${linkedin ? link(f?.linkedin ? 'LinkedIn profile' : 'Find on LinkedIn', linkedin) : ''}${p.company ? link('Website', `https://${p.domain}`) : ''}${link('Ask AI', askAiUrl(p, from?.title))}</div>` : ''}
+    <div class="facts" id="factsBox">${f ? factsHtml(f, day)
+      : canLook ? `<div class="fempty"><b>No facts yet</b><span>Weftday can look ${esc(first)} up on the web and fill this in.</span><button type="button" class="btn primary" data-x="facts">Get facts</button></div>`
+      : '<div class="fempty"><span>There is not enough to look this person up. A first name alone is too little.</span></div>'}</div>
     <div class="note" id="searched" hidden></div>
+    <label><span>Your notes about ${esc(first)} <i>· only you can see this</i></span>
+      <textarea name="about" rows="3" maxlength="${N.MAX_LENGTH}" placeholder="What matters to them, how you know them, anything to remember. It shows in every meeting with them.">${esc(own)}</textarea></label>
+    <div class="airow"><span class="sp"></span><span class="saved" id="aboutState"></span></div>
     <h4>Your meetings</h4>
     <div class="plist2" id="metList"><div class="note">Checking your calendar…</div></div>
     ${open.length ? `<h4>Still open</h4><div class="todo2">${open.slice(0, 12).map(x => `<div>• ${esc(x)}</div>`).join('')}</div>` : ''}
     ${notes.length ? `<h4>Your notes from meetings with them</h4><div class="past">${notes.slice(0, 8).map(n => `<div><b>${esc(n.title || 'Meeting')}</b>${n.when ? ` <i>· ${esc(dayLabel(new Date(n.when)))}</i>` : ''}<div class="desc">${esc(AI.gistOf(n.text, 400))}</div></div>`).join('')}</div>` : ''}
     <div class="actions">${from ? '<button type="button" class="btn" data-x="back">Back to the meeting</button>' : ''}<span class="sp"></span><button type="button" class="btn primary" data-x="close">Close</button></div></div>`, {
     back: () => openEvent(from),
-    // Looks the person up on the web with Google's AI and writes what it finds into the About box.
-    async facts(btn) {
-      const aiKey = state.settings.aiKey;
-      if (!aiKey) return openFactsHelp(guest, from);
-      const job = aiJob = new AbortController(), label = btn.textContent;
-      btn.disabled = box.readOnly = true;
-      btn.textContent = 'Looking…';
-      saved.textContent = 'Searching the web. This takes about 20 seconds.';
+    // Looks the person up on the web with Google's AI and shows what it finds as a card.
+    async facts() {
+      if (!state.settings.aiKey) return openFactsHelp(guest, from);
+      const card = $('#factsBox', el.dlg), before = card.innerHTML;
+      const job = aiJob = new AbortController();
+      card.innerHTML = FACTS_LOADING;
       try {
         const answer = await getFacts(p, from?.title, job.signal);
-        if (job.signal.aborted || !box.isConnected) return;
-        box.value = F.mergeInto(box.value, answer, dayLabel(new Date())).slice(0, N.MAX_LENGTH);
-        commitAbout();
-        saved.textContent = 'Facts added';
-        const line = $('#searched', el.dlg);
-        if (answer.queries.length) {
+        if (job.signal.aborted || !card.isConnected) return;
+        ({ raw, day } = F.split(F.mergeInto('', answer, dayLabel(new Date()))));
+        commitAbout(true);
+        const searched = answer.queries;
+        openPerson(guest, from); // draw the page again, now with the facts
+        if (searched.length) {
+          const line = $('#searched', el.dlg);
           line.hidden = false;
-          line.innerHTML = `Google searched for: ${answer.queries.map(q => `<a href="https://www.google.com/search?q=${G.enc(q)}" target="_blank" rel="noopener">${esc(q)}</a>`).join(' · ')}`;
+          line.innerHTML = `Google searched for: ${searched.map(q => `<a href="https://www.google.com/search?q=${G.enc(q)}" target="_blank" rel="noopener">${esc(q)}</a>`).join(' · ')}`;
         }
       } catch (err) {
-        if (err.name !== 'AbortError' && box.isConnected) { saved.textContent = ''; toast(err.message, true); }
+        if (err.name !== 'AbortError' && card.isConnected) { card.innerHTML = before; toast(err.message, true); }
       } finally {
         if (aiJob === job) aiJob = null;
-        btn.disabled = box.readOnly = false;
-        btn.textContent = label;
       }
     },
   });
 
+  // Your own words save by themselves; the facts found on the web ride along in the same note.
   const box = $('[name=about]', el.dlg), saved = $('#aboutState', el.dlg);
   let timer = 0;
-  const commitAbout = () => {
+  const commitAbout = quiet => {
     clearTimeout(timer);
-    if (!N.set(key, box.value.trim() ? box.value : '', { title: p.name, when: Date.now(), people: [p.email] })) return;
+    if (!N.set(key, F.join(box.value.trim() ? box.value : '', raw, day).slice(0, N.MAX_LENGTH), { title: p.name, when: Date.now(), people: [p.email] })) return;
     scheduleFlush();
-    if (saved.isConnected) saved.textContent = plannerReady() ? 'Saved' : 'Saved on this device';
+    if (quiet !== true && saved.isConnected) saved.textContent = plannerReady() ? 'Saved' : 'Saved on this device';
   };
   box.addEventListener('input', () => { saved.textContent = ''; clearTimeout(timer); timer = setTimeout(commitAbout, 600); });
   box.addEventListener('change', commitAbout);
@@ -1302,9 +1331,9 @@ function openEvent(ev) {
   const extras = [...(ev.links || []), ...(ev.files || []).filter(f => !(ev.links || []).some(l => l.url === f.url))].slice(0, 6);
   const who = (p, lookup) => `<div class="who" data-email="${esc(p.email)}">
       <div><button type="button" class="nm" data-x="person" data-email="${esc(p.email)}" title="Everything about this person">${esc(p.name)} ›</button>${p.organizer ? ' <i>· organiser</i>' : ''}${STATUS_LABEL[p.status] ? ` <i>· ${STATUS_LABEL[p.status]}</i>` : ''}</div>
-      ${N.has(N.aboutKey(p.email)) ? `<div class="abt">${esc(AI.gistOf(N.get(N.aboutKey(p.email)).text.replace(/^— Facts from the web[^\n]*\n?/m, ''), 160))}</div>` : ''}
+      ${aboutLine(p.email) ? `<div class="abt">${esc(aboutLine(p.email))}</div>` : ''}
       <div class="wm">${lookup ? '<span class="met">Checking your past meetings…</span>' : ''}<span class="look">${lookupLinks(p, ev.title)}</span></div>
-      ${lookupLinks(p, ev.title) ? `<div><button type="button" class="mini" data-x="facts" data-email="${esc(p.email)}">${hasFacts(p.email) ? 'See facts' : 'Get facts'}</button></div>` : ''}</div>`;
+      ${lookupLinks(p, ev.title) ? `<div><button type="button" class="mini" data-x="facts" data-email="${esc(p.email)}">${hasFacts(p.email) ? 'See profile' : 'Get facts'}</button></div>` : ''}</div>`;
   dialog(`<div class="dbody">
     <h3>${esc(ev.title)}</h3>
     <div class="meta">${esc(eventWhen(ev))}</div>

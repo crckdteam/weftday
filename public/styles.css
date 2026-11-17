@@ -528,4 +528,26 @@ button.nm:hover { color: var(--accent); }
 .who .abt { font-size: 12.5px; margin: 1px 0; }
 .plist2, .todo2 { display: grid; gap: 3px; font-size: 13px; }
 .plist2 i { color: var(--muted); font-style: normal; display: inline-block; min-width: 92px; }
-.dbody textarea[name="about"] { min-height: 150px; }
+
+/* ---------- a person's profile */
+.phead { display: flex; gap: 12px; align-items: center; }
+.avatar { width: 46px; height: 46px; border-radius: 50%; flex: none; display: grid; place-items: center; font-weight: 700; font-size: 16px; letter-spacing: .02em; color: #fff; background: var(--tc, var(--accent)); }
+.pmain { min-width: 0; display: grid; gap: 1px; }
+.prole { font-weight: 550; font-size: 14px; overflow-wrap: anywhere; }
+.facts { border: 1px solid var(--line); border-radius: 12px; background: var(--bg); padding: 13px 14px; display: grid; gap: 13px; font-size: 13.5px; }
+.fsec { display: grid; gap: 4px; }
+.fsec h5 { margin: 0; font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); font-weight: 650; }
+.fsec p { margin: 0; line-height: 1.45; overflow-wrap: anywhere; }
+.fsec.multi p { padding-left: 13px; position: relative; }
+.fsec.multi p::before { content: ""; position: absolute; left: 2px; top: .6em; width: 4px; height: 4px; border-radius: 50%; background: var(--muted); }
+.chips2 { display: flex; gap: 6px; flex-wrap: wrap; }
+.chips2 a { font-size: 12px; padding: 2px 9px; border-radius: 99px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); text-decoration: none; transition: color .14s, border-color .14s; }
+.chips2 a:hover { color: var(--accent); border-color: var(--accent); }
+.ffoot { display: flex; justify-content: space-between; gap: 10px; align-items: center; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.linkbtn { border: 0; background: none; padding: 0; color: var(--accent); font-weight: 600; font-size: 12px; flex: none; }
+.fempty { display: grid; gap: 8px; justify-items: start; }
+.fempty span { color: var(--muted); }
+.sk { height: 11px; border-radius: 6px; background: linear-gradient(90deg, var(--line2) 25%, var(--line) 37%, var(--line2) 63%); background-size: 400% 100%; animation: shimmer 1.3s ease infinite; }
+.sk.w40 { width: 40%; } .sk.w60 { width: 60%; } .sk.w80 { width: 80%; }
+@keyframes shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+.dbody textarea[name="about"] { min-height: 70px; }
