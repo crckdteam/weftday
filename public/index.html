@@ -25,10 +25,16 @@
         <button id="closeSide" class="icon only-mobile" aria-label="Close menu">✕</button>
       </div>
       <form id="quick" autocomplete="off">
-        <input id="quickInput" placeholder="Add a task…  gym tomorrow 7am 1h" enterkeyhint="done" aria-label="Add a task">
-        <button type="button" id="quickAi" aria-label="Let AI turn this into tasks" title="Say it in your own words and let AI turn it into tasks (Shift+Enter)">
-          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 3.5l1.9 5.1L18 10.5l-5.1 1.9L11 17.5l-1.9-5.1L4 10.5l5.1-1.9z"/><path d="M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></svg>
-        </button>
+        <div class="qbox">
+          <svg class="qplus" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          <div class="qfield">
+            <input id="quickInput" enterkeyhint="done" aria-label="Add a task. For example: gym tomorrow 7am 1h">
+            <span class="qph" id="quickPh" aria-hidden="true">Add a task… <i>gym tomorrow 7am 1h</i></span>
+          </div>
+          <button type="button" id="quickAi" aria-label="Let AI turn this into tasks" title="Say it in your own words and let AI turn it into tasks (Shift+Enter)">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 3.5l1.9 5.1L18 10.5l-5.1 1.9L11 17.5l-1.9-5.1L4 10.5l5.1-1.9z"/><path d="M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></svg>
+          </button>
+        </div>
         <div id="quickHint" hidden></div>
       </form>
       <div id="sideBody"></div>
@@ -52,6 +58,9 @@
         <span id="status"></span>
         <button id="searchBtn" class="icon" aria-label="Search" title="Search ( / )">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg>
+        </button>
+        <button id="zoneBtn" class="icon no-mobile" aria-label="Second time zone">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.6 2.4 3.9 5.2 3.9 8.5s-1.3 6.1-3.9 8.5c-2.6-2.4-3.9-5.2-3.9-8.5S9.400 5.900 12 3.500z"/></svg><span></span>
         </button>
         <div class="seg" id="viewSeg">
           <button data-view="day">Day</button>

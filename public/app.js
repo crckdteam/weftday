@@ -8,14 +8,14 @@ import * as S from './services.js';
 import { qrSvg } from './qr.js';
 import { PUBLIC_URL } from './config.js';
 import {
-  ymd, fromYmd, addDays, startOfDay, startOfWeek, localIso, hhmm, parseHhmm, clamp,
+  pad, ymd, fromYmd, addDays, startOfDay, startOfWeek, localIso, hhmm, parseHhmm, clamp,
   fmtTime, fmtRange, fmtDur, dayLabel, uid, esc, parseQuick, days, monthStart,
 } from './util.js';
 
 const HOUR = 52, PXM = HOUR / 60, SNAP = 15;
 const INBOX_DATE = '2000-01-01'; // inbox tasks are parked on this day in the "Weftday" calendar
 const VIEWS = ['day', 'week', 'month', 'list'];
-const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
+const TZ = (zone => (zone === 'Asia/Calcutta' ? 'Asia/Kolkata' : zone))(Intl.DateTimeFormat().resolvedOptions().timeZone); // the old name for India's zone is still common
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const el = {
@@ -293,15 +293,18 @@ function freeMinutes(d) {
 
 function quickHint() {
   const v = $('#quickInput').value;
+  $('#quickPh').hidden = !!v;
   const p = v.trim() ? parseQuick(v) : null;
   if (!p || !p.title) { el.hint.hidden = true; return; }
-  const bits = [p.date ? relDay(p.date) : 'Inbox'];
-  if (p.start != null) bits.push(fmtTime(p.start));
-  if (p.duration) bits.push(fmtDur(p.duration));
-  if (p.repeat) bits.push({ daily: 'every day', weekdays: 'Mon – Fri', weekly: 'every week' }[p.repeat]);
-  if (p.tag) bits.push('#' + p.tag);
-  if (p.priority === 'high') bits.push('high priority');
-  el.hint.textContent = '↵  ' + bits.join(' · ') + (v.trim().split(/\s+/).length >= 6 ? '   ·   ✨ several tasks at once' : '');
+  // what was understood, as small labels
+  const chip = (text, kind = '') => `<span class="qchip ${kind}">${esc(text)}</span>`;
+  const bits = [p.date ? chip(relDay(p.date)) : chip('Inbox', 'plain')];
+  if (p.start != null) bits.push(chip(fmtTime(p.start)));
+  if (p.duration) bits.push(chip(fmtDur(p.duration)));
+  if (p.repeat) bits.push(chip({ daily: 'every day', weekdays: 'Mon – Fri', weekly: 'every week' }[p.repeat]));
+  if (p.tag) bits.push(chip('#' + p.tag, 'plain'));
+  if (p.priority === 'high') bits.push(chip('high priority', 'hot'));
+  el.hint.innerHTML = `<kbd>↵</kbd>${bits.join('')}${v.trim().split(/\s+/).length >= 6 ? '<span class="qchip ai">✨ ⇧↵ several at once</span>' : ''}`;
   el.hint.hidden = false;
 }
 
@@ -365,6 +368,10 @@ function renderBar() {
   }
   for (const b of document.querySelectorAll('#viewSeg button')) b.classList.toggle('on', b.dataset.view === view);
   $('#demoTag').hidden = !DEMO;
+  const z2 = state.settings.zone2 && state.settings.zone2 !== TZ ? state.settings.zone2 : '', zb = $('#zoneBtn');
+  zb.classList.toggle('on', !!z2);
+  zb.querySelector('span').textContent = z2 ? zoneShort(z2) : '';
+  zb.title = z2 ? `Second time zone: ${zoneLabel(z2)}. Press to change it or switch it off.` : 'Show a second time zone next to your own';
 }
 
 function renderView() {
@@ -516,8 +523,13 @@ function renderGrid() {
   el.grid.style.setProperty('--n', dates.length);
   el.grid.style.setProperty('--ws', `${state.settings.dayStart * PXM}px`);
   el.grid.style.setProperty('--we', `${state.settings.dayEnd * PXM}px`);
-  let head = '<div></div>';
-  let body = `<div class="gutter">${Array.from({ length: 23 }, (_, i) => `<span style="top:${(i + 1) * HOUR}px">${fmtTime((i + 1) * 60)}</span>`).join('')}</div>`;
+  // With a second time zone chosen, its hours stand under your own down the side.
+  const z2 = state.settings.zone2 && state.settings.zone2 !== TZ ? state.settings.zone2 : '';
+  const ref = dates.find(d => ymd(d) === today) || dates[0];
+  const other = h => { try { return fmtTime(zoneParts(new Date(ref.getFullYear(), ref.getMonth(), ref.getDate(), h).getTime(), z2).mins); } catch { return ''; } };
+  el.grid.classList.toggle('twozones', !!z2);
+  let head = z2 ? `<div class="zcorner"><b>${esc(zoneShort(TZ))}</b><i>${esc(zoneShort(z2))}</i></div>` : '<div></div>';
+  let body = `<div class="gutter">${Array.from({ length: 23 }, (_, i) => `<span style="top:${(i + 1) * HOUR}px">${fmtTime((i + 1) * 60)}${z2 ? `<i>${other(i + 1)}</i>` : ''}</span>`).join('')}</div>`;
   for (const d of dates) {
     const ds = ymd(d), { timed, allday } = by.get(ds), wk = d.getDay() === 0 || d.getDay() === 6;
     head += `<div class="dh${ds === today ? ' today' : ''}" data-date="${ds}">
@@ -855,12 +867,22 @@ function bind() {
     if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); quickPlan(); } // Shift+Enter: let AI work it out
   });
   $('#quickAi').onclick = quickPlan;
+  // The greyed example in the empty box changes every few seconds, to show what can be typed.
+  const examples = ['gym tomorrow 7am 1h', 'call Priya fri 3pm', 'pay rent 1 dec !', 'standup every weekday 9:30am', '✨ emails this morning, then the deck by noon'];
+  let shown = 0;
+  setInterval(() => {
+    const ph = $('#quickPh');
+    if (ph.hidden || document.hidden || calm() || document.activeElement === input) return;
+    ph.classList.add('swap');
+    setTimeout(() => { ph.querySelector('i').textContent = examples[shown = (shown + 1) % examples.length]; ph.classList.remove('swap'); }, 360);
+  }, 4200);
   $('#todayBtn').onclick = goToday;
   $('#prev').onclick = () => step(-1);
   $('#next').onclick = () => step(1);
   $('#viewSeg').onclick = e => { if (e.target.dataset.view) setView(e.target.dataset.view); };
   $('#newEvent').onclick = () => openEventForm(null);
   $('#searchBtn').onclick = e => { e.stopPropagation(); openPalette(); };
+  $('#zoneBtn').onclick = openSecondZone;
   $('#fab').onclick = e => { e.stopPropagation(); newTaskHere(); };
   $('#connect').onclick = connect;
   $('#teamsBtn').onclick = openTeams;
@@ -1053,7 +1075,7 @@ function openPalette() {
     <div id="palList"></div><div class="palfoot">↑ ↓ to move · Enter to open · Esc to close</div></div>`, {}, 'palette');
   const input = $('#palIn', el.dlg), list = $('#palList', el.dlg);
   const cmds = [
-    ['Go to today', goToday], ['Today: prepare for my meetings', openToday], ['People and companies', () => openPeople()], ['Share my free times', openFreeTimes], ['Plan my day', openPlan], ['New task', newTaskHere], ['New event', () => openEventForm(null)],
+    ['Go to today', goToday], ['Today: prepare for my meetings', openToday], ['People and companies', () => openPeople()], ['Share my free times', () => openFreeTimes()], ['Show a second time zone', openSecondZone], ['Plan my day', openPlan], ['New task', newTaskHere], ['New event', () => openEventForm(null)],
     ['Day view', () => setView('day')], ['Week view', () => setView('week')], ['Month view', () => setView('month')], ['List view', () => setView('list')],
     ['Settings', () => openSettings()], ['Set up phone or another device', openDeviceSetup], ['Keyboard shortcuts', openHelp],
   ].map(([label, run]) => ({ kind: 'Go', label, sub: '', run }));
@@ -1116,7 +1138,9 @@ function eventWhen(ev) {
     return ymd(s) === ymd(last) ? `${dayLabel(s, true)} · all day` : `${dayLabel(s)} – ${dayLabel(last)} · all day`;
   }
   const sm = s.getHours() * 60 + s.getMinutes(), em = e.getHours() * 60 + e.getMinutes();
-  return ymd(s) === ymd(e) ? `${dayLabel(s, true)} · ${fmtRange(sm, em)}` : `${dayLabel(s)} ${fmtTime(sm)} – ${dayLabel(e)} ${fmtTime(em)}`;
+  const z2 = state.settings.zone2 && state.settings.zone2 !== TZ ? state.settings.zone2 : '';
+  const there = z2 ? `  ·  ${fmtRange(zoneParts(ev.s, z2).mins, zoneParts(ev.e, z2).mins)} ${zoneShort(z2)}` : ''; // the same meeting on the second zone's clock
+  return (ymd(s) === ymd(e) ? `${dayLabel(s, true)} · ${fmtRange(sm, em)}` : `${dayLabel(s)} ${fmtTime(sm)} – ${dayLabel(e)} ${fmtTime(em)}`) + there;
 }
 
 // ---------------------------------------------------------------- meeting prep
@@ -2911,7 +2935,7 @@ async function quickPlan() {
   if (DEMO) return toast('This is sample data. Open the app without “?demo” to plan with AI.');
   const job = planJob = new AbortController();
   btn.classList.add('busy'); input.readOnly = true;
-  el.hint.textContent = '✨  Working out your tasks…'; el.hint.hidden = false;
+  el.hint.innerHTML = '<span class="qchip ai busy">✨ Working out your tasks…</span>'; el.hint.hidden = false;
   try {
     const tasks = await askForTasks(text, job.signal);
     if (job.signal.aborted) return;
@@ -3173,6 +3197,100 @@ function openPeople(tab = peopleTab) {
   if (innerWidth >= 760) find.focus();
 }
 
+// ---------------------------------------------------------------- time zones
+// Everything in Weftday is shown in this device's own time zone. On top of that you can look at a
+// second zone next to it on the calendar, and write your free times out in someone else's zone.
+const zoneParts = (ms, zone) => {
+  const p = {};
+  for (const x of new Intl.DateTimeFormat('en-US', { timeZone: zone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).formatToParts(new Date(ms))) p[x.type] = +x.value;
+  return { y: p.year, m: p.month, d: p.day, mins: p.hour * 60 + p.minute };
+};
+// The moment at which the clocks in that zone show this date and time.
+function zoneToMs(y, m, d, mins, zone) {
+  const guess = Date.UTC(y, m - 1, d, 0, mins), p = zoneParts(guess, zone);
+  return guess - (Date.UTC(p.y, p.m - 1, p.d, 0, p.mins) - guess);
+}
+const zoneNames = new Map();
+// The short name people know a zone by ("CET", "IST", "EST"), or "GMT+3" when it has none.
+function zoneShort(zone) {
+  if (zoneNames.has(zone)) return zoneNames.get(zone);
+  let name = '';
+  for (const locale of ['en-GB', 'en-US', 'en-IN', 'en-AU']) {
+    name = new Intl.DateTimeFormat(locale, { timeZone: zone, timeZoneName: 'short' }).formatToParts(new Date()).find(p => p.type === 'timeZoneName')?.value || name;
+    if (name && !/^(GMT|UTC)[+-]/.test(name)) break;
+  }
+  if (/^(GMT|UTC)[+-]/.test(name)) name = { 'Asia/Tokyo': 'JST', 'Asia/Seoul': 'KST', 'Asia/Singapore': 'SGT', 'Asia/Hong_Kong': 'HKT', 'Asia/Dubai': 'GST', 'America/Sao_Paulo': 'BRT' }[zone] || name;
+  zoneNames.set(zone, name);
+  return name;
+}
+const ZONES = [ // the ones people ask for most; any other can be found by searching
+  ['Europe/Berlin', 'Central Europe', 'Berlin, Paris, Amsterdam, Madrid, Rome, Zurich'], ['Europe/London', 'United Kingdom', 'London, Dublin, Lisbon'],
+  ['America/New_York', 'US Eastern', 'New York, Boston, Toronto, Miami'], ['America/Chicago', 'US Central', 'Chicago, Dallas, Mexico City'],
+  ['America/Denver', 'US Mountain', 'Denver, Salt Lake City'], ['America/Los_Angeles', 'US Pacific', 'San Francisco, Los Angeles, Seattle'],
+  ['America/Sao_Paulo', 'Brazil', 'São Paulo, Rio'], ['Asia/Dubai', 'Gulf', 'Dubai, Abu Dhabi'], ['Asia/Kolkata', 'India', 'Mumbai, Delhi, Bengaluru'],
+  ['Asia/Singapore', 'Singapore', 'Singapore, Kuala Lumpur'], ['Asia/Hong_Kong', 'Hong Kong', 'Hong Kong'], ['Asia/Tokyo', 'Japan', 'Tokyo, Seoul'],
+  ['Australia/Sydney', 'Australia East', 'Sydney, Melbourne'], ['Pacific/Auckland', 'New Zealand', 'Auckland'],
+];
+const zoneTitle = zone => ZONES.find(z => z[0] === zone)?.[1] || zone.split('/').pop().replace(/_/g, ' ');
+const zoneLabel = zone => `${zoneTitle(zone)} (${zoneShort(zone)})`;
+function useZone(zone) { // remembered, so the zones you use come first next time
+  if (!zone || zone === TZ) return;
+  state.settings.zonesUsed = [zone, ...(state.settings.zonesUsed || []).filter(z => z !== zone)].slice(0, 4);
+}
+// A box to choose a time zone. pick('') means your own. back() returns to where you came from.
+function openZonePick(current, pick, back, why) {
+  const all = typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : [];
+  const used = (state.settings.zonesUsed || []).filter(z => z !== TZ);
+  const row = (zone, title, sub) => {
+    let now = '';
+    try { now = fmtTime(zoneParts(Date.now(), zone).mins); } catch { return ''; }
+    return `<button type="button" class="prow2 zrow${zone === current ? ' on' : ''}" data-x="zone" data-zone="${esc(zone)}">
+      <span><b>${esc(title)} <em>${esc(zoneShort(zone))}</em></b><i>${esc(sub)}</i></span><span class="znow">${now}</span></button>`;
+  };
+  dialog(`<div class="dbody">
+    <h3>Time zone</h3>
+    <p class="note">${esc(why)}</p>
+    <input id="zoneFind" placeholder="Search a city or zone: Paris, Tokyo, EST…" autocomplete="off" spellcheck="false">
+    <div class="plist3 tall" id="zoneList"></div>
+    <div class="actions">${back ? '<button type="button" class="btn" data-x="back">Back</button>' : ''}<span class="sp"></span><button type="button" class="btn ghost" data-x="close">Close</button></div></div>`, {
+    back: () => back(),
+    zone(x) { useZone(x.dataset.zone); save(); pick(x.dataset.zone === TZ ? '' : x.dataset.zone); },
+  });
+  const find = $('#zoneFind', el.dlg), list = $('#zoneList', el.dlg);
+  function paint() {
+    const q = find.value.trim().toLowerCase();
+    let rows = '';
+    if (!q) {
+      rows += row(TZ, `My own time zone · ${zoneTitle(TZ)}`, 'Everything is shown in this zone');
+      for (const z of used) rows += row(z, zoneTitle(z), ZONES.find(x => x[0] === z)?.[2] || 'Used before');
+      for (const [z, title, cities] of ZONES) if (z !== TZ && !used.includes(z)) rows += row(z, title, cities);
+    } else {
+      const seen = new Set();
+      for (const [z, title, cities] of ZONES) if (`${title} ${cities} ${z} ${zoneShort(z)}`.toLowerCase().includes(q)) { seen.add(z); rows += row(z, title, cities); }
+      for (const z of all) {
+        if (seen.size >= 30) break;
+        if (seen.has(z) || !z.replace(/_/g, ' ').toLowerCase().includes(q)) continue;
+        seen.add(z);
+        rows += row(z, z.split('/').pop().replace(/_/g, ' '), z.split('/')[0]);
+      }
+    }
+    list.innerHTML = rows || '<div class="note">No zone matches. Try the name of a large city.</div>';
+  }
+  find.addEventListener('input', paint);
+  paint();
+  if (innerWidth >= 760) find.focus();
+}
+// The calendar's second time zone: its times stand next to your own down the side of the day and week views.
+function openSecondZone() {
+  openZonePick(state.settings.zone2 || TZ, zone => {
+    state.settings.zone2 = zone;
+    save();
+    closeDialog();
+    render();
+    toast(zone ? `${zoneLabel(zone)} is now shown next to your own time.` : 'Showing your own time zone only.');
+  }, null, 'Pick a second zone to see next to your own on the calendar. Your own time zone always stays the main one.');
+}
+
 // ---------------------------------------------------------------- share my free times
 // Loads the meetings of some days that may not be on screen.
 async function loadDays(from, to) {
@@ -3213,42 +3331,76 @@ function freeSlots(d, minLen) {
   return out;
 }
 // A short text with the times you are free across all your calendars, ready to paste into an email.
-function openFreeTimes() {
-  let days = 5, length = 30, skipped = 0;
-  const zone = new Date().toLocaleTimeString('en-GB', { timeZoneName: 'short' }).split(' ').pop();
+function openFreeTimes(keep = {}) {
+  let days = keep.days || 5, length = keep.length || 30, skipped = 0;
+  let zone = state.settings.freeZone || '', daytime = state.settings.freeDaytime !== false; // '' = your own zone
   const seg = (name, list, cur) => `<div class="seg">${list.map(([v, l]) => `<button type="button" data-x="${name}" data-v="${v}" class="${v === cur ? 'on' : ''}">${l}</button>`).join('')}</div>`;
   dialog(`<div class="dbody">
     <h3>Share my free times</h3>
     <p class="note">The times you are free across all your calendars, inside your working day. Copy them into an email or a chat.</p>
     <div class="rowline"><span class="note">Look ahead</span><span id="ftDays"></span></div>
     <div class="rowline"><span class="note">Meeting length</span><span id="ftLen"></span></div>
+    <div class="rowline"><span class="note">Written in</span><button type="button" class="btn" data-x="zone" id="ftZone"></button></div>
+    <label class="check" id="ftDayRow" hidden><input type="checkbox" id="ftDaytime"${daytime ? ' checked' : ''}>Only their daytime, 8am to 8pm</label>
     <textarea id="ftText" rows="9" spellcheck="false">Checking your calendars…</textarea>
     <div class="actions"><span class="note" id="ftNote"></span><span class="sp"></span><button type="button" class="btn ghost" data-x="close">Close</button><button type="button" class="btn primary" data-x="copy">Copy</button></div></div>`, {
     days(x) { days = +x.dataset.v; paint(true); },
     len(x) { length = +x.dataset.v; paint(false); },
+    zone() {
+      openZonePick(zone || TZ, picked => { state.settings.freeZone = picked; save(); openFreeTimes({ days, length }); },
+        () => openFreeTimes({ days, length }), 'Your free times are written out in this zone, so the other person can read them without doing the sums.');
+    },
     async copy() {
       const box = $('#ftText', el.dlg);
       try { await navigator.clipboard.writeText(box.value); toast('Copied. Paste it into your email.'); }
       catch { box.select(); toast('Press Cmd+C to copy.'); }
     },
   });
+  $('#ftDaytime', el.dlg).addEventListener('change', e => { daytime = e.target.checked; state.settings.freeDaytime = daytime; save(); paint(false); });
   const workDays = () => { // the next working days, starting today
     const out = [];
     for (let d = startOfDay(new Date()); out.length < days; d = addDays(d, 1)) if (d.getDay() % 6) out.push(d);
     return out;
   };
+  const at = (d, mins) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, mins).getTime();
+  // Your free stretches as moments in time, cut down to the other person's daytime if asked.
+  function stretches() {
+    const out = [];
+    for (const d of workDays()) for (const [s, e] of freeSlots(d, length)) {
+      let from = at(d, s), to = at(d, e);
+      if (!zone || !daytime) { out.push([from, to]); continue; }
+      const p = zoneParts(from, zone);
+      for (let n = 0; n < 2; n++) { // their day at the start of the stretch, and the one after
+        const day = new Date(Date.UTC(p.y, p.m - 1, p.d + n));
+        const open = zoneToMs(day.getUTCFullYear(), day.getUTCMonth() + 1, day.getUTCDate(), 8 * 60, zone), shut = open + 12 * 3600000;
+        const a = Math.max(from, open), b = Math.min(to, shut);
+        if (b - a >= length * 60000) out.push([a, b]);
+      }
+    }
+    return out;
+  }
   async function paint(load) {
     $('#ftDays', el.dlg).innerHTML = seg('days', [[3, '3 days'], [5, '5 days'], [10, '2 weeks']], days);
     $('#ftLen', el.dlg).innerHTML = seg('len', [[30, '30 min'], [45, '45 min'], [60, '1 hour']], length);
+    $('#ftZone', el.dlg).textContent = zone ? zoneLabel(zone) : `My time zone (${zoneShort(TZ)})`;
+    $('#ftDayRow', el.dlg).hidden = !zone;
     const list = workDays(), box = $('#ftText', el.dlg);
     if (load) {
       try { skipped = await loadDays(list[0], addDays(list[list.length - 1], 1)) || 0; }
       catch { if (box.isConnected) { box.value = 'Your calendars could not be read. Check your connection and try again.'; } return; }
       if (!box.isConnected) return;
     }
-    const lines = workDays().map(d => [d, freeSlots(d, length)]).filter(([, slots]) => slots.length)
-      .map(([d, slots]) => `• ${dayLabel(d)}: ${slots.map(([s, e]) => (s === 0 && e === 1440 ? 'all day' : `${fmtTime(s)} – ${e === 1440 ? 'midnight' : fmtTime(e)}`)).join(', ')}`);
-    box.value = lines.length ? `Here are some times that work for me (${zone}):\n${lines.join('\n')}` : 'No free time in your working hours on these days.';
+    // each stretch is written under the day it starts on, in the chosen zone
+    const z = zone || TZ, byDay = new Map();
+    for (const [from, to] of stretches()) {
+      const a = zoneParts(from, z), b = zoneParts(to, z), key = `${a.y}-${pad(a.m)}-${pad(a.d)}`;
+      const whole = a.mins === 0 && to - from >= 86400000;
+      const text = whole ? 'all day' : `${fmtTime(a.mins)} – ${b.mins === 0 ? 'midnight' : fmtTime(b.mins)}${b.d !== a.d && b.mins !== 0 ? ' (next day)' : ''}`;
+      byDay.set(key, [...(byDay.get(key) || []), text]);
+    }
+    const lines = [...byDay].sort((x, y) => x[0].localeCompare(y[0])).map(([key, parts]) => `• ${dayLabel(fromYmd(key))}: ${parts.join(', ')}`);
+    box.value = lines.length ? `Here are some times that work for me (${zone ? `${zoneTitle(zone)} time, ${zoneShort(zone)}` : zoneShort(TZ)}):\n${lines.join('\n')}`
+      : zone && daytime ? 'No free time that falls in their daytime on these days. Untick “Only their daytime” to see everything.' : 'No free time in your working hours on these days.';
     const live = state.accounts.filter(a => !a.needsReconnect).length, out = state.accounts.length - live;
     $('#ftNote', el.dlg).textContent = DEMO ? 'Sample data' : `${live} account${live === 1 ? '' : 's'} checked${out ? `, ${out} signed out and not counted` : ''}${skipped ? `, ${skipped} calendar${skipped === 1 ? '' : 's'} could not be read` : ''}`;
   }

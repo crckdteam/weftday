@@ -7,6 +7,8 @@ const KEY = DEMO ? 'planner.demo.v1' : 'planner.v1';
 const base = () => ({
   settings: {
     clientId: '', clientSecret: '', plannerAccountId: '', plannerCalendarId: '', reminder: 10, view: '',
+    zone2: '',        // a second time zone shown next to your own on the calendar ('' = none)
+    freeZone: '', freeDaytime: true, zonesUsed: [], // "Share my free times": the zone it is written in, and the zones you used before
     sideWidth: 0, // width of the side panel on a computer, if you dragged it; 0 = the usual width
     theme: 'auto', dayStart: 9 * 60, dayEnd: 18 * 60, morning: 8 * 60, // minutes after midnight; morning -1 = off
     shareAccounts: false, // keep the account list the same on all devices (see vault.js)
