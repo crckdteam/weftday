@@ -15,7 +15,7 @@ called "Teams" in your own Google account. Weftday then shows it like any other 
    **Publish a calendar** pick **Calendar** and **Can view all details**, press **Publish**, and copy the link that ends in `.ics`.
 2. **Create the helper.** Open [script.google.com](https://script.google.com) with the Google account you use in Weftday and
    press **New project**. Delete what is there and paste in everything from `teams-to-google.gs`.
-3. **Paste your link** between the quotes on the `ICS_URL` line near the top.
+3. **Paste your link** between the quotes on the `ICS_URL` line near the top. (You can skip this and do it later: the helper waits quietly until the link is there.)
 4. **Switch on Calendar access.** On the left, press **+** next to **Services**, choose **Google Calendar API**, press **Add**.
 5. **Start it.** At the top, choose the function **install**, press **Run**, and allow access when Google asks.
 6. **Open Weftday** and tick the new **Teams** calendar.

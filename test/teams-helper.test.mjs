@@ -8,8 +8,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const source = readFileSync(path.join(here, '..', 'helpers', 'teams-to-google.gs'), 'utf8')
-  .replace("'PASTE YOUR OUTLOOK CALENDAR LINK HERE'", "'https://outlook.example/calendar.ics'");
+const untouched = readFileSync(path.join(here, '..', 'helpers', 'teams-to-google.gs'), 'utf8');
+const source = untouched.replace("'PASTE YOUR OUTLOOK CALENDAR LINK HERE'", "'https://outlook.example/calendar.ics'");
+assert.notEqual(source, untouched);
 
 // ---- pretend Google
 let feed = '', feedCode = 200, seq = 0;
@@ -79,6 +80,17 @@ const utcCall = ['BEGIN:VEVENT', 'UID:UTC-1', stamp(1), 'SUMMARY:Investor call',
 const scrapped = ['BEGIN:VEVENT', 'UID:GONE-1', stamp(1), 'SUMMARY:Cancelled meeting', 'STATUS:CANCELLED', 'DTSTART:20991206T093000Z', 'DTEND:20991206T100000Z', 'END:VEVENT'];
 const oldOne = ['BEGIN:VEVENT', 'UID:OLD-1', stamp(1), 'SUMMARY:Last year kickoff', 'DTSTART:20250106T093000Z', 'DTEND:20250106T100000Z', 'END:VEVENT'];
 const all = [standup(), moved, dropped, review(), offsite, holiday, utcCall, scrapped, oldOne];
+
+// ---- 0. installed before the Outlook link is pasted in: the calendar is made and it waits quietly
+const waiting = vm.createContext({ ...g });
+vm.runInContext(untouched, waiting, { filename: 'teams-to-google.gs' });
+waiting.install();
+assert.equal(ops.fetch, 0, 'nothing is read while there is no link');
+assert.equal(props.get('calendarId'), 'teams-cal', 'the Teams calendar exists already');
+assert.equal(triggers.length, 1);
+waiting.sync();
+assert.equal(store.size, 0);
+props.clear(); triggers.length = 0; resetOps();
 
 // ---- 1. first run
 feed = ics(all);

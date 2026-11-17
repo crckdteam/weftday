@@ -28,17 +28,20 @@ function uninstall() {
 
 /** One check: reads the Outlook link and brings the Google calendar into step with it. */
 function sync() {
-  if (!/^(https|webcal):\/\//i.test(ICS_URL)) throw new Error('Paste your Outlook calendar link into ICS_URL at the top first.');
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(1000)) return; // an earlier check is still running
   try {
+    const props = PropertiesService.getScriptProperties();
+    const calendarId = targetCalendarId_(props); // makes the Google calendar the first time
+    if (!/^(https|webcal):\/\//i.test(ICS_URL)) { // installed ahead of time: wait quietly until the link is pasted in
+      console.log('Waiting for the Outlook calendar link. Paste it into ICS_URL at the top.');
+      return;
+    }
     const res = UrlFetchApp.fetch(ICS_URL.replace(/^webcal:/i, 'https:'), { muteHttpExceptions: true });
     if (res.getResponseCode() !== 200) throw new Error('Could not read the Outlook calendar link (error ' + res.getResponseCode() + ').');
     const text = res.getContentText();
     if (text.indexOf('BEGIN:VCALENDAR') < 0) throw new Error('That link did not return a calendar.');
 
-    const props = PropertiesService.getScriptProperties();
-    const calendarId = targetCalendarId_(props);
     const stamp = digest_(text.replace(/^DTSTAMP:.*$/gm, '')) + '|' + calendarId;
     if (props.getProperty('lastFeed') === stamp) return; // nothing has changed since the last check
 
