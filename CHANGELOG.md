@@ -2,11 +2,28 @@
 
 What changed in Weftday, newest first, in plain words.
 
-The layout follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Weftday has no
-numbered releases yet: the published app is always the latest version, so changes are grouped by
-the day they were made.
+The layout follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The published app is
+always the latest version, so changes are grouped by the day they were made. A numbered release
+(the first is 0.1.0, on 19 November 2026) marks a point worth naming.
 
-## Unreleased
+## 2026-11-19
+
+### Added
+
+- **The website, reworked for phones and desktop,** with a new product clip (a wide cut and a
+  phone cut).
+- **A Checks workflow on GitHub:** the secrets check and the quick checks run on every push to
+  `main` and every pull request.
+- **A page in `docs/` on publishing,** including where the README's pictures come from.
+
+### Changed
+
+- **The repository front.** The README covers what Weftday does, how to run it and its known
+  limits, `docs/README.md` is an index, and the docs now word the privacy and security notes
+  exactly as the app does.
+- Action points ticked off in a note are no longer listed as still open with a person.
+
+## 2026-11-18
 
 ### Added
 
@@ -14,15 +31,15 @@ the day they were made.
 - Forms for reporting a problem and suggesting a feature, and a pull request checklist.
 - A `docs/` folder: how the app is built, how to host your own copy, and the privacy and
   security model.
-
-### Changed
-
-- The README now covers what Weftday does, how to try it, how to run it, and its known limits.
-
-## 2026-11-18
-
-### Added
-
+- **Copy a note** with one press.
+- **A new address for the app:** https://app.weftday.crckd.live/. A small page stays at the old
+  address. It names the new one, and its **Move my things** button carries over what your browser
+  saved there: tasks, notes, connected accounts, keys and recordings. Everything passes from one
+  tab to the other inside your own browser, and nothing is deleted at the old address.
+- **One clear box when a feature needs an AI key:** "Add your AI key to use this".
+- **The website has its own address:** https://weftday.crckd.live/. It is the home page for
+  Weftday and links to the app.
+- A "That page is not here" page for an address that does not exist.
 - **Home.** The app now opens on a Home screen, and the Weftday name at the top of the side panel
   leads back to it.
 - **A notes editor and a Notes page.** Notes are typed in a small block editor (bullets,
@@ -42,6 +59,8 @@ the day they were made.
 
 ### Changed
 
+- **The guide, the privacy policy and the terms share the app's look.** The guide is now five
+  short steps.
 - **A new look for the whole app:** a calmer sidebar, side panels, a Calendar and Notes switch,
   and simpler Record, Settings and Shortcuts screens.
 - **A simpler meeting box:** who and when, three buttons and your notes, with the rest folded
@@ -49,6 +68,13 @@ the day they were made.
 - **The recorder leans toward meeting notes:** one press to record a meeting, a short Record box,
   and the notes shown first. Writing the notes is on by default unless you switch it off.
 - The calendar grid was tidied.
+- **Phone fixes:** Settings at full width, a week that is readable, and the guide, privacy policy
+  and terms in the app's look.
+
+### Removed
+
+- The app's own home page and about page (`home.html` and `about.html`). The website is the home
+  page now, and old links to those two pages lead there.
 
 ### Fixed
 
@@ -56,6 +82,7 @@ the day they were made.
 
 ### Security
 
+- The move from the old address was hardened after a security read.
 - Setup links for your own device are now locked with a one-time code and stop working after 15
   minutes.
 - A guard against calendars with look-alike names.

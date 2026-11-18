@@ -7,7 +7,7 @@ By taking part you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Run it locally
 
-You need [Node.js](https://nodejs.org) (a current version) and nothing else.
+You need [Node.js](https://nodejs.org) (version 24 or newer, the one the checks run on) and nothing else.
 
 ```bash
 git clone https://github.com/crckdteam/weftday.git
@@ -23,6 +23,16 @@ To work with a real Google account, create your own Google Cloud client as descr
 
 There is no build step. Edit a file in `public/`, reload the page, and you see the change.
 
+Where things are:
+
+| Folder | What it is |
+|---|---|
+| `public/` | The app, with its guide, privacy policy and terms |
+| `site/` | The website at https://weftday.crckd.live/ |
+| `legacy/` | The one page left at the app's old address |
+| `test/`, `tools/` | The checks, and the scripts that run and publish |
+| `docs/` | How it is built: start at [docs/README.md](docs/README.md) |
+
 ## The rules
 
 These hold for every change. A pull request that breaks one will be asked to change.
@@ -32,7 +42,8 @@ These hold for every change. A pull request that breaks one will be asked to cha
 - **No server.** The app is the static folder `public/`. Nothing may need a backend, and nothing
   may depend on a service that only the maintainers can provide.
 - **No dependencies and no build step.** Plain HTML, CSS and JavaScript modules. No package
-  manager, no bundler, no framework. If a library is truly needed, talk about it in an issue first.
+  manager, no bundler, no framework. If a library is truly needed, talk about it in an issue first. The one exception is the bundled
+  SDK in `public/vendor/`, loaded only when Claude is chosen; see `public/vendor/README.md`.
 - **Free to run.** No feature may need a paid service. Paid AI services are optional extras that
   the person chooses and pays for themselves.
 - **Everything stays with the person.** Data is kept in the browser (`localStorage`, IndexedDB) or
@@ -72,7 +83,7 @@ These hold for every change. A pull request that breaks one will be asked to cha
 
 ```bash
 sh tools/check.sh quick    # every script file reads as valid code, then the logic tests (node --test)
-sh tools/check.sh          # the same, then the real app in Chrome with sample data
+sh tools/check.sh          # the same, then the real app in Chrome with sample data, and the move from the old address
 sh tools/secrets.sh        # nothing key-shaped in the tracked files
 ```
 
@@ -83,12 +94,18 @@ a pretend microphone, camera and screen. Switch it on once:
 python3 -m venv .venv && .venv/bin/pip install playwright
 ```
 
-Note: the browser check is started through a small helper script (`with_server.py`) that is not
-in the repository yet. On a fresh clone, run `sh tools/check.sh quick` and say in your pull request
+If you cannot run the browser check, run `sh tools/check.sh quick` and say in your pull request
 that the browser check was not run. A maintainer will run it.
+
+The secrets check and the quick checks also run by themselves on every pull request, as the
+**Checks** workflow (`.github/workflows/checks.yml`). The browser check does not: it is run by a
+maintainer before the app is published.
 
 When you add something new, add a test for it: logic in `test/*.test.mjs`, screens in
 `test/smoke.py`.
+
+A change to the website (`site/`) must keep to its Content Security Policy, written at the top of
+`site/index.html`: nothing loads from outside the website's own folder.
 
 If your change adds a file to `public/`, add it to the `FILES` list in `public/sw.js` so it is
 kept for offline use. Maintainers raise the version in that file when they publish.

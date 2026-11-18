@@ -10,7 +10,7 @@ body:
 
         **Anyone can read issues.** Please do not paste API keys, sign-in tokens, client secrets, setup links or codes, and leave out private calendar details such as real names, email addresses and meeting titles. Use `?demo` sample data in pictures where you can.
 
-        **Found a security problem?** Do not report it here. Use **Security → Report a vulnerability** on the repository.
+        **Found a security problem?** Do not report it here. Use **Security → Report a vulnerability** on the repository, or [this private form](https://github.com/crckdteam/weftday/security/advisories/new).
   - type: textarea
     id: what-happened
     attributes:
@@ -42,7 +42,8 @@ body:
       label: Where does it happen
       options:
         - The published app (app.weftday.crckd.live)
-        - The sample data (?demo)
+        - The sample data (app.weftday.crckd.live/?demo)
+        - The website (weftday.crckd.live)
         - My own hosted copy
         - On my computer (node serve.mjs)
     validations:
@@ -75,6 +76,9 @@ body:
         - People and company pages
         - Teams calendar helper
         - Setting up another device
+        - The guide, privacy or terms pages
+        - The website
+        - Moving my things from the old address
         - Something else
   - type: textarea
     id: more

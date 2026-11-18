@@ -29,7 +29,10 @@ Things to know:
   works as well as the top of a domain.
 - **Set your address.** Edit `public/config.js` and change `PUBLIC_URL` to the address of your
   copy. It is used to make the "use it on your phone" link when the app runs on a computer's own
-  address.
+  address. Leave `MOVED_FROM` in that file as it is: it only matters to the published app, which
+  changed address once.
+- **You need only `public/`.** The `site/` folder is Weftday's own website and the `legacy/` folder
+  is the page left at the published app's old address. Neither is part of the app.
 - **No server settings are needed.** The Content Security Policy is inside `public/index.html`.
 - **When you update your copy,** raise the version name in `public/sw.js` (`planner-shell-vN`)
   so every device drops its old kept copy.

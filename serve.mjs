@@ -1,5 +1,5 @@
-// Tiny local web server for the Planner app. No dependencies.
-// Run:  node planner/serve.mjs   then open http://localhost:4321
+// Tiny local web server for the Weftday app. No dependencies.
+// Run:  node serve.mjs   then open http://localhost:4321
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -33,5 +33,5 @@ http.createServer(async (req, res) => {
     res.writeHead(404, { 'content-type': 'text/plain' }).end('Not found');
   }
 }).listen(port, '127.0.0.1', () => {
-  console.log(`Planner running at http://localhost:${port}`);
+  console.log(`Weftday running at http://localhost:${port}`);
 });

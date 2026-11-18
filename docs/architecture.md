@@ -44,7 +44,7 @@ Everything the app needs is in `public/`.
 | `sw.js` | The service worker: keeps a copy of the app's files so it opens offline. |
 | `config.js` | The public address of this copy of the app, and the address it was published at before. |
 | `movein.js` | Takes over what a browser saved at the app's old address, handed across by the page left there (`legacy/`). |
-| `guide.html`, `guide.js`, `privacy.html`, `terms.html`, `site.css` | The pages around the app: the guide, the privacy policy and the terms. |
+| `guide.html`, `guide.js`, `privacy.html`, `terms.html`, `404.html`, `site.css` | The pages around the app: the guide, the privacy policy, the terms, and the page shown for an address that is not there. They share the app's look. |
 | `helpers/teams-to-google.gs` | A Google Apps Script the person can run in their own account to copy a Teams or Outlook calendar into Google. |
 | `vendor/anthropic-sdk.js` | The official Anthropic SDK in one file. Loaded only when Claude is chosen. |
 | `fonts/` | Figtree and Bricolage Grotesque, under the SIL Open Font License. |
@@ -54,9 +54,10 @@ Around it:
 | Path | What it is |
 |---|---|
 | `serve.mjs` | A tiny local web server (Node.js, no dependencies) that serves `public/` on port 4321. |
-| `test/` | Logic tests (`*.test.mjs`), the browser check (`smoke.py`) and a pretend Google (`mock-google.mjs`). |
-| `tools/` | `check.sh` (all checks), `secrets.sh` (nothing key-shaped in the files), and the publish steps: `publish.sh` (the app), `publish-site.sh` (the website), `publish-legacy.sh` (the page at the old address). |
-| `site/` | The website (weftday.crckd.live), a separate static folder. |
+| `test/` | Logic tests (`*.test.mjs`), the browser check (`smoke.py`), a check of the move from the old address (`move.py`) and a pretend Google (`mock-google.mjs`). |
+| `tools/` | `check.sh` (all checks), `secrets.sh` (nothing key-shaped in the files), and the publish steps: `publish.sh` (the app), `publish-site.sh` (the website), `publish-legacy.sh` (the page at the old address). See [publishing.md](publishing.md). |
+| `.github/` | The forms for issues, the pull request checklist, and the **Checks** workflow, which runs the secrets check and the quick checks on every push to `main` and every pull request. |
+| `site/` | The website (https://weftday.crckd.live/), a separate static folder. It is the home page: the app itself opens straight on the day. |
 | `legacy/` | The one page left at the address the app used to live at. It names the new address and moves what the browser saved at the old one. |
 
 ## Where data lives
@@ -90,7 +91,8 @@ entirely in the browser by `google.js`.
    by calling Google directly.
 4. The tokens are saved with the account in `localStorage`. A short-lived token is renewed from
    Google when it runs out.
-5. Removing an account clears its tokens and asks Google to end that sign-in.
+5. Removing an account clears its tokens on this device. When no other device of the person's
+   still uses that sign-in, Google is asked to end it too.
 
 The app asks Google for calendar access. It asks for one more permission, to add its own files
 to Drive, only the first time the person makes a share link. With that permission Weftday can see
@@ -168,6 +170,19 @@ Two other AI features work differently:
 `sw.js` keeps a copy of the app's own files. It always asks the network for the newest copy first
 and falls back to the kept copy when there is no connection. Raising the version name in `sw.js`
 makes every device drop the old copy. Any new file in `public/` must be added to its `FILES` list.
+
+## The move from the old address
+
+The app is published at https://app.weftday.crckd.live/. It used to live at another address, and
+a browser keeps what a site saves under that site's address. So the one page in `legacy/` stays
+at the old address. It names the new address and, with one press, opens the app there and hands
+across what was saved: settings, tasks, notes, connected accounts, keys and recordings. This
+happens tab to tab inside the person's own browser, through no server.
+
+`movein.js` is the app's side. It takes things only from the very tab that opened it, and only
+when the browser itself says that tab is showing the old address (`MOVED_FROM` in `config.js`).
+What arrives is checked before it is saved, and anything unexpected is refused whole. A copy
+hosted somewhere else is never opened by that page, so it takes nothing in.
 
 ## Safety built into the structure
 

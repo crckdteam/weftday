@@ -2,4 +2,10 @@ blank_issues_enabled: false
 contact_links:
   - name: Read the guide
     url: https://app.weftday.crckd.live/guide.html
-    about: How each part of Weftday works, in short steps. Many questions are answered here.
+    about: How Weftday works, in five short steps. Many questions are answered here.
+  - name: Try it with sample data
+    url: https://app.weftday.crckd.live/?demo
+    about: Look around without signing in. Handy for checking whether a problem also happens there.
+  - name: Report a security problem privately
+    url: https://github.com/crckdteam/weftday/security/advisories/new
+    about: Please do not open a public issue for a security problem. Only the maintainers can read what you send here.

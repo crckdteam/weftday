@@ -32,7 +32,7 @@ Clearing the site's data in the browser erases all of it.
 | Tasks, as events in a "Weftday" calendar | The person's own Google account | If they choose an account to save tasks in |
 | Meeting notes, as hidden entries in that calendar | The person's own Google account | When tasks are saved to Google |
 | The account list, tokens and keys, encrypted | The person's own Google account | Only if "Keep my accounts the same on all my devices" is switched on. Off by default. |
-| The sound of one recording, in pieces, with who was in the meeting, the person's own notes, and the summary and open action points from the last meeting with the same people | Google's AI, with the person's key | When they press **Make notes**, or have chosen to have notes written when that recording ends |
+| The sound of one recording, in pieces, with who was in the meeting, the person's own notes, and the summary and open action points from the last meeting with the same people | Google's AI, with the person's key | When they press **Write the notes**, or have left the switch **Write my notes when it ends** on |
 | The written text of a recording and a question | Google's AI, with the person's key | When they ask a question about a recording |
 | The written text of a recording (never the sound) | Another AI service the person saved a key for | Only when Google's AI is busy or has reached its free limit |
 | A person's name, their company and the meeting's title | The AI service the person chose, and a search service if they added one | When they press **Get facts**. Also for today's guests if they switch on the setting for that. Off by default. |
@@ -49,6 +49,10 @@ Things that are never sent anywhere:
 - **Share my free times** writes a text to copy.
 
 Each outside service has its own terms for what it receives. The privacy policy names them.
+
+The website (https://weftday.crckd.live/) is a separate static folder, `site/`. It has no
+analytics either, and its Content Security Policy lets scripts, styles, fonts and pictures load
+only from its own files.
 
 ## Recording other people
 
@@ -69,7 +73,8 @@ link stops working.
   `mailto:`.
 - **Sign-in.** The authorization code flow with PKCE, with a one-time value checked on return.
   The one-time code is taken out of the address bar at once. Tokens are kept in the browser and
-  cleared when an account is removed, and Google is asked to end that sign-in.
+  cleared on this device when an account is removed. When no other device of the person's still
+  uses that sign-in, Google is asked to end it too.
 - **Least access.** Calendar access is asked for at sign-in. Drive access is asked for only when
   the first share link is made, and covers only files Weftday created.
 - **Keys.** Sent only to the service they belong to, in a header where the service allows it.
@@ -79,10 +84,16 @@ link stops working.
   private as that secret.
 - **Setup links.** A link that signs a person's own device in is encrypted with a key made from
   a one-time code (PBKDF2, then AES-GCM) and stops working after 15 minutes.
+- **Moving from the old address.** The app changed address once. The page left at the old
+  address hands what the browser saved there to the app at the new one, tab to tab, inside the
+  person's own browser. It sends only to the one tab it opened itself, and only while that tab
+  shows the new address. The app (`public/movein.js`) takes things only from the tab that opened
+  it, only when that tab shows the old address, and checks what arrives before saving it. Nothing
+  goes through a server.
 - **No secrets in the repository.** `tools/secrets.sh` looks for anything key-shaped and stops a
-  publish that contains it.
+  publish that contains it. The same check runs on every push to `main` and every pull request.
 - **Checks before publishing.** `tools/publish.sh` runs the secrets check, the logic tests and
-  the browser check, and refuses to publish if any fails.
+  the browser check, and refuses to publish if any fails. See [publishing.md](publishing.md).
 
 ## Limits worth knowing
 

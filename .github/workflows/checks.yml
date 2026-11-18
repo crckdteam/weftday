@@ -1,0 +1,42 @@
+# Runs Weftday's quick checks on every push to main and on every pull request:
+#   1. nothing key-shaped is in the files      (tools/secrets.sh)
+#   2. every script file reads as valid code,
+#      then the logic tests                    (tools/check.sh quick)
+# Both need Node.js and nothing else. The full browser check (tools/check.sh with no word after it)
+# needs Chrome and Python's Playwright, and is run by a maintainer before the app is published.
+name: Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quick:
+    name: Secrets check and logic tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Nothing key-shaped in the files
+        run: sh tools/secrets.sh
+
+      - name: Every script reads as valid code, then the logic tests
+        run: sh tools/check.sh quick
