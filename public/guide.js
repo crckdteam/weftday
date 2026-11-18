@@ -63,7 +63,7 @@ const STEPS = [
   { name: 'Record', title: 'Let the meeting write its own notes',
     say: 'Press <b>Record</b> on a meeting. Weftday listens (no bot joins the call) while you jot a few words. When it ends, the notes are written for you: a summary, decisions, what you owe and what others owe you, with who said what.',
     tip: 'Ask any recording a question, or ask all your meetings at once. Record can also keep a video of your screen, with your camera in a corner, and screenshots.',
-    art: `<div class="wf"><div style="position:relative;height:150px;border-radius:10px;background:color-mix(in srgb,var(--text) 86%,transparent);overflow:hidden">
+    art: `<div class="wf"><div class="screenblock">
         <span class="bar" style="position:absolute;left:14px;top:16px;width:40%;opacity:.5"></span><span class="bar" style="position:absolute;left:14px;top:32px;width:62%;opacity:.3"></span><span class="bar" style="position:absolute;left:14px;top:48px;width:50%;opacity:.3"></span>
         <span class="ava" style="position:absolute;right:12px;bottom:12px;width:46px;height:46px;font-size:13px;box-shadow:0 0 0 2px #fff">You</span></div>
       <div class="row"><i class="dotc" style="background:var(--now);border-radius:50%"></i><b>12:48</b><span class="sp"></span><span class="mini">Pause</span><span class="mini go">Stop</span></div>
@@ -105,7 +105,9 @@ function show(i, quiet) {
   $('tip').innerHTML = s.tip;
   $('art').innerHTML = s.art;
   $('back').disabled = at === 0;
-  $('back').style.visibility = at === 0 ? 'hidden' : '';
+  $('back').hidden = at === 0 || last;
+  $('demo').hidden = !last;
+  $('skip').hidden = last;
   $('next').textContent = last ? 'Open Weftday' : 'Next';
   $('bar').style.width = `${(at + 1) / STEPS.length * 100}%`;
   $('where').textContent = s.name;

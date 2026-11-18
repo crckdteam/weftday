@@ -85,6 +85,8 @@ let dlgOpenedAt = 0, closeTimer = 0;
 let noteCommit = null; // saves the notes box of the meeting that is open, if any
 let aiJob = null;      // lets a running "Tidy my notes" be stopped when its box goes away
 // Starts a piece of AI work, stopping the one before it so nothing is left running unseen.
+let keyAt = 0; // when a key was last pressed
+addEventListener('keydown', () => { keyAt = Date.now(); }, true);
 function newJob() { aiJob?.abort(); return (aiJob = new AbortController()); }
 function saveOpenNote() { aiJob?.abort(); aiJob = null; const f = noteCommit; noteCommit = null; if (f) f(); }
 function dialog(html, handlers = {}, cls = '') {
@@ -98,7 +100,12 @@ function dialog(html, handlers = {}, cls = '') {
   if (showing) el.dlg.append(el.toast); // a message on screen stays in front of the new box
   if (recBar?.isConnected) el.dlg.append(recBar); // so does the bar of a running recording
   dlgOpenedAt = Date.now();
+  document.body.classList.remove('side-open'); // on a phone, a box opened from the side panel replaces it
   if (!el.dlg.open) el.dlg.showModal();
+  // A box that opens without a key press (by itself, or from a tap) should not draw a keyboard ring
+  // round its first link: the box itself takes the focus, and Tab goes on from there.
+  const first = document.activeElement;
+  if (Date.now() - keyAt > 800 && el.dlg.contains(first) && !first.matches('input, textarea, select, [contenteditable], [autofocus]')) { el.dlg.tabIndex = -1; el.dlg.focus(); }
   el.dlg.onclick = e => {
     if (el.dlg.classList.contains('closing')) return; // fading out: a second click must not run anything twice
     if (e.target === el.dlg) { if (Date.now() - dlgOpenedAt > 250) closeDialog(); return; }
@@ -398,6 +405,7 @@ function render() {
 
 function renderBar() {
   const dates = visibleDates();
+  document.body.dataset.view = view; // lets the styles tell the views apart (a week on a phone is drawn tighter)
   document.body.classList.toggle('innotes', view === 'notes');
   document.body.classList.toggle('inhome', view === 'home');
   if (view === 'notes') el.title.textContent = 'Notes';
@@ -1562,7 +1570,7 @@ function openPerson(guest, from) {
   meetingsWith(p.email).then(list => {
     if (!box2?.isConnected) return; // another page was opened meanwhile
     const now = Date.now(), past = list.filter(m => m.s < now).reverse(), next = list.filter(m => m.s >= now);
-    const row = m => `<div><i>${esc(dayLabel(new Date(m.s)))}</i> ${esc(m.title || '')}${N.has(m.nk) ? ' ✎' : ''}</div>`;
+    const row = m => `<div><i>${esc(dayLabel(new Date(m.s)))}</i> ${esc(m.title || '')}${N.has(m.nk) ? ' <i class="nmark" title="You have notes on this one"></i>' : ''}</div>`;
     box2.innerHTML = !list.length ? '<div class="note">No meetings with them in the past year.</div>'
       : `<div class="note">${past.length ? `Met ${past.length === 1 ? 'once' : `${past.length} times`} in the past year` : 'Not met yet'}${next.length ? ` · ${next.length} coming up` : ''}</div>
          ${next.slice(0, 3).map(row).join('')}${past.slice(0, 8).map(row).join('')}${past.length > 8 ? `<div class="note">and ${past.length - 8} earlier</div>` : ''}`;
@@ -2775,7 +2783,7 @@ function openSettings(msg, pane) {
           <h4>Google accounts</h4>
           <div class="sgroup">
             ${accounts || `<div class="srow">${text('No account connected yet', 'Connect one to see its calendars here')}</div>`}
-            <div class="srow">${text('Add another', '')}<button type="button" class="btn" data-x="connect">Connect account</button></div>
+            <div class="srow">${text(state.accounts.length ? 'Add another' : 'Connect your first account', '')}<button type="button" class="btn" data-x="connect">Connect account</button></div>
           </div>
           <h4>Tasks and devices</h4>
           <div class="sgroup">
@@ -2822,7 +2830,7 @@ function openSettings(msg, pane) {
                 <div class="sfield">
                   <label for="searchKeyBox"><b id="searchKeyLabel"></b><i class="stag rec" id="searchRecTag" hidden>Recommended</i>${keyTag('', 'searchKeyTag')}</label>
                   <input id="searchKeyBox" name="searchKey" type="password" placeholder="Paste your key here" autocomplete="off" spellcheck="false">
-                  <details><summary id="searchHelpTitle"></summary><ol id="searchKeyHelp"></ol></details>
+                  <details class="keyhelp"><summary id="searchHelpTitle"></summary><ol id="searchKeyHelp"></ol></details>
                 </div>
               </div>
               ${row('“Ask AI” opens', 'A chat app in a new tab, with a question about the person already typed', select('aiApp', Object.entries(AI_APPS).map(([k, v]) => [k, v[0]]), s.aiApp))}
@@ -2917,6 +2925,7 @@ function openSettings(msg, pane) {
       say('Checking…');
       try {
         const ok = await S.keyWorks(svc, key);
+        if (ok === false) { const t = part('aiKeyTag'); t.textContent = 'Not accepted'; t.className = 'stag bad'; }
         say(ok ? 'This key works. Press Save to keep it.' : ok === false ? `${svc.name} did not accept this key. Copy the whole key again and paste it here.` : 'This service cannot be checked from here. Press Save and try it.', ok ? 'good' : ok === false ? 'bad' : '');
       } catch (err) { say(err.message, 'bad'); }
     },
@@ -2994,7 +3003,8 @@ function openSettings(msg, pane) {
 
   // The boxes follow the chosen AI service and search service.
   const box = name => $(`[name=${name}]`, el.dlg), part = id => $(`#${id}`, el.dlg);
-  const setTag = (id, on) => { const t = part(id); t.textContent = on ? 'Saved' : 'Not added'; t.className = `stag ${on ? 'ok' : ''}`; };
+  // "Saved" only once it really is: a key typed in but not yet saved says so.
+  const setTag = (id, value, stored) => { const t = part(id), same = !!value && value === stored; t.textContent = !value ? 'Not added' : same ? 'Saved' : 'Not saved yet'; t.className = `stag ${same ? 'ok' : ''}`; };
   function keep() { // what is typed in the boxes right now
     keys[provider] = box('aiKey').value.trim();
     models[provider] = box('aiModel').value.trim();
@@ -3003,11 +3013,17 @@ function openSettings(msg, pane) {
   function showStates() {
     const [label, kind] = factsState(), t = part('factsState');
     t.textContent = label; t.className = `stag ${kind}`;
-    setTag('aiKeyTag', keys[provider]); setTag('searchKeyTag', findKeys[finder]);
+    setTag('aiKeyTag', keys[provider], aiKeyOf(provider));
+    setTag('searchKeyTag', findKeys[finder], (finder === 'tavily' ? state.settings.searchKey : state.settings.searchKeys?.[finder]) || '');
   }
   function showServices() {
     const svc = S.aiService(provider), find = S.searchService(finder);
     part('aiKeyPart').hidden = !!svc.noKey;
+    const on = !!svc.noKey || !!aiKeyOf(provider), head = $('.aihead div', el.dlg);
+    $('.aihero', el.dlg).classList.toggle('ready', on);
+    $('b', head).textContent = on ? 'AI is switched on' : svc.kind === 'google' ? 'Switch AI on with one free key' : `Switch AI on with your ${svc.name} key`;
+    $('span', head).textContent = on ? (svc.kind === 'google' ? 'Notes from recordings, questions about your meetings and tasks in your own words are ready.' : `${svc.name} is set up. Notes from a recording still use the free Google key.`)
+      : svc.kind === 'google' ? 'It takes about a minute. Google gives the key away free; you paste it below.' : 'Paste the key below. Notes from a recording still use the free Google key.';
     part('aiKeyLabel').textContent = svc.label || '';
     part('aiRecTag').hidden = !svc.recommended;
     part('searchRecTag').hidden = !find.recommended;
@@ -3441,7 +3457,7 @@ function openCompany(domain, back) {
     if (!box?.isConnected) return; // another page was opened meanwhile
     const all = [...new Map(lists.flat().map(m => [m.nk, m])).values()].sort((a, b) => b.s - a.s);
     const now = Date.now(), next = all.filter(m => m.s >= now).reverse(), past = all.filter(m => m.s < now);
-    const row = m => `<div><i>${esc(dayLabel(new Date(m.s)))}</i> ${esc(m.title || '')}${N.has(m.nk) ? ' ✎' : ''}</div>`;
+    const row = m => `<div><i>${esc(dayLabel(new Date(m.s)))}</i> ${esc(m.title || '')}${N.has(m.nk) ? ' <i class="nmark" title="You have notes on this one"></i>' : ''}</div>`;
     box.innerHTML = !all.length ? '<div class="note">No meetings with them in the past year.</div>'
       : `<div class="note">${past.length ? `Met ${past.length === 1 ? 'once' : `${past.length} times`} in the past year` : 'Not met yet'}${next.length ? ` · ${next.length} coming up` : ''}</div>
          ${next.slice(0, 3).map(row).join('')}${past.slice(0, 8).map(row).join('')}`;
@@ -3479,7 +3495,7 @@ function openPeople(tab = peopleTab) {
       const hits = outside.filter(w => !q || `${w.name} ${w.email} ${w.company}`.toLowerCase().includes(q))
         .sort((a, b) => rank(b) - rank(a) || a.name.localeCompare(b.name));
       list.innerHTML = hits.slice(0, 60).map(w => personRow(w, [roleOf(w), roleOf(w) ? '' : w.company].filter(Boolean).join('') || w.email)).join('')
-        || '<div class="note">Nobody matches. People appear here once they are in one of your meetings.</div>';
+        || `<div class="note">${q ? 'Nobody matches that search.' : 'Nobody here yet. People appear once they are in one of your meetings.'}</div>`;
       count.textContent = hits.length > 60 ? `Showing 60 of ${hits.length}. Search to narrow it down.` : `${hits.length} ${hits.length === 1 ? 'person' : 'people'}`;
     } else {
       const hits = [...firms].filter(([domain, ws]) => !q || `${ws[0].company} ${domain}`.toLowerCase().includes(q))
@@ -4796,7 +4812,7 @@ function firstTip(id) {
 
 // ---------------------------------------------------------------- sample data (?demo)
 const DEMO_ACCOUNTS = [
-  { id: 'work@example.com', email: 'work@example.com', color: '#2f6fed', calendars: [{ id: 'work', summary: 'Work', primary: true, accessRole: 'owner', enabled: true }] },
+  { id: 'work@example.com', email: 'work@example.com', color: '#3566e0', calendars: [{ id: 'work', summary: 'Work', primary: true, accessRole: 'owner', enabled: true }] },
   { id: 'personal@example.com', email: 'personal@example.com', color: '#1a9a6c', calendars: [{ id: 'personal', summary: 'Personal', primary: true, accessRole: 'owner', enabled: true }] },
 ];
 function demoEvents(ws) {

@@ -8,7 +8,7 @@ const API = 'https://www.googleapis.com/calendar/v3';
 const SCOPE = 'https://www.googleapis.com/auth/calendar';
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file'; // only the files Weftday itself puts in Drive (share links)
 const PENDING = 'planner.oauth';
-export const COLORS = ['#2f6fed', '#1a9a6c', '#8e5bd6', '#e07a1f', '#d6457f', '#0e9aa7'];
+export const COLORS = ['#3566e0', '#1a9a6c', '#8e5bd6', '#e07a1f', '#d6457f', '#0e9aa7'];
 
 // The address Google sends you back to: the folder this app is served from.
 // Ends a sign-in at Google, so a copy of it kept anywhere else stops working. Best effort: no answer is needed.
