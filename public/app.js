@@ -4128,6 +4128,7 @@ async function notesFromRecording(rec, signal, say) {
       + '"summary":"two or three sentences: what it was about, what was settled, where things stand now","next":"one sentence: the single most useful next step for me",'
       + '"decisions":["…"],"mine":["…"],"theirs":["…"],"questions":["…"],"facts":["…"],"settled":["…"],'
       + '"voices":{"Speaker 1":"that person’s real name, only when the talk makes it certain, otherwise empty"},"chapters":[{"at":"m:ss","title":"three to six words"}]}',
+    'voices: give a voice a name only when the talk leaves no doubt whose voice it is. A name that is said TO someone (“Morning Rohan”) belongs to the person spoken to, never to the one saying it. Never use a company name, and never guess from the list of names to spell: when unsure, leave it empty.',
     'decisions: what was agreed or settled. mine: what I have to do; start with a verb and keep the deadline, written as a date when one was meant (“Send the contract by Fri 20 Nov”). theirs: what somebody else promised; start with their name and a colon (“Ravi: send the security questionnaire by Wed 18 Nov”). When it is not clear who will do something, it goes in theirs, starting with “Someone:”. questions: what was left open. facts: prices, numbers, dates, names and other details worth keeping exactly as said. settled: lines from “Still open from earlier meetings” that this meeting dealt with, copied word for word.',
     'Fit the notes to the kind of meeting: for a sales or customer call bring out what they need, their objections and the next step; for an interview, strengths, concerns and what happens next; for a team meeting, who does what by when.',
     'chapters: where the talk moves to a new subject, with the time from the transcript where it starts; three to eight for a long meeting, none for one shorter than five minutes.',
@@ -4146,9 +4147,18 @@ async function notesFromRecording(rec, signal, say) {
   };
   if (!result.summary && !result.actions.length && !result.decisions.length) throw new Error('The AI could not write notes from this recording. Please try again.');
   // Voices get their real names where the talk made them certain, and the recording gets its chapters.
+  // A wrong name on a voice is worse than "Speaker 2", so a name is only taken when it is a person
+  // (me, a guest, or a name that was actually spoken in the meeting), and no two voices get the same one.
+  // (Tried with a real key: voices were once named after the companies in my own email addresses.)
   const voices = got.voices && typeof got.voices === 'object' && !several ? got.voices : {};
+  const said = lines.map(l => l.text).join(' ').toLowerCase(), people = [me, ...guests.map(x => x.who.name)].filter(Boolean).map(n => n.toLowerCase());
+  const firstWord = name => name.toLowerCase().split(/\s+/)[0].replace(/[^\p{L}\p{N}'-]/gu, '');
+  const isPerson = name => { const f = firstWord(name); return f.length > 1 && (people.some(p => p === name.toLowerCase() || p.split(/\s+/)[0] === f) || new RegExp(`(^|[^\\p{L}])${f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\p{L}])`, 'u').test(said)); };
+  const naming = {};
+  for (const [voice, raw] of Object.entries(voices)) { const name = line(raw).slice(0, 40); if (name && !/^speaker\b/i.test(name) && isPerson(name)) naming[voice] = name; }
+  for (const voice of Object.keys(naming)) if (Object.keys(naming).some(other => other !== voice && naming[other]?.toLowerCase() === naming[voice].toLowerCase())) delete naming[voice]; // two voices, one name: neither is certain
   let renamed = false;
-  for (const l of lines) { const name = line(voices[l.who]).slice(0, 40); if (name && !/^speaker\b/i.test(name)) { l.who = name; renamed = true; } }
+  for (const l of lines) { const name = naming[l.who]; if (name) { l.who = name; renamed = true; } }
   if (renamed) transcript = written();
   const seconds = at => { const p = String(at || '').split(':').map(Number); return p.length > 1 && p.every(Number.isFinite) ? p.reduce((sum, x) => sum * 60 + x, 0) : NaN; };
   const chapters = (Array.isArray(got.chapters) ? got.chapters : []).map(c => ({ t: seconds(c?.at), title: line(c?.title).slice(0, 80) }))

@@ -232,6 +232,17 @@ const base64Of = blob => new Promise((done, fail) => {
 // Writes down what is said in a piece of sound, with who spoke and when, using Google's transcription
 // model (free with the same key). Returns { text, turns: [{ who, at, text }] }: who is 0, 1, 2… for
 // each voice it tells apart (null when it cannot), at is the second the turn starts.
+// The listening model now and then writes a whole sentence twice in a row. Said once is what was said.
+export function saidOnce(text) {
+  const out = [];
+  for (const part of String(text).split(/(?<=[.?!…])\s+/)) { // a sentence ends at a full stop that is followed by a space, so “2.41” stays whole
+    const s = part.trim();
+    if (!s) continue;
+    if (out.length && s.split(/\s+/).length >= 4 && out[out.length - 1].toLowerCase() === s.toLowerCase()) continue;
+    out.push(s);
+  }
+  return out.join(' ');
+}
 export async function transcribe(blob, mime, key, signal) {
   const data = await base64Of(blob), stop = new AbortController(), giveUp = () => stop.abort();
   signal?.addEventListener('abort', giveUp);
@@ -243,7 +254,7 @@ export async function transcribe(blob, mime, key, signal) {
       headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
       body: JSON.stringify({
         model: 'models/gemini-3.5-transcribe', store: false,
-        input: [{ type: 'audio', data, mime_type: /mp4|m4a|aac/.test(mime) ? 'audio/m4a' : 'audio/webm' }],
+        input: [{ type: 'audio', data, mime_type: /mp4|m4a|aac/.test(mime) ? 'audio/m4a' : /wav/.test(mime) ? 'audio/wav' : /mpeg|mp3/.test(mime) ? 'audio/mp3' : /ogg/.test(mime) ? 'audio/ogg' : 'audio/webm' }],
         generation_config: { transcription_config: { mode: { type: 'verbatim', diarization_mode: 'speaker', timestamp_granularities: ['word'] } } },
       }),
     });
@@ -271,7 +282,7 @@ export async function transcribe(blob, mime, key, signal) {
     else { last.text += ` ${w.text}`; last.n++; }
   }
   if (!turns.length && text) turns.push({ who: null, at: 0, text });
-  return { text, turns: turns.map(({ who, at, text: said }) => ({ who, at, text: said })) };
+  return { text, turns: turns.map(({ who, at, text: said }) => ({ who, at, text: saidOnce(said) })) };
 }
 export async function askAudio(blob, mime, question, key, signal) {
   const data = await base64Of(blob);

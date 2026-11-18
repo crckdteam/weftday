@@ -106,3 +106,12 @@ test('a point ticked off in a note is not listed as still open', async () => {
   assert.deepEqual(actionsIn(note), ['Send the plan', 'Share the one-pager', 'Call Ravi', 'Book the kickoff']);
   assert.deepEqual(openActionsIn(note), ['Send the plan', 'Book the kickoff']);
 });
+
+test('a sentence the listening model wrote twice in a row is kept once', async () => {
+  const { saidOnce } = await import('../public/facts.js');
+  assert.equal(saidOnce('What if we keep the old price for six months? What if we keep the old price for six months? Zainab ran the numbers.'), 'What if we keep the old price for six months? Zainab ran the numbers.');
+  assert.equal(saidOnce('Yes. Yes. Okay then.'), 'Yes. Yes. Okay then.', 'short echoes are how people talk and stay');
+  assert.equal(saidOnce('2.41 crore to be exact. 2.41 crore to be exact. I will send the sheet'), '2.41 crore to be exact. I will send the sheet');
+  assert.equal(saidOnce('One sentence only'), 'One sentence only');
+  assert.equal(saidOnce(''), '');
+});

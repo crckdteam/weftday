@@ -147,7 +147,7 @@ def note_page_checks(browser):
 
     def pretend(route):
         body = route.request.post_data or ''
-        if 'Answer my question from my note below' in body:
+        if 'I am asking about one of my meetings' in body:
             asked['note'] = 'and the transcript of its recording' in body and 'We agreed the price is 40 dollars' in body
             text = '<b>40 dollars</b> a seat.\nRavi sends the questionnaire.'
         elif 'Write a follow-up email' in body:
