@@ -1601,7 +1601,7 @@ function openBrief(ev) {
   const key = noteKey(ev), emails = others.map(x => x.who.email);
   const earlier = N.withPeople(emails, key), last = earlier.find(n => (n.when || 0) < ev.s) || null;
   const open = [];
-  for (const n of earlier) for (const text of AI.actionsIn(n.text)) {
+  for (const n of earlier) for (const text of AI.openActionsIn(n.text)) {
     const task = state.tasks.find(t => t.title.toLowerCase() === text.toLowerCase());
     if (!task?.done && !open.includes(text)) open.push(text);
   }
@@ -3305,7 +3305,7 @@ const outsiders = ev => (ev.att || []).filter(g => !g.resource).map(g => ({ gues
 // Things you noted as action points with these people that are not ticked off yet: [{ text, when }].
 function openItems(emails, exceptKey) {
   const out = [];
-  for (const n of N.withPeople(emails, exceptKey)) for (const text of AI.actionsIn(n.text)) {
+  for (const n of N.withPeople(emails, exceptKey)) for (const text of AI.openActionsIn(n.text)) { // a point ticked in the note is done, even with no task made from it
     const task = state.tasks.find(t => t.title.toLowerCase() === text.toLowerCase());
     if (!task?.done && !out.some(o => o.text === text)) out.push({ text, when: n.when || 0 });
   }

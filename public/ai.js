@@ -113,7 +113,7 @@ export function gistOf(text, max = 280) {
 }
 
 // The list under one heading of a note ("Action points", "Decisions"…), whether the AI wrote it or you did.
-function listUnder(text, heading) {
+function listUnder(text, heading, openOnly = false) {
   const out = [];
   let inside = false;
   for (const raw of text.split('\n')) {
@@ -121,11 +121,14 @@ function listUnder(text, heading) {
     if (heading.test(line)) { inside = true; continue; }
     if (!inside) continue;
     const item = /^[-*•]\s*(?:\[[ x]?\]\s*)?(.+)$/i.exec(line);
+    if (item && openOnly && /^[-*•]\s*\[x\]/i.test(line)) continue; // ticked off in the note: no longer open
     if (item) out.push(item[1].trim());
     else if (line) break; // the next heading ends the list
   }
   return out;
 }
 export const actionsIn = text => listUnder(text, /^action (points|items)\s*:?$/i);
+// The action points that are not ticked off in the note itself.
+export const openActionsIn = text => listUnder(text, /^action (points|items)\s*:?$/i, true);
 export const decisionsIn = text => listUnder(text, /^decisions\s*:?$/i);
 export const waitingIn = text => listUnder(text, /^waiting on others\s*:?$/i);

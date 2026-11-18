@@ -99,3 +99,10 @@ test('a deadline word leaves no dangling “by”', () => {
   assert.deepEqual([t.title, t.date], ['Send the contract', '2026-11-20']);
   assert.equal(quick('Stand by for the call').title, 'Stand by for the call'); // no date was read: nothing is cut
 });
+
+test('a point ticked off in a note is not listed as still open', async () => {
+  const { actionsIn, openActionsIn } = await import('../public/ai.js');
+  const note = 'Summary\nFine.\n\nAction points\n- [ ] Send the plan\n- [x] Share the one-pager\n- [X] Call Ravi\n- Book the kickoff\n\nOpen questions\n- [ ] not an action';
+  assert.deepEqual(actionsIn(note), ['Send the plan', 'Share the one-pager', 'Call Ravi', 'Book the kickoff']);
+  assert.deepEqual(openActionsIn(note), ['Send the plan', 'Book the kickoff']);
+});
