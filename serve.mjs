@@ -21,6 +21,7 @@ http.createServer(async (req, res) => {
   try {
     let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
     if (p === '/') p = '/index.html';
+    if (!path.extname(p)) p += '.html'; // "/invite" is invite.html, as on most static hosts
     const file = path.join(root, path.normalize(p));
     if (!file.startsWith(root + path.sep)) { res.writeHead(403).end('Forbidden'); return; }
     const data = await readFile(file);

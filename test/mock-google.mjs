@@ -124,6 +124,7 @@ http.createServer(async (req, res) => {
     if (p.startsWith('/mock/drive/v3/') || p.startsWith('/mock/upload/drive/v3/')) return await drive(req, res, url, p);
     if (p.startsWith('/mock/calendar/v3/')) return await api(req, res, url);
     if (p === '/') p = '/index.html';
+    if (!path.extname(p)) p += '.html'; // "/invite" is invite.html, as on the real host
     const file = path.join(root, path.normalize(p));
     if (!file.startsWith(root + path.sep)) { res.writeHead(403).end('Forbidden'); return; }
     let data = await readFile(file);

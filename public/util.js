@@ -196,3 +196,22 @@ export function tidyDates(text, base = Date.now()) {
     .replace(new RegExp(`\\b${W}(?:the\\s+)?(\\d{1,2})(?:st|nd|rd|th)?(?:\\s+of)?\\s+${M}${Y}(?![\\w])`, 'g'), (all, d, m, y) => write(all, d, m, y))
     .replace(new RegExp(`\\b${W}${M}\\s+(?:the\\s+)?(\\d{1,2})(?:st|nd|rd|th)?${Y}(?![\\w:.])`, 'g'), (all, m, d, y) => write(all, d, m, y));
 }
+
+// An invite link carries the Google sign-in setup of the copy of Weftday it was made in (the client
+// ID and its secret), packed into one short code, so the person invited can skip that setup. The
+// code rides after the "#" of the link, which a browser never sends to any server.
+const CLIENT_END = '.apps.googleusercontent.com';
+export function packInvite(clientId, secret) {
+  const id = String(clientId || ''), s = String(secret || '');
+  if (!/^[\w.-]+\.apps\.googleusercontent\.com$/.test(id) || /\s/.test(s) || s.length > 200) return '';
+  return btoa(`${id.slice(0, -CLIENT_END.length)}\n${s}`).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+// The setup inside an invite code, { i: client ID, s: secret }, or null when the code is not one.
+export function unpackInvite(code) {
+  if (typeof code !== 'string' || !/^[\w-]{8,600}$/.test(code)) return null;
+  let text = '';
+  try { text = atob(code.replace(/-/g, '+').replace(/_/g, '/')); } catch { return null; }
+  const at = text.indexOf('\n'), id = at < 0 ? '' : text.slice(0, at), s = at < 0 ? '' : text.slice(at + 1);
+  if (!/^[\w-]+(\.[\w-]+)*$/.test(id) || /[\s<>"'`]/.test(s) || s.length > 200) return null;
+  return { i: id + CLIENT_END, s };
+}

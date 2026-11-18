@@ -16,7 +16,7 @@ import { PUBLIC_URL } from './config.js';
 import * as Move from './movein.js';
 import {
   pad, ymd, fromYmd, addDays, startOfDay, startOfWeek, localIso, hhmm, parseHhmm, clamp,
-  fmtTime, fmtRange, fmtDur, dayLabel, uid, esc, parseQuick, days, monthStart, repeatsOn, repeatLabel, repeatDays, firstRepeatDay, VIDEO_RE, webLink, hue, tidyDates } from './util.js';
+  fmtTime, fmtRange, fmtDur, dayLabel, uid, esc, parseQuick, days, monthStart, repeatsOn, repeatLabel, repeatDays, firstRepeatDay, VIDEO_RE, webLink, hue, tidyDates, packInvite, unpackInvite } from './util.js';
 
 const HOUR = 52, PXM = HOUR / 60, SNAP = 15;
 const INBOX_DATE = '2000-01-01'; // inbox tasks are parked on this day in the "Weftday" calendar
@@ -2511,7 +2511,25 @@ async function onConnected(a) {
 // A link (shown as a camera-readable square) that opens the planner on another device with the
 // Google keys already filled in. The keys ride in the part after "#", which is never sent to any server.
 const isLocal = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
-function setupLink() { // the plain link for someone else's device: your Google keys and nothing more
+// An invite: a link that opens the invite page with this copy's Google sign-in setup packed into one
+// code, so the person invited skips that setup and only connects their own Google account.
+function inviteLink() {
+  const code = packInvite(state.settings.clientId, state.settings.clientSecret);
+  return code ? `${isLocal ? PUBLIC_URL : G.redirectUri()}invite#${code}` : '';
+}
+// An invite accepted on the invite page arrives through this tab's own storage (invite.js). It is
+// only ever taken by a browser with no setup of its own: an invite never replaces anything.
+let invited = false;
+function takeInvite() {
+  let code = '';
+  try { code = sessionStorage.getItem('weftday.invite') || ''; sessionStorage.removeItem('weftday.invite'); } catch { return; }
+  const d = code ? unpackInvite(code) : null, s = state.settings;
+  if (!d || DEMO || s.clientId) return;
+  s.clientId = d.i; s.clientSecret = d.s;
+  save();
+  invited = true;
+}
+function setupLink() { // the older plain link for someone else's device: your Google keys and nothing more
   const { clientId, clientSecret } = state.settings, d = { i: clientId, s: clientSecret };
   const data = btoa(JSON.stringify(d)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   return `${isLocal ? PUBLIC_URL : G.redirectUri()}#setup=${data}`;
@@ -2628,20 +2646,20 @@ async function openDeviceSetup(mine = true) {
   // A link for your own device carries a sign-in, so it is locked with a code (see vault.js).
   const home = plannerAccount();
   const locked = mine ? await V.lockSetup({ i: state.settings.clientId, s: state.settings.clientSecret, e: home.id, r: home.refreshToken }) : null;
-  const link = locked ? `${isLocal ? PUBLIC_URL : G.redirectUri()}#setup2=${locked.blob}` : setupLink(false);
+  const link = locked ? `${isLocal ? PUBLIC_URL : G.redirectUri()}#setup2=${locked.blob}` : inviteLink() || setupLink(false);
   let square = '';
   try { square = qrSvg(link); } catch { /* too long for a square: the link can still be copied */ }
   dialog(`<div class="dbody"><h3>Set up another device</h3>
     ${canMine ? `<div class="seg"><button type="button" data-x="mine" class="${mine ? 'on' : ''}">My own device</button><button type="button" data-x="other" class="${mine ? '' : 'on'}">Someone else’s</button></div>` : ''}
     <p class="note">${mine
       ? 'Point your phone’s camera at this square and tap the link that appears. It asks for the code below, then opens with all your accounts already connected.'
-      : 'Point the phone’s camera at this square and tap the link that appears. The planner opens with the Google keys already filled in. Then press “+ Connect Google account” there.'}</p>
+      : 'Send them this invite link, or let them point their phone’s camera at this square. It opens a page that says they are invited. They accept, then connect their own Google account: no setup for them.'}</p>
     ${square ? `<div class="qr">${square}</div>` : '<p class="note warn">This link is too long to show as a square. Use “Copy the link instead”.</p>'}
     ${locked ? `<div class="setcode"><span>Type this code on the new device</span><b id="setupCode">${esc(locked.code)}</b></div>` : ''}
     <p class="note">On an iPhone, open the link in Safari, then use Share → Add to Home Screen to get an app icon.</p>
     <p class="note warn">${mine
       ? 'The link works only with this code, and only for 15 minutes. Never show the code to anyone else.'
-      : 'This square contains your keys. Only show it to people you trust.'}</p>
+      : 'The invite holds this copy’s sign-in setup, not your account, your calendar or your notes. Send it privately, to people you mean to invite.'}</p>
     ${canMine ? '' : '<p class="note">Tip: switch on “Keep my accounts the same on all my devices” in Settings, and your own devices will need no Google login.</p>'}
     <div class="actions"><button class="btn" data-x="copy">Copy the link instead</button>
       ${isLocal ? `<a class="btn" href="${esc(link)}" target="_blank" rel="noopener">Open on this computer</a>` : ''}
@@ -2907,6 +2925,10 @@ function openSettings(msg, pane, focus) {
             ${accounts || `<div class="srow">${text('No account connected yet', 'Connect one to see its calendars here')}</div>`}
             <div class="srow">${text(state.accounts.length ? 'Add another' : 'Connect your first account', '')}<button type="button" class="btn" data-x="connect">Connect account</button></div>
           </div>
+          ${inviteLink() ? `<h4>Invite someone</h4>
+          <div class="sgroup">
+            ${row('Invite link', 'They open it, accept, and connect their own Google account. No setup for them, and they never see your calendar or notes.', '<button type="button" class="btn" data-x="copyinvite">Copy invite link</button>')}
+          </div>` : ''}
           <h4>Tasks and devices</h4>
           <div class="sgroup">
             ${row('Save my tasks in', 'Kept in a calendar called “Weftday” in that account', select('planner', [['', 'This device only'], ...state.accounts.map(a => [a.id, a.email])], s.plannerAccountId))}
@@ -3048,6 +3070,7 @@ function openSettings(msg, pane, focus) {
       closeDialog();
       if (homeFromLink) adoptHome(homeFromLink).then(refresh); else { render(); toast('Keys added. Now press “+ Connect Google account”.'); }
     },
+    copyinvite() { navigator.clipboard.writeText(inviteLink()).then(() => toast('Invite link copied. Send it to them privately.'), () => toast('Could not copy the link', true)); },
     copyval(btn) { navigator.clipboard.writeText(btn.dataset.v).then(() => toast('Copied'), () => toast('Could not copy. Select it and copy by hand.', true)); },
     async checkkey() { // asks the service a tiny question, so a wrong key is found now and not in the middle of a meeting
       keep();
@@ -5345,6 +5368,7 @@ async function boot() {
   applySide();
   bind();
   bindSideGrip();
+  takeInvite();
   const gotKeys = importSetup();
   if (DEMO) seedDemo();
   else {
@@ -5360,6 +5384,7 @@ async function boot() {
   setTimeout(maybeTour, 900);
   R.recover().then(n => { if (n) toast(n === 1 ? 'A recording that was cut off has been kept.' : `${n} recordings that were cut off have been kept.`, { go: ['Show', () => openRecordings(null)] }); }).catch(() => {});
   if (homeFromLink) await adoptHome(homeFromLink);
+  else if (invited) toast('You are in. Now connect your Google account.', { go: ['Connect', connect] });
   else if (gotKeys) toast('Keys added. Now press “+ Connect Google account”.');
   if (lockedSetup) openSetupCode();
   try {

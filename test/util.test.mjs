@@ -134,3 +134,17 @@ test('dates in written notes get the right weekday and one way of writing', asyn
   assert.equal(t('in Dec 2026'), 'in Dec 2026', 'a month and a year is not a day');
   assert.equal(t('back on 3 Oct'), 'back on Sat 3 Oct', 'a little while back stays this year');
 });
+
+test('an invite code carries the sign-in setup and nothing else, and a bad one is refused', async () => {
+  const { packInvite, unpackInvite } = await import('../public/util.js');
+  const id = '123456789012-abcdefghijklmnopqrstuvwxyz012345.apps.googleusercontent.com', secret = 'PRETEND-abc_DEF-123456789';
+  const code = packInvite(id, secret);
+  assert.match(code, /^[\w-]+$/, 'safe to put after # in a link');
+  assert.ok(code.length < 110, `short enough to share: ${code.length}`);
+  assert.ok(!code.includes('googleusercontent') && !code.includes(secret), 'not readable at a glance');
+  assert.deepEqual(unpackInvite(code), { i: id, s: secret });
+  assert.deepEqual(unpackInvite(packInvite(id, '')), { i: id, s: '' }, 'a setup with no secret');
+  assert.equal(packInvite('not-a-client-id', secret), '');
+  assert.equal(packInvite(id, 'has a space'), '');
+  for (const bad of [null, '', 'short', 'x'.repeat(700), '!!!!!!!!!!', btoa('no newline here at all'), btoa('<script>\nx'), btoa('abc\n<b>bold</b>'), btoa('good-id\nwith space')]) assert.equal(unpackInvite(bad), null, String(bad).slice(0, 20));
+});
