@@ -177,3 +177,22 @@ export function parseQuick(text, now = new Date()) {
 export const VIDEO_RE = /https:\/\/(?:[\w-]+\.)*(?:zoom\.us\/(?:j|my|w)\/|teams\.microsoft\.com\/(?:l\/meetup-join|meet\/)|teams\.live\.com\/meet\/|meet\.google\.com\/|webex\.com\/)[^\s"'<>]*/i;
 export const webLink = u => (/^https:\/\//i.test(u || '') ? u : ''); // only a real web address may become a link
 export const hue = c => (/^#[0-9a-f]{3,8}$/i.test(c || '') ? c : '#888'); // a colour is only ever a plain colour code
+
+// Dates in notes written by an AI. It often names the wrong weekday ("Tue 1 Jan" for a Friday) and
+// writes the same day three ways, so the weekday is worked out here and every date is written one
+// way: "Tue 24 Nov", with the year only when it is not the year of the meeting (base).
+// A date with no year means the next such day, looking back at most two months.
+const MONTHS3 = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], DAYS3 = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+export function tidyDates(text, base = Date.now()) {
+  const b = new Date(base), M = '(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*', W = '(?:(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*\\.?,?\\s+)?', Y = '(?:,?\\s+(\\d{4}))?';
+  const write = (all, d, m, y) => {
+    const day = +d, month = MONTHS3.indexOf(m.slice(0, 3));
+    let dt = new Date(y ? +y : b.getFullYear(), month, day);
+    if (!y && dt.getTime() < b.getTime() - 61 * 86400000) dt = new Date(b.getFullYear() + 1, month, day);
+    if (dt.getDate() !== day || dt.getMonth() !== month) return all; // not a real day (31 Feb)
+    return `${DAYS3[dt.getDay()]} ${day} ${MONTHS3[month]}${dt.getFullYear() !== b.getFullYear() ? ` ${dt.getFullYear()}` : ''}`;
+  };
+  return String(text)
+    .replace(new RegExp(`\\b${W}(?:the\\s+)?(\\d{1,2})(?:st|nd|rd|th)?(?:\\s+of)?\\s+${M}${Y}(?![\\w])`, 'g'), (all, d, m, y) => write(all, d, m, y))
+    .replace(new RegExp(`\\b${W}${M}\\s+(?:the\\s+)?(\\d{1,2})(?:st|nd|rd|th)?${Y}(?![\\w:.])`, 'g'), (all, m, d, y) => write(all, d, m, y));
+}

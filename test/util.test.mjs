@@ -115,3 +115,22 @@ test('a sentence the listening model wrote twice in a row is kept once', async (
   assert.equal(saidOnce('One sentence only'), 'One sentence only');
   assert.equal(saidOnce(''), '');
 });
+
+test('dates in written notes get the right weekday and one way of writing', async () => {
+  const { tidyDates } = await import('../public/util.js');
+  const base = new Date(2026, 10, 19, 10).getTime(); // Thu 19 Nov 2026
+  const t = x => tidyDates(x, base);
+  assert.equal(t('New customers pay ₹1249 from Tue 1 Jan'), 'New customers pay ₹1249 from Fri 1 Jan 2027');
+  assert.equal(t('existing customers stay until the 30th of June.'), 'existing customers stay until Wed 30 Jun 2027.');
+  assert.equal(t('deliver it by Mon 7 Dec 2026'), 'deliver it by Mon 7 Dec');
+  assert.equal(t('by 7th December.'), 'by Mon 7 Dec.');
+  assert.equal(t('Pilot start date: 24 November 2026.'), 'Pilot start date: Tue 24 Nov.');
+  assert.equal(t('kicks off on November 24th'), 'kicks off on Tue 24 Nov');
+  assert.equal(t('Send it by Monday, the 23rd.'), 'Send it by Monday, the 23rd.', 'no month: left alone');
+  assert.equal(t('from 999 to 1249 a month'), 'from 999 to 1249 a month');
+  assert.equal(t('12 may be enough, and 45 seats in Pune'), '12 may be enough, and 45 seats in Pune');
+  assert.equal(t('on 31 Feb'), 'on 31 Feb', 'not a real day');
+  assert.equal(t('the meeting of Wed 18 Nov and Thu 19 Nov'), 'the meeting of Wed 18 Nov and Thu 19 Nov');
+  assert.equal(t('in Dec 2026'), 'in Dec 2026', 'a month and a year is not a day');
+  assert.equal(t('back on 3 Oct'), 'back on Sat 3 Oct', 'a little while back stays this year');
+});

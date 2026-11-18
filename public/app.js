@@ -16,7 +16,7 @@ import { PUBLIC_URL } from './config.js';
 import * as Move from './movein.js';
 import {
   pad, ymd, fromYmd, addDays, startOfDay, startOfWeek, localIso, hhmm, parseHhmm, clamp,
-  fmtTime, fmtRange, fmtDur, dayLabel, uid, esc, parseQuick, days, monthStart, repeatsOn, repeatLabel, repeatDays, firstRepeatDay, VIDEO_RE, webLink, hue } from './util.js';
+  fmtTime, fmtRange, fmtDur, dayLabel, uid, esc, parseQuick, days, monthStart, repeatsOn, repeatLabel, repeatDays, firstRepeatDay, VIDEO_RE, webLink, hue, tidyDates } from './util.js';
 
 const HOUR = 52, PXM = HOUR / 60, SNAP = 15;
 const INBOX_DATE = '2000-01-01'; // inbox tasks are parked on this day in the "Weftday" calendar
@@ -4069,7 +4069,8 @@ async function notesFromRecording(rec, signal, say) {
   const me = ev?.att?.find(p => p.self)?.displayName || '';
   const cast = guests.slice(0, 12).map(x => { const f = savedFacts(x.who.email); return `${x.who.name}${f?.role ? `, ${f.role}` : ''}${x.who.company ? ` (${x.who.company})` : ''}`; });
   // Names it should know how to spell: the people, their companies, and your own company (from your accounts' addresses).
-  const known = [...new Set([me, ...guests.slice(0, 12).flatMap(x => [x.who.name, x.who.company]), ...state.accounts.map(a => person({ email: a.email }).company)].filter(Boolean))].slice(0, 30);
+  // (only the people in the meeting and their companies: names made from my own email addresses were once handed out to the speakers)
+  const known = [...new Set([me, ...guests.slice(0, 12).flatMap(x => [x.who.name, x.who.company])].filter(Boolean))].slice(0, 30);
   const listen = LISTEN + (cast.length || me ? ` The people in this meeting: ${[me, ...guests.slice(0, 12).map(x => x.who.name)].filter(Boolean).join(', ')}. When a speaker gives their name or is spoken to by name, write that name instead of “Speaker 1”.` : '');
   // Each piece is written down with who spoke and when. If Google's transcription model cannot be
   // used, the general model listens instead: the words are the same, only the times are coarser.
@@ -4129,7 +4130,7 @@ async function notesFromRecording(rec, signal, say) {
       + '"decisions":["…"],"mine":["…"],"theirs":["…"],"questions":["…"],"facts":["…"],"settled":["…"],'
       + '"voices":{"Speaker 1":"that person’s real name, only when the talk makes it certain, otherwise empty"},"chapters":[{"at":"m:ss","title":"three to six words"}]}',
     'voices: give a voice a name only when the talk leaves no doubt whose voice it is. A name that is said TO someone (“Morning Rohan”) belongs to the person spoken to, never to the one saying it. Never use a company name, and never guess from the list of names to spell: when unsure, leave it empty.',
-    'decisions: what was agreed or settled. mine: what I have to do; start with a verb and keep the deadline, written as a date when one was meant (“Send the contract by Fri 20 Nov”). theirs: what somebody else promised; start with their name and a colon (“Ravi: send the security questionnaire by Wed 18 Nov”). When it is not clear who will do something, it goes in theirs, starting with “Someone:”. questions: what was left open. facts: prices, numbers, names and other details worth keeping exactly as said, and only ones that are not already in decisions, mine or theirs: never the date of the meeting, who was there, or a deadline or an email address that an action already carries. settled: lines from “Still open from earlier meetings” that this meeting dealt with, copied word for word.',
+    'decisions: what was agreed or settled. mine: what I have to do; start with a verb and keep the deadline, written as a date when one was meant (“Send the contract by Fri 20 Nov”). theirs: what somebody else promised; start with their name and a colon (“Ravi: send the security questionnaire by Wed 18 Nov”). When the talk does not make their name certain, start with the voice as the transcript labels it (“Speaker 2: send the report”), never with a name you are guessing. When it is not clear who will do something, it goes in theirs, starting with “Someone:”. questions: what was left open. facts: prices, numbers, names and other details worth keeping exactly as said, and only ones that are not already in decisions, mine or theirs: never the date of the meeting, who was there, or a deadline or an email address that an action already carries. settled: lines from “Still open from earlier meetings” that this meeting dealt with, copied word for word.',
     'Fit the notes to the kind of meeting: for a sales or customer call bring out what they need, their objections and the next step; for an interview, strengths, concerns and what happens next; for a team meeting, who does what by when.',
     'chapters: where the talk moves to a new subject, with the time from the transcript where it starts; three to eight for a long meeting, none for one shorter than five minutes.',
     'Use only what was said. Leave a list empty when there is nothing for it. Write in the language the meeting was held in.',
@@ -4160,6 +4161,10 @@ async function notesFromRecording(rec, signal, say) {
   for (const voice of Object.keys(naming)) if (Object.keys(naming).some(other => other !== voice && naming[other]?.toLowerCase() === naming[voice].toLowerCase())) delete naming[voice]; // two voices, one name: neither is certain
   let renamed = false;
   for (const l of lines) { const name = naming[l.who]; if (name) { l.who = name; renamed = true; } }
+  // The notes say who does what by the same names, and every date gets its true weekday and one way of writing.
+  const polish = text => tidyDates(text.replace(/\bSpeaker \d+\b/g, voice => naming[voice] || voice), rec.at);
+  result.summary = polish(result.summary);
+  for (const part of ['decisions', 'actions', 'waiting', 'questions', 'info']) result[part] = result[part].map(polish);
   if (renamed) transcript = written();
   const seconds = at => { const p = String(at || '').split(':').map(Number); return p.length > 1 && p.every(Number.isFinite) ? p.reduce((sum, x) => sum * 60 + x, 0) : NaN; };
   const chapters = (Array.isArray(got.chapters) ? got.chapters : []).map(c => ({ t: seconds(c?.at), title: line(c?.title).slice(0, 80) }))
