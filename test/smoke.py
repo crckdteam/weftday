@@ -843,6 +843,7 @@ def run(p):
     pp = open_app(phone, 'phone')
     check('Home fits a phone', pp.locator('#home .hhello h2').is_visible() and pp.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'))
     pp.screenshot(path=os.path.join(OUT, 'phone-home.png'))
+    check('the side panel has a way back to the website', pp.evaluate("document.querySelector('#side .sitelink')?.href") == 'https://weftday.crckd.live/')
     pp.locator('#menu').click()
     pp.wait_for_timeout(400)
     pp.locator('#mainNav [data-nav=calendar]').click()
