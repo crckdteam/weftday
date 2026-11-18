@@ -70,14 +70,13 @@ ul { padding: 0; list-style: none; }
 .card + .card { margin-top: 62px; }
 /* the tab: part of the card, standing above its top edge */
 .card .tab { position: absolute; top: -34px; left: var(--tab-x, 44px); width: 92px; height: 36px; display: grid; place-items: center; border-radius: 14px 14px 0 0; background: var(--h); color: #fff; }
-.card .tab::after { content: ""; position: absolute; inset: auto 0 -10px 0; height: 10px; background: var(--h); }
-.card::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 10px; border-radius: 26px 26px 0 0; background: var(--h, transparent); }
+.card .tab::after { content: ""; position: absolute; inset: auto 0 -2px 0; height: 4px; background: var(--h); }
+
 .t-record { --h: var(--record); --tab-x: 44px; } .t-notes { --h: var(--notes); --tab-x: 152px; } .t-calendar { --h: var(--calendar); --tab-x: 260px; }
 .t-people { --h: var(--people); --tab-x: 368px; } .t-yours { --h: var(--yours); --tab-x: 476px; } .t-open { --h: var(--open); --tab-x: 584px; }
 .t-yours .tab { color: var(--ink); }
 
 .card.first { margin-top: 44px; padding: clamp(10px, 1.4vw, 18px); }
-.card.first::before { display: none; }
 .dividers { position: absolute; left: 0; right: 0; top: -30px; height: 30px; pointer-events: none; }
 .dividers i { position: absolute; bottom: 0; width: 92px; height: 30px; border-radius: 14px 14px 0 0; background: var(--h); left: var(--tab-x); transform-origin: bottom; animation: rise .9s var(--ease) both; }
 .dividers i:nth-child(2) { animation-delay: .07s; } .dividers i:nth-child(3) { animation-delay: .14s; } .dividers i:nth-child(4) { animation-delay: .21s; } .dividers i:nth-child(5) { animation-delay: .28s; }
@@ -157,7 +156,6 @@ ul { padding: 0; list-style: none; }
   .split.flip.split .t-notes-img, .t-notes .split.flip .shot img { width: 190%; max-width: none; margin-left: -90%; }
   .split .shot.box img, .split.flip .shot.box img { width: min(100%, var(--w, 470px)); }
   .card { border-radius: 20px; }
-  .card::before { border-radius: 20px 20px 0 0; }
   .card .tab, .dividers i { width: 56px; }
   .t-record { --tab-x: 22px; } .t-notes { --tab-x: 84px; } .t-calendar { --tab-x: 146px; } .t-people { --tab-x: 208px; } .t-yours { --tab-x: 270px; } .t-open { --tab-x: 22px; }
   .ghub span { display: none; }
