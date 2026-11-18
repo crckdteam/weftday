@@ -1472,6 +1472,62 @@ body.innotes #sideBody > .card, body.innotes #upnext { display: none; }
 .aiown { margin: 0 2px; }
 .aido .srow .st span { text-wrap: pretty; }
 
+/* ================= invite-only, "Yours stays yours", and the phone box =================
+   .yours: one short promise about where things are kept, shown where trust is decided (the same
+   block, with the same tokens, is in site.css for the pages around the app). .access: the
+   "Request access" box. .phonebox: "Weftday on your phone too". */
+.yours { display: flex; align-items: flex-start; gap: 10px; padding: 11px 13px; border-radius: 12px; font-size: 13.5px; line-height: 1.5; color: var(--text); text-align: left;
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel)); border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line)); }
+.yours .lockmark { width: 16px; height: 16px; margin-top: 2px; color: var(--accent); }
+.yours > span { min-width: 0; text-wrap: pretty; }
+.yours b { font-weight: 650; }
+.yours.line { align-items: center; padding: 8px 12px; font-size: 13px; }
+.yours.line .lockmark { margin-top: 0; }
+.yours[hidden] { display: none; }
+.hkeybody .yours { margin: 0 0 14px; max-width: 64ch; }
+.hnext .yours { justify-self: start; max-width: 60ch; }
+.spane .yours { margin-bottom: 4px; }
+.hinvite { margin: -4px 0 0; color: var(--muted); font-size: 13.5px; }
+
+dialog.accessbox { width: min(440px, calc(100vw - 24px)); }
+.access { padding: 26px 24px 20px; gap: 14px; justify-items: stretch; }
+.access h3 { font: 700 22px/1.2 var(--display); letter-spacing: -.02em; outline: none; }
+.access > p, .access-have > p:not(.note) { margin: -4px 0 0; color: var(--muted); font-size: 14.5px; line-height: 1.5; text-wrap: pretty; }
+.access .access-go { min-height: 46px; justify-content: center; font-size: 15px; }
+.access-links { display: flex; justify-content: center; flex-wrap: wrap; gap: 4px 18px; margin-top: -4px; }
+.access .linkbtn { min-height: 44px; padding: 0 6px; font-size: 14px; font-weight: 600; border-radius: 8px; }
+.access .access-own, .access .access-back { justify-self: center; min-height: 44px; color: var(--muted); font-weight: 500; font-size: 13px; }
+.access .access-own:hover, .access .access-back:hover { color: var(--text); }
+.access-two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.access-two .btn { display: flex; align-items: center; min-height: 52px; justify-content: center; gap: 8px; font-size: 15px; text-decoration: none; }
+.access-written { display: grid; gap: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.access-written > div { display: grid; grid-template-columns: 76px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 8px 8px 13px; }
+.access-written > div + div { border-top: 1px solid var(--line); }
+.access-written span { font-size: 12px; color: var(--muted); }
+.access-written b { font-weight: 600; font-size: 14px; overflow-wrap: anywhere; user-select: all; }
+.access-written .mini { min-width: 64px; min-height: 36px; }
+.access-have { display: grid; gap: 12px; }
+.access-have label { font-size: 13px; color: var(--text); font-weight: 600; }
+.access-have .note.warn { margin: -4px 0 0; }
+.ownhost { border: 1px solid var(--line); border-radius: var(--r); padding: 4px 14px; margin-top: 10px; }
+.ownhost[open] { padding-bottom: 14px; }
+.ownhost > summary { font-size: 14px; font-weight: 600; color: var(--text); }
+.ownhost > .note { margin: 4px 0 6px; }
+.ownhost > h4 { margin: 14px 0 8px; }
+.ownhost + h4 { margin-top: 18px; }
+
+.phonebox > p:not(.note) { margin: 0; font-size: 14.5px; line-height: 1.5; text-wrap: pretty; }
+.phsteps { list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; counter-reset: ph; }
+.phsteps li { counter-increment: ph; display: grid; gap: 10px; }
+.phsteps li > span { display: grid; grid-template-columns: 26px 1fr; gap: 10px; align-items: start; font-size: 14.5px; font-weight: 600; line-height: 1.4; }
+.phsteps li > span::before { content: counter(ph); width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 12.5px; font-weight: 700;
+  background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+.phsteps li > .qr, .phsteps li > .setcode, .phsteps li > .note { margin-left: 36px; }
+.phsteps li > .qr { justify-self: start; width: min(240px, 64vw); }
+.phalt { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.phalt span { flex: 1 1 200px; color: var(--muted); font-size: 13px; }
+.phalt .btn { flex: none; }
+
 /* ================= phones, the last word =================
    The look above was written for a computer and, coming later in the file, had quietly undone some
    of the phone rules further up. Everything a phone needs to be different is gathered here, last,
@@ -1571,6 +1627,16 @@ dialog:focus { outline: none; }
   .nsend { width: 40px; height: 40px; }
   .nanswer { max-height: 34vh; }
   .nswitch button { min-height: 36px; }
+
+  /* the Request access box and the phone box: big targets, one column */
+  .access { padding: 22px 18px 16px; }
+  .access-two { grid-template-columns: minmax(0, 1fr); }
+  .access-written > div { grid-template-columns: minmax(0, 1fr) auto; row-gap: 0; }
+  .access-written span { grid-column: 1 / -1; }
+  .access-written .mini, .access .access-go, .access-have .btn { min-height: 44px; }
+  .phsteps li > .qr, .phsteps li > .setcode, .phsteps li > .note { margin-left: 0; }
+  .phsteps li > .qr { justify-self: center; }
+  .phalt .btn { flex: 1 1 100%; justify-content: center; }
 
   .tour-card { max-width: calc(min(336px, 90vw) - 24px); }
   .palfoot { display: none; }

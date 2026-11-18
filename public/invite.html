@@ -36,8 +36,10 @@
   .steps3 span { color: var(--muted); font-size: 14.5px; }
   .invite .go { display: grid; gap: 10px; margin-top: 26px; }
   .invite .go .btn { height: 50px; font-size: 16px; }
-  .invite .small { margin-top: 18px; font-size: 13.5px; color: var(--muted); }
+  .invite .yours { margin-top: 22px; }
+  .invite .go + .yours { margin-top: 16px; }
   .invite [hidden] { display: none; }
+  @media (max-width: 620px) { .topbar .btn.small { height: 44px; } }
 </style>
 <script type="module" src="invite.js"></script>
 </head>
@@ -56,11 +58,12 @@
     <li><div><b>Connect your Google account</b><span>Your own calendar shows up. Google shows a “not verified” notice the first time: choose Advanced, then Go to Weftday.</span></div></li>
     <li><div><b>Add your free AI key</b><span>About a minute. It is what writes your notes.</span></div></li>
   </ol>
+  <div class="yours" data-yours="general"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg><p><b>Yours stays yours.</b> Your calendar, notes and recordings are kept in this browser and in your own Google account. Weftday has no server that can see them.</p></div>
   <div class="go">
     <button type="button" class="btn primary" id="accept">Accept and open Weftday</button>
     <a class="btn" id="open" href="./" hidden>Open Weftday</a>
   </div>
-  <p class="small" id="small">This link carries the sign-in setup of whoever invited you, so you can skip it. It gives them no way to see your calendar, your notes or your recordings: those stay in your browser and your own Google account.</p>
+  <div class="yours" data-yours="invite" id="small"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg><p><b>An invite only saves you the setup.</b> Whoever invited you cannot see your calendar, your notes or your recordings.</p></div>
 </div></main>
 <footer class="foot">
   <p class="fmark"><img src="icon.svg" alt="" width="22" height="22">Weftday <span>A <a href="https://www.crckd.live" rel="noopener">CRCKD</a> product.</span></p>

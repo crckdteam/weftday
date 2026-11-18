@@ -263,6 +263,239 @@ def open_real(context, label, wait=1200):
     return page
 
 
+def settings_reveals(page, cid, secret):
+    """With Settings open: goes through every section and says which parts of the sign-in setup show."""
+    return page.evaluate("""([cid, secret]) => {
+      const found = { input: false, text: false, invite: false, steps: false, fields: false };
+      for (const b of document.querySelectorAll('#dlg .snav button')) {
+        b.click();
+        const pane = document.querySelector('#dlg .spane:not([hidden])');
+        for (const side of pane.querySelectorAll('[data-x=aiside]')) side.click(); // both sides of AI
+        const html = document.querySelector('#dlg').innerHTML;
+        found.input ||= [...document.querySelectorAll('#dlg input')].some(i => i.value && (i.value === cid || i.value === secret));
+        found.text ||= html.includes(cid) || html.includes(secret);
+        found.invite ||= !!document.querySelector('#dlg [data-x=copyinvite]') || /Copy invite link/.test(html);
+        found.steps ||= /How to get these/.test(html);
+        found.fields ||= !!document.querySelector('#dlg #clientIdBox, #dlg #clientSecretBox');
+      }
+      return found;
+    }""", [cid, secret])
+
+
+def fits_with_big_targets(page, scope):
+    """No sideways scroll, and every button or link-button in scope is at least 44px tall."""
+    return page.evaluate("""scope => {
+      const small = [...document.querySelectorAll(`${scope} button, ${scope} a.btn`)].filter(b => b.offsetParent && b.getBoundingClientRect().height < 44)
+        .map(b => `${b.textContent.trim().slice(0, 24)}:${Math.round(b.getBoundingClientRect().height)}`);
+      return { wide: document.documentElement.scrollWidth <= innerWidth + 1, small };
+    }""", scope)
+
+
+def invite_only_checks(browser):
+    """Invite-only at the published address (switched on here with weftday.gate), the "Request access" box,
+    the promises about where things are kept, and the phone box."""
+    CID, SEC = '123456789012-abcdefghijklmnopqrstuvwxyz012345.apps.googleusercontent.com', 'PRETEND-abc_DEF-123456789'
+    gate = "localStorage.setItem('weftday.gate','1');"
+    ctx = browser.new_context(viewport={'width': 1440, 'height': 860}, permissions=['clipboard-read', 'clipboard-write'])
+    ctx.add_init_script(SEEN + QUIET + gate)
+    pg = open_real(ctx, 'invite-only')
+    check('invite-only: the app opens as usual, with nothing in the way', pg.locator('#mainNav').is_visible() and not dialog_open(pg)
+          and pg.evaluate("!document.querySelector('#app').inert"))
+    home_btn = pg.locator('#home [data-act=home-connect]')
+    check('invite-only: the Home card asks for access and says why', home_btn.inner_text() == 'Request access'
+          and 'invite-only for now' in pg.locator('#home .hinvite').inner_text())
+    check('the Home welcome card says how Google is reached', pg.locator('#home .hnext [data-yours=google]').count() == 1
+          and 'Weftday talks to Google straight from this browser.' in pg.locator('#home .hnext .yours').inner_text()
+          and pg.locator('#home .yours').count() == 1)
+    home_btn.click()
+    pg.wait_for_timeout(400)
+    box = pg.locator('#dlg .access')
+
+    def is_access():
+        return dialog_open(pg) and box.count() == 1 and pg.locator('#dlg #clientIdBox, #dlg .keyhelp').count() == 0
+
+    check('invite-only: “Request access” on Home opens the Request access box, not the setup steps', is_access()
+          and box.locator('h3').inner_text() == 'Weftday is invite-only for now'
+          and 'first 100 people' in box.inner_text() and box.locator('[data-x=ask]').inner_text() == 'Request access'
+          and box.locator('[data-x=have]').inner_text() == 'I have an invite link' and box.locator('[data-x=own]').inner_text() == 'I host my own copy')
+    check('the Request access box carries “Yours stays yours”', box.locator('[data-yours=general]').count() == 1
+          and 'Weftday has no server that can see them.' in box.locator('.yours').inner_text())
+    close_dialog(pg)
+    pg.evaluate("[...document.querySelectorAll('#side button')].find(x => /Settings/.test(x.textContent)).click()")
+    pg.wait_for_timeout(400)
+    pg.evaluate("[...document.querySelectorAll('#dlg .snav button')].find(x => x.textContent.trim() === 'Accounts').click()")
+    pg.click('#dlg [data-x=connect]')
+    pg.wait_for_timeout(400)
+    check('invite-only: “Connect account” in Settings opens the same box', is_access())
+    close_dialog(pg)
+    pg.click('#connect')
+    pg.wait_for_timeout(400)
+    check('invite-only: the side panel’s connect button opens the same box', is_access())
+    pg.click('#dlg [data-x=ask]')
+    pg.wait_for_timeout(300)
+    wa = pg.locator('#accessWa').get_attribute('href')
+    mail = pg.locator('#accessMail').get_attribute('href')
+    check('“Request access” shows WhatsApp and email, ready to send', box.locator('h3').inner_text() == 'Ask for your invite'
+          and wa.startswith('https://wa.me/917678644599?text=') and 'invite%20to%20Weftday' in wa and pg.locator('#accessWa').get_attribute('target') == '_blank'
+          and mail.startswith('mailto:crckdteam@gmail.com?subject=Weftday%20invite&body=') and 'My%20name' in mail, f'{wa} | {mail}')
+    check('the address and the number are written out', pg.locator('#accessEmail').inner_text() == 'crckdteam@gmail.com'
+          and pg.locator('#accessPhone').inner_text() == '+91 76786 44599')
+    copied = []
+    for b in pg.locator('#dlg [data-x=copy]').all():
+        b.click()
+        pg.wait_for_timeout(200)
+        copied.append((pg.evaluate('navigator.clipboard.readText()'), b.inner_text()))
+    check('each Copy button copies what is beside it', copied == [('crckdteam@gmail.com', 'Copied'), ('+91 76786 44599', 'Copied')], str(copied))
+    pg.click('#dlg [data-x=start]')
+    pg.wait_for_timeout(200)
+    pg.click('#dlg [data-x=have]')
+    pg.wait_for_timeout(200)
+    pg.fill('#accessLink', 'https://example.com/not-an-invite')
+    pg.click('#dlg .access-go')
+    pg.wait_for_timeout(200)
+    check('“I have an invite link” refuses something that is not one', 'does not look like an invite link' in pg.locator('#accessErr').inner_text()
+          and pg.url.startswith(BASE + '/') and '/invite' not in pg.url)
+    code = pg.evaluate("async ([id, s]) => (await import('./util.js')).packInvite(id, s)", [CID, SEC])
+    pg.fill('#accessLink', f'https://app.weftday.crckd.live/invite#{code}')
+    pg.click('#dlg .access-go')
+    pg.wait_for_selector('#accept', timeout=8000)
+    check('a real invite link pasted there opens the invite page', pg.inner_text('#title') == 'You are invited to Weftday')
+    check('the invite page carries the invite promise and “Yours stays yours”',
+          'An invite only saves you the setup.' in pg.locator('[data-yours=invite]').inner_text()
+          and 'Whoever invited you cannot see your calendar, your notes or your recordings.' in pg.locator('[data-yours=invite]').inner_text()
+          and 'Yours stays yours.' in pg.locator('[data-yours=general]').inner_text())
+    pg.click('#accept')
+    pg.wait_for_selector('#mainNav')
+    pg.wait_for_timeout(900)
+    check('a browser that accepted an invite is not asked again', pg.locator('#home [data-act=home-connect]').inner_text() == 'Connect Google account'
+          and pg.evaluate("JSON.parse(localStorage.getItem('planner.v1')).settings.invited") is True)
+    ctx.close()
+
+    # "I host my own copy": straight to the Google keys, which then end the asking for good
+    own = browser.new_context(viewport={'width': 1440, 'height': 860})
+    own.add_init_script(SEEN + QUIET + gate)
+    op = open_real(own, 'own copy')
+    op.click('#home [data-act=home-connect]')
+    op.wait_for_timeout(300)
+    op.click('#dlg [data-x=own]')
+    op.wait_for_timeout(500)
+    check('“I host my own copy” opens Settings › Advanced with the Google key fields', op.locator('#dlg .spane[data-pane=advanced]').is_visible()
+          and op.locator('#dlg details.ownhost[open] #clientIdBox').is_visible() and op.evaluate("document.activeElement?.id") == 'clientIdBox')
+    op.fill('#clientIdBox', 'own.apps.googleusercontent.com')
+    op.fill('#clientSecretBox', 'own-secret')
+    op.click('#dlg .sfoot button.primary')
+    op.wait_for_timeout(500)
+    op.reload()
+    op.wait_for_load_state('networkidle')
+    op.wait_for_timeout(900)
+    check('once the keys are saved, nothing asks for an invite any more', op.locator('#home').is_visible()
+          and op.evaluate("JSON.parse(localStorage.getItem('planner.v1')).settings.clientId") == 'own.apps.googleusercontent.com'
+          and op.locator('#home [data-act=home-connect]').inner_text() == 'Connect Google account')
+    own.close()
+
+    # an ordinary copy on any other address (here, this computer) never asks
+    plain = browser.new_context(viewport={'width': 1440, 'height': 860})
+    plain.add_init_script(SEEN + QUIET)
+    lp = open_real(plain, 'not invite-only')
+    lp.click('#home [data-act=home-connect]')
+    lp.wait_for_timeout(400)
+    check('without the switch, at this computer’s address, connecting goes to the setup as before',
+          lp.locator('#dlg .access').count() == 0 and lp.locator('#dlg .spane[data-pane=advanced]').is_visible() and lp.locator('#dlg #clientIdBox').is_visible()
+          and lp.locator('#dlg details.ownhost').count() == 0)
+    plain.close()
+
+    # a phone: the box, its contact view and the invite page fit, with big enough targets
+    ph = browser.new_context(viewport={'width': 390, 'height': 844}, is_mobile=True, has_touch=True)
+    ph.add_init_script(SEEN + QUIET + gate)
+    pp = open_real(ph, 'invite-only phone')
+    pp.evaluate("document.querySelector('#home [data-act=home-connect]').click()")
+    pp.wait_for_timeout(400)
+    first = fits_with_big_targets(pp, '#dlg')
+    pp.screenshot(path=os.path.join(OUT, 'access-phone.png'))
+    pp.click('#dlg [data-x=ask]')
+    pp.wait_for_timeout(300)
+    ask = fits_with_big_targets(pp, '#dlg')
+    pp.screenshot(path=os.path.join(OUT, 'access-ask-phone.png'))
+    code = pp.evaluate("async ([id, s]) => (await import('./util.js')).packInvite(id, s)", [CID, SEC])
+    pp.goto(BASE + '/invite#' + code)
+    pp.wait_for_selector('#accept')
+    inv = fits_with_big_targets(pp, 'main')
+    top = fits_with_big_targets(pp, '.topbar')
+    check('on a phone the Request access box, its contact view and the invite page fit, every button 44px or more',
+          all(x['wide'] and not x['small'] for x in (first, ask, inv, top)), json.dumps([first, ask, inv, top]))
+    ph.close()
+
+    # an owner's browser: the promises in place, the full setup and the invite link, and the phone box
+    acct = {'id': 'me@test.dev', 'email': 'me@test.dev', 'color': '#2f6fed', 'calendars': [], 'refreshToken': 'rt:me@test.dev', 'accessToken': '', 'expiresAt': 0}
+    start = {'settings': {'clientId': CID, 'clientSecret': SEC}, 'accounts': [acct]}
+    mine = browser.new_context(viewport={'width': 1440, 'height': 860}, permissions=['clipboard-read', 'clipboard-write'])
+    mine.add_init_script(SEEN + QUIET + 'delete self.LanguageModel;' + gate
+                         + f"if (!localStorage.getItem('planner.v1')) localStorage.setItem('planner.v1', {json.dumps(json.dumps(start))});")
+    mp = mine.new_page()
+    watch(mp, 'owner')
+    mp.request.post(BASE + '/mock/reset')
+    mp.goto(BASE + '/')
+    mp.wait_for_load_state('networkidle')
+    mp.wait_for_timeout(1200)
+    close_dialog(mp)
+    card = mp.locator('#home .hkey')
+    check('the Home AI card says where the key goes', card.locator('[data-yours=key]').count() == 1
+          and 'Your key stays in this browser.' in card.inner_text() and 'never to Weftday or anyone else' in card.inner_text())
+    mp.evaluate("[...document.querySelectorAll('#side button')].find(x => /Settings/.test(x.textContent)).click()")
+    mp.wait_for_timeout(500)
+    seen = settings_reveals(mp, CID, SEC)
+    check('the owner’s own browser still has the whole setup and the invite link', all(seen[k] for k in ('input', 'invite', 'steps', 'fields')), json.dumps(seen))
+    mp.evaluate("[...document.querySelectorAll('#dlg .snav button')].find(x => x.textContent.trim() === 'AI').click()")
+    mp.evaluate("document.querySelector('#dlg [data-x=aiside][data-side=keys]').click()")
+    keys = mp.evaluate("(() => { const y = document.querySelector('#dlg .spane[data-pane=ai] .yours'); return y && { kind: y.dataset.yours, after: y.previousElementSibling?.id, text: y.textContent }; })()")
+    check('Settings › AI › Keys says where the key goes, under the first card', keys and keys['kind'] == 'key' and keys['after'] == 'aiCard'
+          and 'It is sent only to the AI service it belongs to' in keys['text'], json.dumps(keys))
+    mp.evaluate("[...document.querySelectorAll('#dlg .snav button')].find(x => x.textContent.trim() === 'Accounts').click()")
+    acc = mp.locator('#dlg .spane[data-pane=accounts]')
+    check('Settings › Accounts opens with how Google is reached', acc.locator('.yours').first.get_attribute('data-yours') == 'google'
+          and 'Your sign-in is kept here and nowhere else.' in acc.locator('.yours').first.inner_text())
+    mp.click('#dlg [data-x=copyinvite]')
+    mp.wait_for_timeout(300)
+    link = mp.evaluate("navigator.clipboard.readText()")
+    check('Settings gives out an invite link of its own, with the same setup inside', link.endswith('/invite#' + code) and link.startswith('https://'), link[:60])
+    row = mp.evaluate("(() => { const b = document.querySelector('#dlg [data-x=device]'), r = b.closest('.srow'); return { b: b.textContent, t: r.querySelector('.st b').textContent, d: r.querySelector('.st span').textContent }; })()")
+    check('the Settings row for the phone has its new name', row == {'b': 'Show me how', 't': 'Use Weftday on my phone too', 'd': 'Your calendars and tasks on your phone, with no second Google login.'}, json.dumps(row))
+    mp.click('#dlg [data-x=device]')
+    mp.wait_for_timeout(500)
+    text = mp.locator('#dlg').inner_text()
+    check('the phone box, before the same-accounts switch is on, offers it in one step', mp.locator('#dlg h3').inner_text() == 'Weftday on your phone too'
+          and 'Someone else' not in text and 'Same accounts on all my devices' in text and mp.locator('#dlg button.primary').inner_text() == 'Switch it on'
+          and 'Copy link for my phone' in text, text[:200])
+    mp.screenshot(path=os.path.join(OUT, 'phone-box-off.png'))
+    mp.click('#dlg button.primary')
+    try:
+        mp.wait_for_selector('#dlg #setupCode', timeout=20000)
+        text = mp.locator('#dlg').inner_text()
+        check('switching it on there shows the square and a code, in two numbered steps', mp.locator('#dlg .qr svg').count() == 1
+              and bool(re.match(r'^[A-Z2-9]{5}-[A-Z2-9]{5}$', mp.locator('#setupCode').inner_text())) and mp.locator('#dlg .phsteps > li').count() == 2
+              and 'Point your phone’s camera at this square and tap the link.' in text and 'Type this code on your phone.' in text
+              and '15 minutes' in text and 'Never show the code to anyone else.' in text and 'Add to Home Screen' in text
+              and 'Someone else' not in text and mp.locator('#dlg [data-x=copy]').inner_text() == 'Copy the link instead', text[:200])
+        mp.screenshot(path=os.path.join(OUT, 'phone-box-ready.png'))
+    except Exception as err:  # noqa: BLE001
+        check('switching it on there shows the square and a code, in two numbered steps', False, str(err)[:160] + ' | ' + mp.evaluate("document.querySelector('#toast').innerText"))
+    mine.close()
+
+    # the promise in the key box: with nothing connected the welcome card has the Google one, so the AI card stays plain
+    nk = browser.new_context(viewport={'width': 1440, 'height': 860})
+    nk.add_init_script(SEEN + QUIET + 'delete self.LanguageModel;')
+    kp = open_real(nk, 'key box promise')
+    check('one promise on Home at a time', kp.locator('#home .yours').count() == 1)
+    kp.evaluate("document.querySelector('#mainNav [data-act=recordings]').click()")
+    kp.wait_for_timeout(400)
+    kp.evaluate("document.querySelector('#dlg [data-x=askall]')?.click()")
+    kp.wait_for_timeout(400)
+    y = kp.locator('#dlg .needkey .yours')
+    check('the “Add your AI key to use this” box says where the key goes', y.count() == 1 and y.get_attribute('data-yours') == 'key'
+          and 'Your key stays in this browser.' in y.inner_text())
+    nk.close()
+
+
 def nudge_checks(browser):
     """Switching AI on: the nudges while there is no key, the search key after it, the Settings split."""
     today = datetime.date.today().isoformat()
@@ -972,7 +1205,7 @@ def run(p):
     fp.goto(BASE + '/terms.html')
     made = fp.evaluate("""async () => {
       const V = await import('./vault.js');
-      const d = { i: 'test.apps.googleusercontent.com', s: 'pretend', e: 'me@test.dev', r: 'rt:me@test.dev' };
+      const d = { i: 'test.apps.googleusercontent.com', s: 'pretend', e: 'me@test.dev', r: 'rt:me@test.dev', v: 1 }; // v: made on the phone box of someone who was invited
       const kind = async (blob, code) => { try { await V.unlockSetup(blob, code); return 'opened'; } catch (e) { return e.kind; } };
       const a = await V.lockSetup(d), old = await V.lockSetup(d, -1);
       const back = await V.unlockSetup(a.blob, a.code.toLowerCase().replace('-', ' '));
@@ -1005,6 +1238,7 @@ def run(p):
     saved = fp.evaluate("JSON.parse(localStorage.getItem('planner.v1'))")
     check('the right code sets the device up with that account', saved['settings'].get('plannerAccountId') == 'me@test.dev' and saved['accounts'][0]['id'] == 'me@test.dev', str(saved['settings'].get('plannerAccountId')))
     check('a calendar named “Weftday” that somebody else owns is not taken for the app’s own', saved['settings']['plannerCalendarId'] not in ('', 'lookalike'), saved['settings']['plannerCalendarId'])
+    check('a phone set up from the box of someone who was invited keeps the setup hidden too', saved['settings'].get('invited') is True)
     fresh.close()
 
     # ---- as a meeting begins, Weftday offers to record it (the clock is set to the start of a sample meeting)
@@ -1023,6 +1257,7 @@ def run(p):
 
     note_page_checks(browser)
     nudge_checks(browser)
+    invite_only_checks(browser)
 
     # ---- a feature that needs an AI key, pressed before there is one: one clear box, one way forward
     nokey = browser.new_context(viewport={'width': 1440, 'height': 860})  # a browser that has never had a key
@@ -1062,15 +1297,13 @@ def run(p):
     took = ip.evaluate("(() => { const s = JSON.parse(localStorage.getItem('planner.v1')).settings; return { id: s.clientId, secret: s.clientSecret, toast: document.querySelector('#toast')?.textContent || '', left: sessionStorage.getItem('weftday.invite') }; })()")
     check('accepting it opens the app with the sign-in setup in place, and says what to do next',
           took['id'] == CID and took['secret'] == SEC and 'connect your Google account' in took['toast'] and took['left'] is None, json.dumps({**took, 'secret': '…'}))
+    # someone who was invited uses the setup but never sees it: no keys, no steps, no invite link of their own
     ip.evaluate("[...document.querySelectorAll('#side button')].find(x => /Settings/.test(x.textContent)).click()")
     ip.wait_for_timeout(500)
-    ip.evaluate("[...document.querySelectorAll('#dlg .snav button')].find(x => x.textContent.trim() === 'Accounts').click()")
-    ip.wait_for_timeout(300)
-    ip.click('#dlg [data-x=copyinvite]')
-    ip.wait_for_timeout(400)
-    link = ip.evaluate("navigator.clipboard.readText()")
-    # (run on this computer, the link points at the published address, as the phone link does)
-    check('Settings gives out an invite link of its own, with the same setup inside', link.endswith('/invite#' + code) and link.startswith('https://'), link[:60])
+    seen = settings_reveals(ip, CID, SEC)
+    check('after accepting an invite, no part of Settings shows the sign-in setup or hands out invites',
+          ip.evaluate("JSON.parse(localStorage.getItem('planner.v1')).settings.invited") is True and not any(seen.values()), json.dumps(seen))
+    close_dialog(ip)
     # a browser that is already set up is left exactly as it is, whatever the link holds
     other = ip.evaluate("async id => (await import('./util.js')).packInvite(id, 'SOMEONE-ELSE')", '999999999999-zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz.apps.googleusercontent.com')
     ip.goto(BASE + '/invite#' + other)

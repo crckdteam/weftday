@@ -6,7 +6,9 @@ const KEY = DEMO ? 'planner.demo.v1' : 'planner.v1';
 
 const base = () => ({
   settings: {
-    clientId: '', clientSecret: '', plannerAccountId: '', plannerCalendarId: '', reminder: 10, view: '',
+    clientId: '', clientSecret: '',
+    invited: false,   // the Google sign-in setup came from someone else's invite: it is used, never shown
+    plannerAccountId: '', plannerCalendarId: '', reminder: 10, view: '',
     zone2: '',        // a second time zone shown next to your own on the calendar ('' = none)
     freeZone: '', freeDaytime: true, zonesUsed: [], // "Share my free times": the zone it is written in, and the zones you used before
     sideWidth: 0, // width of the side panel on a computer, if you dragged it; 0 = the usual width

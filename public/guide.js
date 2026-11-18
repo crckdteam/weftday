@@ -4,7 +4,7 @@ const SPARK = '<path d="M11 3.500l1.900 5.100L18 10.500l-5.100 1.900L11 17.500l-
 const STEPS = [
   { name: 'Connect', title: 'Bring your calendars together',
     say: 'Press <b>+ Connect Google account</b> once for each account you use. Work, personal, a side project: they all show in one view, each in its own colour.',
-    tip: 'The very first time, Weftday needs your own Google keys. Settings → Advanced walks you through it, or scan a setup link from a device that is already set up.',
+    tip: 'The very first time, Weftday needs a Google sign-in setup: an invite link brings it, or Settings → Advanced walks you through your own. Your phone then scans the square from your computer.',
     art: `<div class="wf"><span class="lbl">Calendars</span>
       <div class="row"><i class="dotc"></i><b>work@company.com</b><span class="sp"></span><span class="chip ok">Connected</span></div>
       <div class="row"><i class="dotc" style="background:var(--c2)"></i><b>me@gmail.com</b><span class="sp"></span><span class="chip ok">Connected</span></div>
@@ -75,7 +75,7 @@ const STEPS = [
       <div class="note"><p>Here are some times that work for me (CET):</p><p>• Wed 18 Nov: 8am – 10:30am, 11:30am – 1:30pm</p><p>• Thu 19 Nov: 8am – 1:30pm</p><p>• Fri 20 Nov: 8am – 1:30pm</p></div>
       <div class="row"><span class="sp"></span><span class="mini go">Copy</span></div></div>` },
   { name: 'Devices', title: 'Take it everywhere',
-    say: 'Open <b>Set up a device</b> and scan the square with your phone. Your accounts and keys follow you, locked inside your own Google account. Add Weftday to your home screen and it opens like an app.',
+    say: 'In Settings → Accounts, open <b>Use Weftday on my phone too</b> and scan the square with your phone. Your accounts and keys follow you, locked inside your own Google account. Add Weftday to your home screen and it opens like an app.',
     tip: 'Tasks are kept in a calendar called “Weftday” in your Google account, so your phone’s own calendar can remind you even when Weftday is closed.',
     art: `<div class="wf"><div class="row" style="justify-content:center;gap:26px"><div class="qr"></div>
       <div class="phone"><span class="bar ink w60"></span><span class="tpill" style="font-size:9.5px;padding:4px 6px">Gym</span><span class="ev" style="--c:var(--c1);position:static;display:block;height:26px">Stand-up</span><span class="ev" style="--c:var(--c4);position:static;display:block;height:34px">Call</span></div></div>

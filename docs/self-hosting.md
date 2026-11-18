@@ -30,7 +30,9 @@ Things to know:
 - **Set your address.** Edit `public/config.js` and change `PUBLIC_URL` to the address of your
   copy. It is used to make the "use it on your phone" link when the app runs on a computer's own
   address. Leave `MOVED_FROM` in that file as it is: it only matters to the published app, which
-  changed address once.
+  changed address once. `INVITE_ONLY` and `CONTACT` only matter at the published address: a copy
+  anywhere else never asks for an invite. Put your own details in `CONTACT` if you want people to
+  ask you for one.
 - **You need only `public/`.** The `site/` folder is Weftday's own website and the `legacy/` folder
   is the page left at the published app's old address. Neither is part of the app.
 - **No server settings are needed.** The Content Security Policy is inside `public/index.html`.
@@ -76,8 +78,9 @@ files it put there itself.
 
 ### Other devices
 
-Once one device is set up, you do not repeat these steps. Open **Settings → Accounts → Set up a
-device** on the device that works, and scan the square with the new one or copy the link.
+Once one device is set up, you do not repeat these steps. Open **Settings → Accounts → Use
+Weftday on my phone too** on the device that works, and scan the square with your phone or copy
+the link. To give other people your setup, use **Settings → Accounts → Invite link**.
 
 ## 3. Add the AI key
 

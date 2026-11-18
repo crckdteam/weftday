@@ -80,6 +80,13 @@ a { color: inherit; }
 .lost .sheet { max-width: 30rem; }
 .lost .go { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 22px; }
 
+/* ---- "Yours stays yours": a short promise about where things are kept (the same block as in the app) */
+.yours { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border-radius: 12px; font-size: 14.5px; line-height: 1.5; color: var(--text);
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel)); border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line)); }
+.yours svg { flex: none; width: 17px; height: 17px; margin-top: 3px; color: var(--accent); }
+.yours p { margin: 0; max-width: none; text-wrap: pretty; }
+.yours b { font-weight: 650; }
+
 /* ---- drawings of the app (wireframes) */
 .wf { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); overflow: hidden; }
 .bar { display: block; height: 7px; border-radius: 99px; background: var(--line); }

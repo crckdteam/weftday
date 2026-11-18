@@ -123,10 +123,15 @@ steps are in [docs/self-hosting.md](docs/self-hosting.md).
 
 ## Set up Google sign-in
 
-To connect a Google account today, you create your own Google Cloud client once (about ten
-minutes) and paste its Client ID and Client secret into **Settings → Advanced**. The app shows the
-steps there, and they are written out in
-[docs/self-hosting.md](docs/self-hosting.md#2-create-a-google-cloud-client).
+The published app is invite-only for now: anyone can look around, and connecting a calendar asks
+for an invite (by WhatsApp or email, from the "Request access" box). An invite link brings the
+sign-in setup with it, so the person invited only connects their own Google account.
+
+On your own copy, you create your own Google Cloud client once (about ten minutes) and paste its
+Client ID and Client secret into **Settings → Advanced**. The app shows the steps there, and they
+are written out in [docs/self-hosting.md](docs/self-hosting.md#2-create-a-google-cloud-client).
+Your own copy never asks for an invite. To use it on your phone too, open **Settings → Accounts →
+Use Weftday on my phone too** and scan the square.
 
 The sample data needs none of this.
 

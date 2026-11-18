@@ -12,7 +12,7 @@ import * as E from './editor.js';
 // Weftday never runs inside another site's page, where a press could be tricked out of someone.
 if (self !== top) { document.documentElement.innerHTML = ''; throw new Error('Weftday does not run inside another page.'); }
 import { qrSvg } from './qr.js';
-import { PUBLIC_URL } from './config.js';
+import { PUBLIC_URL, INVITE_ONLY, CONTACT } from './config.js';
 import * as Move from './movein.js';
 import {
   pad, ymd, fromYmd, addDays, startOfDay, startOfWeek, localIso, hhmm, parseHhmm, clamp,
@@ -508,6 +508,7 @@ const remember = (name, value) => { try { localStorage.setItem(name, value); } c
 const keyCardShown = () => aiOff() && remembered('weftday.keyLater') !== todayYmd();
 const keyCardHtml = () => `<section class="hkey" aria-labelledby="hkeyTitle"><span class="aimark" aria-hidden="true">${SPARK}</span>
   <div class="hkeybody"><h3 id="hkeyTitle">Switch on AI with one free key</h3><p>${esc(KEY_WHY)}</p>
+    ${state.accounts.length ? yours('key') : '' /* with nothing connected, the welcome card below carries the promise: one per screen */}
     <div class="hkeyacts"><button type="button" class="btn primary" data-act="add-key">Add my free key</button><button type="button" class="linkbtn" data-act="key-later">Remind me tomorrow</button></div></div></section>`;
 // For Google the search key is a nice extra (that row can be hidden for good); for the others it is needed.
 const searchOptional = () => S.aiService(state.settings.aiProvider).kind === 'google';
@@ -1236,7 +1237,7 @@ function openPalette() {
   const cmds = [
     ['Go to today', goToday], ['Today: prepare for my meetings', openToday], ['People and companies', () => openPeople()], ['Share my free times', () => openFreeTimes()], ['Record a meeting or my screen', () => openRecordSetup(null)], ['Recordings', () => openRecordings(null)], ['Take a screenshot', () => takeShot(null)], ['Ask my meetings a question', openAskAll], ['Notes: everything you have written', () => setView('notes')], ['Show me around (tour)', () => setTimeout(startTour, 250)], ['Show a second time zone', openSecondZone], ['Plan my day', openPlan], ['New task', newTaskHere], ['New event', () => openEventForm(null)],
     ['Day view', () => setView('day')], ['Week view', () => setView('week')], ['Month view', () => setView('month')], ['List view', () => setView('list')],
-    ['Settings', () => openSettings()], ['Set up phone or another device', openDeviceSetup], ['Keyboard shortcuts', openHelp],
+    ['Settings', () => openSettings()], ['Use Weftday on my phone too', openDeviceSetup], ['Keyboard shortcuts', openHelp],
   ].map(([label, run]) => ({ kind: 'Go', label, sub: '', run }));
   let rows = [], sel = 0;
   const paint = () => {
@@ -1429,13 +1430,15 @@ function metLine(list, key) {
 // meetings"); sent: what would go to the AI, when that is worth saying; back: where "Back" returns to.
 const SPARK = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 3.5l1.9 5.1L18 10.5l-5.1 1.9L11 17.5l-1.9-5.1L4 10.5l5.1-1.9z"/><path d="M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></svg>';
 // title and text replace the usual heading and sentence; alt: [label, what it does] in place of "Not now".
-function needKey(what, { sent = '', back = null, title = '', text = '', alt = null } = {}) {
+// promise: which "Yours stays yours" line the box carries (the AI key one, or the recording one).
+function needKey(what, { sent = '', back = null, title = '', text = '', alt = null, promise = 'key' } = {}) {
   const left = alt ? `<button type="button" class="btn ghost" data-x="alt">${esc(alt[0])}</button>`
     : `<button type="button" class="btn ghost" data-x="${back ? 'back' : 'close'}">${back ? 'Back' : 'Not now'}</button>`;
   dialog(`<div class="dbody needkey"><span class="aimark">${SPARK}</span>
     <h3>${esc(title || 'Add your AI key to use this')}</h3>
     <p>${text ? esc(text) : `${esc(what)} uses AI, and AI in Weftday runs on a key of your own. Google gives the key away free, and adding it takes about a minute.`}</p>
     ${sent ? `<p class="note">${esc(sent)}</p>` : ''}
+    ${yours(promise)}
     <div class="actions">${left}<span class="sp"></span><button type="button" class="btn primary" data-x="add">Add my free key</button></div></div>`, {
     back: () => back?.(),
     alt: () => alt?.[1](),
@@ -1447,6 +1450,20 @@ const KEY_WHY = 'Weftday writes your meeting notes, answers questions about them
 // While AI is off, everything that needs the key wears this lock (in place of the sparkle) and says why.
 const LOCK = '<svg class="lockmark" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg>';
 const LOCKED = 'Needs your AI key';
+// "Yours stays yours": one short promise, shown where trust is decided (never two on one screen).
+// The key and Google ones are only true while the same-accounts switch is off: with it on, keys and
+// sign-ins are also kept, locked, in the person's own Google account, so those two are not shown then.
+const YOURS = {
+  general: ['Yours stays yours.', 'Your calendar, notes and recordings are kept in this browser and in your own Google account. Weftday has no server that can see them.'],
+  key: ['Your key stays in this browser.', 'It is sent only to the AI service it belongs to, never to Weftday or anyone else.'],
+  google: ['Weftday talks to Google straight from this browser.', 'Your sign-in is kept here and nowhere else.'],
+  rec: ['The recording stays in this browser.', ''],
+};
+function yours(kind) {
+  if ((kind === 'key' || kind === 'google') && V.sharingReady()) return '';
+  const [first, rest] = YOURS[kind];
+  return `<div class="yours${rest ? '' : ' line'}" data-yours="${kind}">${LOCK}<span><b>${first}</b>${rest ? ` ${rest}` : ''}</span></div>`;
+}
 const lockAttr = on => (on ? ` data-locked="1" title="${LOCKED}"` : '');
 const tidyLocked = () => aiOff() && !AI.supported();   // without a key, Tidy still runs on the browser's own AI where there is one
 const quickLocked = () => aiOff() && !AI.supported();  // and so does "Add a task" in your own words
@@ -2486,8 +2503,75 @@ async function setPlanner(a) {
 
 function connect() {
   if (DEMO) return toast('This is sample data. Open the app without “?demo” to connect your accounts.');
+  if (needsInvite()) return openAccess();
   if (!state.settings.clientId) return openSettings('One-time setup: add your Google keys below, then connect your accounts.');
   G.startConnect().catch(err => toast(err.message, true));
+}
+
+// ---------------------------------------------------------------- invite-only
+// The published copy lets people in by invite for now. A browser there with no Google sign-in setup of
+// its own can look around freely, but connecting a calendar asks for an invite first. A copy at any other
+// address (someone's own host, this computer) is never asked. weftday.gate = '1' asks here too, for the checks.
+function needsInvite() {
+  if (DEMO || !INVITE_ONLY || state.settings.clientId) return false;
+  if (location.origin === new URL(PUBLIC_URL).origin) return true;
+  return isLocal && remembered('weftday.gate') === '1';
+}
+const INVITE_ASK = 'Hi, I would like an invite to Weftday.';
+// The "Request access" box: one step at a time in the same box. view: 'start', 'ask' (how to reach us)
+// or 'have' (paste an invite link).
+function openAccess(view = 'start') {
+  const wa = `https://wa.me/${encodeURIComponent(CONTACT.whatsapp)}?text=${encodeURIComponent(INVITE_ASK)}`;
+  const mail = `mailto:${CONTACT.email}?subject=${encodeURIComponent('Weftday invite')}&body=${encodeURIComponent(`${INVITE_ASK}\n\nMy name: `)}`;
+  const icon = path => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
+  const views = {
+    start: `<h3 id="accessTitle" tabindex="-1">Weftday is invite-only for now</h3>
+      <p>We are letting in the first 100 people. Ask for an invite and you get a link that opens Weftday for you.</p>
+      <button type="button" class="btn primary access-go" data-x="ask">Request access</button>
+      <div class="access-links"><button type="button" class="linkbtn" data-x="have">I have an invite link</button></div>
+      ${yours('general')}
+      <button type="button" class="linkbtn access-own" data-x="own">I host my own copy</button>`,
+    ask: `<h3 id="accessTitle" tabindex="-1">Ask for your invite</h3>
+      <p>Message us and we send your invite link, usually the same day.</p>
+      <div class="access-two">
+        <a class="btn primary" href="${esc(wa)}" target="_blank" rel="noopener" id="accessWa">${icon('<path d="M20 11.5a8 8 0 0 1-11.8 7L4 20l1.5-4.1A8 8 0 1 1 20 11.5z"/>')}WhatsApp</a>
+        <a class="btn primary" href="${esc(mail)}" id="accessMail">${icon('<rect x="3" y="5.5" width="18" height="13" rx="2.5"/><path d="m4 7.5 8 6 8-6"/>')}Email</a>
+      </div>
+      <div class="access-written">
+        <div><span>Email</span><b id="accessEmail">${esc(CONTACT.email)}</b><button type="button" class="mini" data-x="copy" data-v="${esc(CONTACT.email)}">Copy</button></div>
+        <div><span>WhatsApp</span><b id="accessPhone">${esc(CONTACT.whatsappShown)}</b><button type="button" class="mini" data-x="copy" data-v="${esc(CONTACT.whatsappShown)}">Copy</button></div>
+      </div>
+      ${yours('general')}
+      <button type="button" class="linkbtn access-back" data-x="start">Back</button>`,
+    have: `<form class="access-have" novalidate><h3 id="accessTitle" tabindex="-1">Open your invite</h3>
+      <label for="accessLink">Paste your invite link</label>
+      <input id="accessLink" name="link" autocomplete="off" spellcheck="false" placeholder="https://…/invite#…">
+      <p class="note warn" id="accessErr" role="alert" hidden></p>
+      <button class="btn primary access-go">Open it</button>
+      ${yours('general')}
+      <button type="button" class="linkbtn access-back" data-x="start">Back</button></form>`,
+  };
+  dialog(`<div class="dbody access">${views[view]}</div>`, {
+    ask: () => openAccess('ask'),
+    have: () => openAccess('have'),
+    start: () => openAccess('start'),
+    own: () => openSettings('', 'advanced', 'own'),
+    copy(btn) {
+      navigator.clipboard.writeText(btn.dataset.v).then(() => {
+        btn.textContent = 'Copied';
+        setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+      }, () => toast('Could not copy. Select it and copy by hand.', true));
+    },
+    submit(fd) {
+      const text = String(fd.get('link') || '').trim();
+      const m = text.match(/\/invite(?:\.html)?#(?:t=)?([\w-]+)\s*$/) || text.match(/^([\w-]+)$/);
+      if (m && unpackInvite(m[1])) { location.href = `invite#${m[1]}`; return; }
+      const err = $('#accessErr', el.dlg);
+      err.hidden = false;
+      err.textContent = 'That does not look like an invite link. Open it straight from the message it came in.';
+    },
+  }, 'accessbox');
+  if (view !== 'start' || Date.now() - keyAt < 800) $(view === 'have' ? '#accessLink' : '#accessTitle', el.dlg)?.focus();
 }
 
 async function onConnected(a) {
@@ -2526,10 +2610,11 @@ function takeInvite() {
   const d = code ? unpackInvite(code) : null, s = state.settings;
   if (!d || DEMO || s.clientId) return;
   s.clientId = d.i; s.clientSecret = d.s;
+  s.invited = true; // the setup belongs to whoever invited them: this browser uses it but never shows it
   save();
   invited = true;
 }
-function setupLink() { // the older plain link for someone else's device: your Google keys and nothing more
+function setupLink() { // the older plain link: your Google keys and nothing more (when an invite cannot be made)
   const { clientId, clientSecret } = state.settings, d = { i: clientId, s: clientSecret };
   const data = btoa(JSON.stringify(d)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   return `${isLocal ? PUBLIC_URL : G.redirectUri()}#setup=${data}`;
@@ -2570,6 +2655,7 @@ function applySetup(d) {
     if (differ && s.clientId && !confirm('Replace the Google keys saved on this device with the ones from this link?\n\nContinue only if the link came from you or from someone you trust. Signing in stops working if the keys are wrong.')) return false;
     if (differ && !s.clientId && !own && !confirm('Set this device up with the Google keys from this link?\n\nContinue only if the link came from you or from someone you trust.')) return false;
     s.clientId = d.i; s.clientSecret = d.s;
+    s.invited = d.v === 1 || (!differ && !!s.invited); // a link from the phone box of someone who was invited keeps the setup hidden here too
     if (own) {
       let a = acct(d.e);
       if (!a) { a = { id: d.e, email: d.e, color: G.COLORS[state.accounts.length % G.COLORS.length], calendars: [] }; state.accounts.push(a); }
@@ -2638,35 +2724,72 @@ async function adoptHome(id) {
     toast('Could not bring in your accounts. Press “+ Connect Google account” instead.', true);
   }
 }
-async function openDeviceSetup(mine = true) {
+// "Weftday on your phone too": your own phone opens with everything connected. That needs the switch
+// "Same accounts on all my devices" (see vault.js); when it is off, the box offers to switch it on here.
+async function openDeviceSetup() {
   if (DEMO) return toast('This is sample data. Open the app without “?demo” first.');
+  if (needsInvite()) return openAccess();
   if (!state.settings.clientId) return openSettings('Add your Google keys first, then you can set up your phone.');
-  const canMine = V.sharingReady();
-  mine = mine && canMine;
-  // A link for your own device carries a sign-in, so it is locked with a code (see vault.js).
+  if (!V.sharingReady()) return openPhoneSwitch();
+  // The link carries your sign-in, so it is locked with a code (see vault.js).
   const home = plannerAccount();
-  const locked = mine ? await V.lockSetup({ i: state.settings.clientId, s: state.settings.clientSecret, e: home.id, r: home.refreshToken }) : null;
-  const link = locked ? `${isLocal ? PUBLIC_URL : G.redirectUri()}#setup2=${locked.blob}` : inviteLink() || setupLink(false);
+  const locked = await V.lockSetup({ i: state.settings.clientId, s: state.settings.clientSecret, e: home.id, r: home.refreshToken, v: state.settings.invited ? 1 : 0 });
+  const link = `${isLocal ? PUBLIC_URL : G.redirectUri()}#setup2=${locked.blob}`;
   let square = '';
   try { square = qrSvg(link); } catch { /* too long for a square: the link can still be copied */ }
-  dialog(`<div class="dbody"><h3>Set up another device</h3>
-    ${canMine ? `<div class="seg"><button type="button" data-x="mine" class="${mine ? 'on' : ''}">My own device</button><button type="button" data-x="other" class="${mine ? '' : 'on'}">Someone else’s</button></div>` : ''}
-    <p class="note">${mine
-      ? 'Point your phone’s camera at this square and tap the link that appears. It asks for the code below, then opens with all your accounts already connected.'
-      : 'Send them this invite link, or let them point their phone’s camera at this square. It opens a page that says they are invited. They accept, then connect their own Google account: no setup for them.'}</p>
-    ${square ? `<div class="qr">${square}</div>` : '<p class="note warn">This link is too long to show as a square. Use “Copy the link instead”.</p>'}
-    ${locked ? `<div class="setcode"><span>Type this code on the new device</span><b id="setupCode">${esc(locked.code)}</b></div>` : ''}
+  dialog(`<div class="dbody phonebox"><h3>Weftday on your phone too</h3>
+    <ol class="phsteps">
+      <li><span>Point your phone’s camera at this square and tap the link.</span>
+        ${square ? `<div class="qr">${square}</div>` : '<p class="note warn">This link is too long to show as a square. Use “Copy the link instead”.</p>'}</li>
+      <li><span>Type this code on your phone.</span>
+        <div class="setcode"><b id="setupCode">${esc(locked.code)}</b></div>
+        <p class="note">The link works only with this code, and only for 15 minutes. Never show the code to anyone else.</p></li>
+    </ol>
     <p class="note">On an iPhone, open the link in Safari, then use Share → Add to Home Screen to get an app icon.</p>
-    <p class="note warn">${mine
-      ? 'The link works only with this code, and only for 15 minutes. Never show the code to anyone else.'
-      : 'The invite holds this copy’s sign-in setup, not your account, your calendar or your notes. Send it privately, to people you mean to invite.'}</p>
-    ${canMine ? '' : '<p class="note">Tip: switch on “Keep my accounts the same on all my devices” in Settings, and your own devices will need no Google login.</p>'}
     <div class="actions"><button class="btn" data-x="copy">Copy the link instead</button>
       ${isLocal ? `<a class="btn" href="${esc(link)}" target="_blank" rel="noopener">Open on this computer</a>` : ''}
       <span class="sp"></span><button class="btn primary" data-x="close">Done</button></div></div>`, {
     copy() { navigator.clipboard.writeText(link).then(() => toast('Link copied'), () => toast('Could not copy the link', true)); },
-    mine: () => openDeviceSetup(true),
-    other: () => openDeviceSetup(false),
+  });
+}
+// The same box while "Same accounts on all my devices" is off: one step to switch it on, then the square.
+function openPhoneSwitch() {
+  const s = state.settings, live = state.accounts.filter(a => !a.needsReconnect);
+  const home = plannerAccount(), homeOk = home && !home.needsReconnect;
+  // Switching on here does what Settings does: it needs an account to keep tasks in, and the Client secret.
+  const can = !!s.clientSecret && (homeOk || (!home && live.length > 0));
+  const choose = can && !home && live.length > 1;
+  const named = homeOk ? home.email : live.length === 1 ? live[0].email : '';
+  // Someone who was invited never gets a plain link to pass around: only the locked square and code.
+  const phoneLink = s.invited ? '' : inviteLink() || setupLink();
+  const why = !s.clientSecret ? 'To open on your phone with everything connected, Weftday needs the Client secret in Settings → Advanced.'
+    : home && !homeOk ? `${home.email} needs reconnecting first. Use the Reconnect button in the side menu, then come back here.`
+      : 'Connect your Google account here first. Then your phone can open with everything connected.';
+  dialog(`<form class="dbody phonebox"><h3>Weftday on your phone too</h3>
+    ${can ? `<p>Switch on “Same accounts on all my devices” and your phone opens with your calendars, tasks and keys already connected.</p>
+      ${choose ? `<label>Keep them in<select name="home">${live.map(a => `<option value="${esc(a.id)}">${esc(a.email)}</option>`).join('')}</select></label>` : ''}
+      <p class="note">They are kept locked inside ${named ? esc(named) : 'that account'}, your own Google account. Keep that account safe.</p>`
+    : `<p>${esc(why)}</p>`}
+    ${phoneLink ? `<div class="phalt"><span>Or open Weftday on your phone and connect Google there</span>
+      <button type="button" class="btn" data-x="copyphone">Copy link for my phone</button></div>` : ''}
+    <div class="actions"><span class="sp"></span>${can ? '<button type="button" class="btn ghost" data-x="close">Not now</button><button class="btn primary">Switch it on</button>' : '<button type="button" class="btn primary" data-x="close">Done</button>'}</div></form>`, {
+    copyphone() { navigator.clipboard.writeText(phoneLink).then(() => toast('Link copied. Open it on your phone.'), () => toast('Could not copy the link', true)); },
+    async submit(fd, form) {
+      if (!can) return closeDialog();
+      const btn = $('button.primary', form);
+      btn.disabled = true;
+      try {
+        if (!home) await setPlanner(acct(String(fd.get('home') || live[0].id)));
+        s.shareAccounts = true;
+        state.sharedSeen = false;
+        save();
+        await shareSync();
+        render();
+        if (V.sharingReady()) return openDeviceSetup();
+        btn.disabled = false;
+        toast('Could not switch it on just now. Try again in a moment.', true);
+      } catch (err) { btn.disabled = false; toast(err.message, true); }
+    },
   });
 }
 
@@ -2889,6 +3012,43 @@ function openSettings(msg, pane, focus) {
     ${text(esc(a.email), a.needsReconnect ? 'Needs reconnecting. Use the Reconnect button in the side menu.' : a.id === s.plannerAccountId ? 'Your tasks are saved here' : `${a.calendars.length} calendar${a.calendars.length === 1 ? '' : 's'}`)}
     ${a.needsReconnect ? tag('Signed out', 'warn') : a.id === s.plannerAccountId ? tag('Home', 'ok') : ''}</div>`).join('');
 
+  // Advanced: the Google keys and the four steps to make them. While this browser still needs an invite,
+  // they sit folded under “I host my own copy”, so nobody is sent into them by accident.
+  const keyFields = `
+          <h4>Google connection</h4>
+          <div class="sgroup">
+            <div class="sfield">
+              <label for="clientIdBox"><b>Client ID</b>${keyTag(s.clientId)}</label>
+              <input id="clientIdBox" name="clientId" value="${esc(s.clientId)}" placeholder="…apps.googleusercontent.com" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="sfield">
+              <label for="clientSecretBox"><b>Client secret</b>${keyTag(s.clientSecret)}</label>
+              <input id="clientSecretBox" name="clientSecret" type="password" value="${esc(s.clientSecret)}" autocomplete="off">
+            </div>
+          </div>`;
+  const keySteps = `
+          <details class="keyhelp"><summary>How to get these · four steps, once</summary><ol>
+            <li><b>Make a project and switch the calendar on.</b> <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Create a project</a> called “Weftday”, then open <a href="https://console.cloud.google.com/apis/library/calendar-json.googleapis.com" target="_blank" rel="noopener">Google Calendar API</a> and press Enable.</li>
+            <li><b>Tell Google who you are.</b> Open <a href="https://console.cloud.google.com/auth/clients" target="_blank" rel="noopener">Google Auth Platform</a> and press Get started: choose <b>External</b>, give it a name and your email. Then under <b>Audience</b> press <b>Publish app</b>, so Google does not sign you out every 7 days. Only you can use it.</li>
+            <li><b>Make the sign-in.</b> Under <b>Clients</b>, create a client of type <b>Web application</b> and paste these two in:
+              <span class="copyrow"><code>${esc(location.origin)}</code><button type="button" class="mini" data-x="copyval" data-v="${esc(location.origin)}">Copy</button><i>under “Authorised JavaScript origins”</i></span>
+              <span class="copyrow"><code>${esc(G.redirectUri())}</code><button type="button" class="mini" data-x="copyval" data-v="${esc(G.redirectUri())}">Copy</button><i>under “Authorised redirect URIs”</i></span></li>
+            <li><b>Paste the two keys here.</b> Copy the Client ID and the Client secret into the boxes above and press Save.</li>
+          </ol><p class="note">The first time you connect an account, Google shows a “not verified” warning. Choose <b>Advanced → Go to Weftday</b>. That is expected for a private app.</p></details>`;
+  const setupFromLink = `
+          <h4>Set up from your computer</h4>
+          <div class="sgroup"><div class="sfield">
+            <label for="setupLinkBox"><b>Setup link</b></label>
+            <span class="hint">On your computer: Settings → Accounts → Use Weftday on my phone too → Copy the link instead. Paste it here. Useful when Weftday is installed on a phone’s home screen.</span>
+            <input id="setupLinkBox" name="setupLink" placeholder="https://…#setup=…" autocomplete="off" spellcheck="false">
+            <div><button type="button" class="btn" data-x="uselink">Use this link</button></div>
+          </div></div>`;
+  // Someone who was invited uses the inviter's setup without ever seeing it: no keys, no steps.
+  const ownHost = `<details class="ownhost"${focus === 'own' ? ' open' : ''}><summary>I host my own copy</summary>
+      <p class="note">For your own copy of Weftday, or your own Google project: add its two keys here.</p>${keyFields}${keySteps}</details>`;
+  const advanced = s.invited ? setupFromLink : !needsInvite() ? keyFields + setupFromLink + keySteps
+    : focus === 'own' ? ownHost + setupFromLink : setupFromLink + ownHost;
+
   dialog(`<form class="sets">
     <nav class="snav" aria-label="Settings sections">
       <h3>Settings</h3>
@@ -2920,12 +3080,13 @@ function openSettings(msg, pane, focus) {
           </div>`)}
 
         ${section('accounts', 'Accounts', '', `
+          ${yours('google')}
           <h4>Google accounts</h4>
           <div class="sgroup">
             ${accounts || `<div class="srow">${text('No account connected yet', 'Connect one to see its calendars here')}</div>`}
             <div class="srow">${text(state.accounts.length ? 'Add another' : 'Connect your first account', '')}<button type="button" class="btn" data-x="connect">Connect account</button></div>
           </div>
-          ${inviteLink() ? `<h4>Invite someone</h4>
+          ${inviteLink() && !s.invited ? `<h4>Invite someone</h4>
           <div class="sgroup">
             ${row('Invite link', 'They open it, accept, and connect their own Google account. No setup for them, and they never see your calendar or notes.', '<button type="button" class="btn" data-x="copyinvite">Copy invite link</button>')}
           </div>` : ''}
@@ -2933,7 +3094,7 @@ function openSettings(msg, pane, focus) {
           <div class="sgroup">
             ${row('Save my tasks in', 'Kept in a calendar called “Weftday” in that account', select('planner', [['', 'This device only'], ...state.accounts.map(a => [a.id, a.email])], s.plannerAccountId))}
             ${toggle('share', s.shareAccounts, 'Same accounts on all my devices', 'Keeps your sign-ins and your AI keys, locked, inside the account above. A new device then needs no Google login and no keys. Keep that account safe.')}
-            ${row('Phone, tablet or another computer', '', '<button type="button" class="btn" data-x="device">Set up a device</button>')}
+            ${row('Use Weftday on my phone too', 'Your calendars and tasks on your phone, with no second Google login.', '<button type="button" class="btn" data-x="device">Show me how</button>')}
           </div>
           <h4>Other calendars</h4>
           <div class="sgroup">
@@ -2955,6 +3116,7 @@ function openSettings(msg, pane, focus) {
               <details id="aiHelpBox" class="keyhelp"><summary id="aiHelpTitle"></summary><ol id="aiKeyHelp"></ol><a class="btn primary" id="aiKeyGet" target="_blank" rel="noopener"></a></details>
             </div>
           </div>
+          ${yours('key')}
           <div class="aihero" id="searchCard">
             <div class="aihead"><span class="aimark" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg></span>
               <div><b>2 · Search key</b><span id="searchWhy"></span></div></div>
@@ -3002,33 +3164,7 @@ function openSettings(msg, pane, focus) {
             ${row('About Weftday', 'The website: what it is and who makes it', '<a class="btn" href="https://weftday.crckd.live/" target="_blank" rel="noopener">Open</a>')}
           </div>`)}
 
-        ${section('advanced', 'Advanced', 'Weftday talks to Google with keys of your own. If this device was set up from another one, they are already filled in.', `
-          <h4>Google connection</h4>
-          <div class="sgroup">
-            <div class="sfield">
-              <label for="clientIdBox"><b>Client ID</b>${keyTag(s.clientId)}</label>
-              <input id="clientIdBox" name="clientId" value="${esc(s.clientId)}" placeholder="…apps.googleusercontent.com" autocomplete="off" spellcheck="false">
-            </div>
-            <div class="sfield">
-              <label for="clientSecretBox"><b>Client secret</b>${keyTag(s.clientSecret)}</label>
-              <input id="clientSecretBox" name="clientSecret" type="password" value="${esc(s.clientSecret)}" autocomplete="off">
-            </div>
-          </div>
-          <h4>Set up from another device</h4>
-          <div class="sgroup"><div class="sfield">
-            <label for="setupLinkBox"><b>Setup link</b></label>
-            <span class="hint">On your other device: Settings → Accounts → Set up a device → Copy link. Paste it here. Useful when Weftday is installed on a phone’s home screen.</span>
-            <input id="setupLinkBox" name="setupLink" placeholder="https://…#setup=…" autocomplete="off" spellcheck="false">
-            <div><button type="button" class="btn" data-x="uselink">Use this link</button></div>
-          </div></div>
-          <details class="keyhelp"><summary>How to get these · four steps, once</summary><ol>
-            <li><b>Make a project and switch the calendar on.</b> <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Create a project</a> called “Weftday”, then open <a href="https://console.cloud.google.com/apis/library/calendar-json.googleapis.com" target="_blank" rel="noopener">Google Calendar API</a> and press Enable.</li>
-            <li><b>Tell Google who you are.</b> Open <a href="https://console.cloud.google.com/auth/clients" target="_blank" rel="noopener">Google Auth Platform</a> and press Get started: choose <b>External</b>, give it a name and your email. Then under <b>Audience</b> press <b>Publish app</b>, so Google does not sign you out every 7 days. Only you can use it.</li>
-            <li><b>Make the sign-in.</b> Under <b>Clients</b>, create a client of type <b>Web application</b> and paste these two in:
-              <span class="copyrow"><code>${esc(location.origin)}</code><button type="button" class="mini" data-x="copyval" data-v="${esc(location.origin)}">Copy</button><i>under “Authorised JavaScript origins”</i></span>
-              <span class="copyrow"><code>${esc(G.redirectUri())}</code><button type="button" class="mini" data-x="copyval" data-v="${esc(G.redirectUri())}">Copy</button><i>under “Authorised redirect URIs”</i></span></li>
-            <li><b>Paste the two keys here.</b> Copy the Client ID and the Client secret into the boxes above and press Save.</li>
-          </ol><p class="note">The first time you connect an account, Google shows a “not verified” warning. Choose <b>Advanced → Go to Weftday</b>. That is expected for a private app.</p></details>`)}
+        ${section('advanced', 'Advanced', s.invited ? 'This browser was set up from an invite, so the Google connection is ready.' : 'Weftday talks to Google with keys of your own. If this device was set up from another one, they are already filled in.', advanced)}
       </div>
       <div class="sfoot"><span class="sp"></span>
         <button type="button" class="btn ghost" data-x="close">Cancel</button>
@@ -3099,8 +3235,10 @@ function openSettings(msg, pane, focus) {
   const opened = { at: s.keysAt, keys: { ...keys }, models: { ...models }, findKeys: { ...findKeys }, provider, finder };
   function stash(fd = new FormData($('form', el.dlg))) {
     if (+fd.get('dayEnd') <= +fd.get('dayStart')) return false;
-    s.clientId = fd.get('clientId').trim();
-    s.clientSecret = fd.get('clientSecret').trim();
+    if (fd.has('clientId')) { // not there at all for someone who was invited
+      s.clientId = fd.get('clientId').trim();
+      s.clientSecret = fd.get('clientSecret').trim();
+    }
     s.reminder = +fd.get('reminder');
     s.dayStart = +fd.get('dayStart'); s.dayEnd = +fd.get('dayEnd');
     s.morning = +fd.get('morning');
@@ -3229,6 +3367,7 @@ function openSettings(msg, pane, focus) {
     if (st === 'no' && why) why.textContent = 'Rough notes into a summary. Needs your AI key.';
   });
   if (focus === 'search' && first === 'ai') part('searchCard').scrollIntoView({ block: 'start' });
+  if (focus === 'own') part('clientIdBox')?.focus();
 }
 
 // ---------------------------------------------------------------- reminders
@@ -4110,6 +4249,7 @@ function openRecordSetup(ev) {
       <div class="grid2"><label>Microphone<select name="micId"><option value="">The usual one</option></select></label>
       <label>Camera<select name="camId"><option value="">The usual one</option></select></label></div>
     </details>
+    ${yours('rec')}
     ${screen ? '<p class="note rnext" id="recHow">Next, your browser asks what to share. Pick the meeting’s <b>tab</b> and keep its sound switched on. For Zoom or Teams, pick <b>Entire screen</b>.</p>' : ''}
     <div class="actions">${screen ? '<button type="button" class="btn ghost" data-x="shot">Screenshot instead</button>' : ''}<span class="sp"></span><button type="button" class="btn ghost" data-x="close">Cancel</button><button class="btn primary recgo"><i aria-hidden="true"></i>Start recording</button></div>
     <p class="rtell">Please tell everyone that you are recording.</p></form>`, {
@@ -4119,7 +4259,7 @@ function openRecordSetup(ev) {
     submit(fd, form) {
       // A meeting with AI off: one small box first, so nobody records a meeting expecting notes that never come.
       if (fd.get('what') === 'sound' && aiOff()) {
-        return needKey('', { title: 'Record without notes?', text: 'Weftday can only write the notes with your AI key. It is free and takes a minute.', alt: ['Record anyway', () => start(fd, null)] });
+        return needKey('', { title: 'Record without notes?', text: 'Weftday can only write the notes with your AI key. It is free and takes a minute.', promise: 'rec', alt: ['Record anyway', () => start(fd, null)] });
       }
       return start(fd, form);
     },
@@ -4173,6 +4313,8 @@ function openRecordSetup(ev) {
     $('#recWhy', form).textContent = REC_KINDS[what][1];
     const keyNote = $('#recKeyNote', form); // AI off: a meeting gets the clear notice, the other kinds the quiet line
     if (keyNote) { keyNote.hidden = what !== 'sound'; $('#recAutoRow', form).hidden = what === 'sound'; }
+    // "stays in this browser" is only said while nothing of this recording is set to go to the AI
+    $('[data-yours=rec]', form).hidden = !!f('auto')?.checked;
     $('#recMicRow', form).hidden = what === 'mic' || what === 'camera';
     $('#recCamRow', form).hidden = what !== 'video' || !drawCam;
     const how = $('#recHow', form);
@@ -4182,7 +4324,7 @@ function openRecordSetup(ev) {
   };
   form.addEventListener('change', e => {
     if (e.target.name === 'camId') stopPreview(); // another camera was picked: open that one
-    if (['what', 'cam', 'camId'].includes(e.target.name)) sync();
+    if (['what', 'cam', 'camId', 'auto'].includes(e.target.name)) sync();
   });
   el.dlg.addEventListener('close', stopPreview, { once: true });
   names();
@@ -4858,7 +5000,10 @@ async function renderHome() {
   } else {
     hero = `<section class="hnext quiet"><span class="hchip">${state.accounts.length || DEMO ? 'A clear stretch' : 'Welcome'}</span>
       <div class="hopen"><b>${state.accounts.length || DEMO ? 'No meetings in the next two weeks' : 'See your whole day here'}</b><i>${state.accounts.length || DEMO ? 'A good time for the tasks that need room.' : 'Connect your Google account and your meetings, with who is in them, show up on this page.'}</i></div>
-      ${state.accounts.length || DEMO ? '' : '<div class="btnrow"><button type="button" class="btn primary" data-act="home-connect">Connect Google account</button></div>'}</section>`;
+      ${state.accounts.length || DEMO ? '' : needsInvite()
+    ? `<div class="btnrow"><button type="button" class="btn primary" data-act="home-connect">Request access</button></div>
+      <p class="hinvite">Weftday is invite-only for now. Connecting your calendar needs an invite.</p>${yours('google')}`
+    : `<div class="btnrow"><button type="button" class="btn primary" data-act="home-connect">Connect Google account</button></div>${yours('google')}`}</section>`;
   }
   const row = i => {
     const past = i.e <= nowM, live = i.s <= nowM && i.e > nowM;
@@ -5392,7 +5537,11 @@ async function boot() {
     if (a) await onConnected(a);
     const after = G.takeAfter(); // back from Google after being asked about Drive: carry on with the link
     if (a && after?.share) openRecording(after.share).then(() => shareRecording(after.share));
-  } catch (err) { toast(err.message, true); }
+  } catch (err) {
+    // Someone who was invited cannot fix the setup themselves (and never sees it): a fresh invite can.
+    if (state.settings.invited && err.code && !/cancelled/.test(err.message)) toast('Connecting did not work. Ask the person who invited you for a fresh invite link.', { go: ['How to ask', () => openAccess('ask')] });
+    else toast(err.message, true);
+  }
   if (!DEMO) {
     let cut = false; // Google cannot be reached at all from here right now
     await Promise.all(state.accounts.filter(a => !a.needsReconnect).map(a => G.refreshCalendars(a).catch(err => { cut ||= err.kind === 'unreachable'; console.warn(a.email, err); })));

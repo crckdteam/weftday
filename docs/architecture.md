@@ -40,7 +40,7 @@ Everything the app needs is in `public/`.
 | `facts.js` | Calls to Google's AI: facts about people, writing down a recording, writing notes. |
 | `ai.js` | AI that runs inside the browser (Chrome's built-in model), and the layout of tidied notes. |
 | `claude.js` | "Get facts" with Claude, for people who bring their own Anthropic key. |
-| `qr.js` | Draws the square (QR code) used to set up another device. |
+| `qr.js` | Draws the square (QR code) used to set up your phone. |
 | `sw.js` | The service worker: keeps a copy of the app's files so it opens offline. |
 | `config.js` | The public address of this copy of the app, and the address it was published at before. |
 | `movein.js` | Takes over what a browser saved at the app's old address, handed across by the page left there (`legacy/`). |
@@ -107,10 +107,19 @@ This is optional and off by default. When it is on, `vault.js` encrypts the acco
 browser with AES-GCM and keeps it as a hidden entry in the person's "Weftday" calendar. Other
 devices that hold the same Client secret read and decrypt it. No server is involved.
 
-A new device is set up by scanning a square or opening a link. The link for a person's own device
-carries their sign-in, so it is encrypted with a key made from a one-time code shown on the first
-device, and it stops working after 15 minutes. The link for someone else's device carries only
-the Google client keys.
+A person's phone is set up from **Settings → Accounts → Use Weftday on my phone too** by scanning
+a square or opening a link. The link carries their sign-in, so it is encrypted with a key made from
+a one-time code shown on the first device, and it stops working after 15 minutes. Other people are
+given an invite link instead (`invite.html`), which carries only the Google client keys. A browser
+that took an invite remembers it (`settings.invited`) and never shows those keys on screen; they
+are still kept in its storage, because signing in needs them.
+
+### Invite-only at the published address
+
+`INVITE_ONLY` and `CONTACT` in `public/config.js`. At the published address only, a browser with
+no Google sign-in setup can look around, but connecting a calendar opens a "Request access" box
+(WhatsApp, email, paste an invite link, or "I host my own copy"). A copy at any other address is
+never asked.
 
 ## How the recorder works
 
