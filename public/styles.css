@@ -1477,3 +1477,9 @@ p kbd, .note kbd { display: inline-block; min-width: 0; height: auto; padding: 1
   #side { overflow-y: auto; }
   #sideBody { overflow: visible; flex: none; }
 }
+
+/* ---- "Add your AI key to use this": the one box shown when a feature needs a key that is not there yet */
+.needkey { text-align: left; }
+.needkey .aimark { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 13px; margin-bottom: 12px; color: var(--h-task); background: color-mix(in srgb, var(--h-task) 15%, transparent); }
+.needkey h3 { font-family: var(--display); font-size: 22px; letter-spacing: -.02em; margin-bottom: 8px; }
+.needkey p { max-width: 44ch; text-wrap: pretty; }

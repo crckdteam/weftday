@@ -1359,21 +1359,25 @@ function metLine(list, key) {
   return `Met ${past.length === 1 ? 'once' : `${past.length} times`} in the past year · last on ${dayLabel(new Date(past[past.length - 1].s))}`;
 }
 
-// Shown when "Get facts" is pressed before an AI key has been added.
-function openFactsHelp(guest, from) {
-  dialog(`<div class="dbody"><h3>Get facts needs a free key</h3>
-    <p>To look people up on the web, Weftday uses Google’s AI with a key that belongs to you. The key is free.</p>
-    <ol class="steps">
-      <li>Open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> and press <b>Create API key</b>.</li>
-      <li>Copy the key and paste it into <b>Settings → AI</b>.</li>
-    </ol>
-    <p class="note">Each time facts are fetched, the person’s name, their company and the meeting title go to that AI. Nothing is sent before that.</p>
-    <p class="note">Settings → AI also has a free search key for richer results, and other AI services to choose from (OpenAI, Claude, Ollama and more), each marked free or paid.</p>
-    <div class="actions"><button type="button" class="btn ghost" data-x="back">Back</button><span class="sp"></span><button type="button" class="btn primary" data-x="settings">Open Settings</button></div></div>`, {
-    back: () => openPerson(guest, from),
-    settings: () => openSettings(),
+// A feature that runs on AI was pressed before a key was added. One box says so in plain words,
+// with one way forward: the key screen. what: the feature, as the start of a sentence ("Asking your
+// meetings"); sent: what would go to the AI, when that is worth saying; back: where "Back" returns to.
+const SPARK = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 3.5l1.9 5.1L18 10.5l-5.1 1.9L11 17.5l-1.9-5.1L4 10.5l5.1-1.9z"/><path d="M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></svg>';
+function needKey(what, { sent = '', back = null } = {}) {
+  dialog(`<div class="dbody needkey"><span class="aimark">${SPARK}</span>
+    <h3>Add your AI key to use this</h3>
+    <p>${esc(what)} uses AI, and AI in Weftday runs on a key of your own. Google gives the key away free, and adding it takes about a minute.</p>
+    ${sent ? `<p class="note">${esc(sent)}</p>` : ''}
+    <div class="actions"><button type="button" class="btn ghost" data-x="${back ? 'back' : 'close'}">${back ? 'Back' : 'Not now'}</button><span class="sp"></span><button type="button" class="btn primary" data-x="add">Add my free key</button></div></div>`, {
+    back: () => back?.(),
+    add: () => openSettings('', 'ai'),
   });
 }
+// "Get facts" pressed before an AI key has been added.
+const openFactsHelp = (guest, from) => needKey('Looking people up on the web', {
+  sent: 'Each time facts are fetched, the person’s name, their company and the meeting title go to that AI. Nothing is sent before that.',
+  back: () => openPerson(guest, from),
+});
 
 // The line shown under a person's name in a meeting: their role if facts were found, else the start
 // of what you wrote about them.
@@ -3265,7 +3269,7 @@ async function quickPlan(direct) {
   } catch (err) {
     if (err.name === 'AbortError' || job.signal.aborted) return;
     if (direct === true) { quickAddPlain(parseQuick(text)); toast('Added as typed: the AI could not be reached just now.', { undo: true }); return; }
-    if (err.kind === 'nokey') openSettings('To add tasks in your own words, add a free AI key here (Google AI takes about a minute).', 'ai');
+    if (err.kind === 'nokey') needKey('Adding tasks in your own words');
     else toast(err.message || 'The AI could not work that out. Please try again.', true);
   } finally {
     if (planJob === job) planJob = null;
@@ -4190,7 +4194,8 @@ async function autoNotes(rec) {
     else toast('Notes written.', { go: ['Open', () => (eventFor(rec.key) ? openEvent(eventFor(rec.key)) : openRecording(rec.id))] });
   } catch (err) {
     setStatus('');
-    toast(err.kind === 'nokey' ? 'Recording saved. Add the Google AI key in Settings to have notes written.' : `Recording saved. ${err.message || 'The notes could not be written.'}`, { err: true, go: ['Open it', () => openRecording(rec.id)] });
+    if (err.kind === 'nokey') toast('Recording saved. Add your AI key to have the notes written.', { go: ['Add my key', () => needKey('Writing notes from a recording', { back: () => openRecording(rec.id) })] });
+    else toast(`Recording saved. ${err.message || 'The notes could not be written.'}`, { err: true, go: ['Open it', () => openRecording(rec.id)] });
   }
 }
 
@@ -4294,7 +4299,7 @@ async function openRecording(id, back) {
     async submit(fd, form) {
       const q = String(fd.get('q') || '').trim(), out = $('#recAnswer', el.dlg), btn = $('button', form);
       if (!q) return;
-      if (!writers().length) return openSettings('Asking about a recording needs an AI key. The free Google AI key is the quickest to add.', 'ai');
+      if (!writers().length) return needKey('Asking about a recording', { back: () => openRecording(rec.id) });
       const job = newJob();
       btn.disabled = true;
       out.hidden = false;
@@ -4338,7 +4343,7 @@ async function openRecording(id, back) {
         if (err.name === 'AbortError' || !say.isConnected) return;
         btn.disabled = false;
         say.hidden = true;
-        if (err.kind === 'nokey') openSettings('Making notes from a recording needs the free Google AI key. Add it here.', 'ai');
+        if (err.kind === 'nokey') needKey('Writing notes from a recording', { back: () => openRecording(rec.id) });
         else toast(err.message || 'The notes could not be made. Please try again.', true);
       } finally { if (aiJob === job) aiJob = null; }
     },
@@ -4391,7 +4396,7 @@ async function openRecording(id, back) {
 
 // One question, answered from all your meeting notes and from what was said in every recording.
 function openAskAll() {
-  if (!writers().length) return openSettings('Asking your meetings needs an AI key. The free Google AI key is the quickest to add.', 'ai');
+  if (!writers().length) return needKey('Asking your meetings');
   dialog(`<form class="dbody">
     <h3>Ask your meetings</h3>
     <p class="note">The answer comes from your meeting notes and from what was said in your recordings, and from nothing else. They are sent to your AI service for this one answer.</p>

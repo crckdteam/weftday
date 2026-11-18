@@ -650,6 +650,24 @@ def run(p):
     check('“Record it” opens the Record box for that meeting', 'Record this meeting' in ep.locator('#dlg').inner_text())
     ep.close()
 
+    # ---- a feature that needs an AI key, pressed before there is one: one clear box, one way forward
+    nokey = browser.new_context(viewport={'width': 1440, 'height': 860})  # a browser that has never had a key
+    nokey.add_init_script(SEEN + QUIET)
+    nk = open_app(nokey, 'no key')
+    nk.evaluate("document.querySelector('#dlg[open]')?.close()")
+    nk.evaluate("document.querySelector('#mainNav [data-act=recordings]').click()")
+    nk.wait_for_timeout(500)
+    asked = nk.evaluate("(() => { const b = document.querySelector('#dlg [data-x=askall]'); b?.click(); return !!b; })()")
+    nk.wait_for_timeout(500)
+    box = nk.evaluate("({ title: document.querySelector('#dlg .needkey h3')?.textContent, body: document.querySelector('#dlg .needkey p')?.textContent, go: document.querySelector('#dlg .needkey [data-x=add]')?.textContent })")
+    check('a feature that needs an AI key says so in one clear box', asked and box['title'] == 'Add your AI key to use this' and 'Asking your meetings' in (box['body'] or '') and box['go'] == 'Add my free key', json.dumps(box))
+    nk.screenshot(path=os.path.join(OUT, 'need-key.png'))
+    nk.evaluate("document.querySelector('#dlg .needkey [data-x=add]').click()")
+    nk.wait_for_timeout(600)
+    there = nk.evaluate("({ key: !!document.querySelector('#dlg #aiKeyBox')?.offsetParent, get: document.querySelector('#dlg #aiKeyGet')?.textContent })")
+    check('its button opens the key screen, with the steps showing', there['key'] and there['get'] == 'Get my free key', json.dumps(there))
+    nokey.close()
+
     # ---- a phone
     phone = browser.new_context(viewport={'width': 375, 'height': 812}, is_mobile=True, has_touch=True)
     phone.add_init_script(SEEN + QUIET)
