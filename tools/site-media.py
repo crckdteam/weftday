@@ -1,89 +1,138 @@
-"""Makes the website's pictures and its short clip from the real app with its sample data.
-Run by hand after a change to how the app looks:
+"""Makes the website's pictures and its share cards from the real app with its sample data.
+Run by hand after a change to how the app looks. The app must be open at http://localhost:4398
+(PORT=4398 node test/mock-google.mjs) and the website at http://localhost:4380
+(python3 -m http.server 4380 --directory site):
 
-    PORT=4398 node test/mock-google.mjs &
-    .venv/bin/python tools/site-media.py            (pictures and the clip)
-    .venv/bin/python tools/site-media.py pictures   (pictures only)
+    .venv/bin/python tools/site-media.py            (the pictures, then the share cards)
+    .venv/bin/python tools/site-media.py pictures   (the pictures only)
+    .venv/bin/python tools/site-media.py card       (the share cards only)
 
-Pictures go to site/img/ at twice the size they are shown, the clip to site/video/tour.webm."""
-import os, shutil, sys, datetime
+Each picture is one part of the app, taken at the size it is shown on the website, so that the
+words in it can be read: a wide one for computers and a second one, taken from the app on a
+phone-sized screen, for phones. They go to site/img/ at twice their shown size, and the sizes
+written in site/index.html are brought up to date.
+
+The share cards are the picture shown when the website's address is passed around (site/og.png)
+and the one at the top of the GitHub page (site/img/cover.png). They are drawn with the website's
+own stylesheet around a fresh picture of the app's Home screen.
+
+The short clip and its two stills are made by tools/site-clip.py."""
+import base64, datetime, math, os, re, struct, sys
 from playwright.sync_api import sync_playwright
 BASE = os.environ.get('WEFTDAY_URL', 'http://localhost:4398')
-ROOT = os.path.join(os.path.dirname(__file__), '..', 'site')
-IMG, VID = os.path.join(ROOT, 'img'), os.path.join(ROOT, 'video')
+SITE = os.environ.get('WEFTDAY_SITE_URL', 'http://localhost:4380')
+ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'site')
+IMG = os.path.join(ROOT, 'img')
 SEEN = "localStorage.setItem('weftday.seenHome','1');localStorage.setItem('weftday.toured','1');localStorage.setItem('weftday.tips', JSON.stringify({meeting:1,person:1,today:1,people:1,free:1,plan:1,record:1,library:1}));"
+# A box is taken without the dimmed page behind it and without its own edge: the website draws the corners and the shadow.
+BARE = "dialog::backdrop { background: transparent !important; backdrop-filter: none !important; } #dlg { border: 0 !important; border-radius: 0 !important; box-shadow: none !important; animation: none !important; }"
+# The dot that says "you have notes on this one" is 7px in the app's own rule, but a wider rule for the dates beside it
+# stretches it into a bar. Until that is put right in public/styles.css, the pictures show the dot as it is meant to be.
+BARE += " .plist2 .nmark { min-width: 0 !important; }"
+WIDE, PHONE = (1360, 850), (390, 900)   # the two screens the app is shown on
+CAL_DAYS = 3                            # the calendar picture runs from Monday to Wednesday
 only = sys.argv[1] if len(sys.argv) > 1 else ''
 # The pictures are taken as if it were mid-morning on the Wednesday of this week, so the day looks alive.
 today = datetime.date.today(); wed = today - datetime.timedelta(days=today.weekday()) + datetime.timedelta(days=2)
 NOW = datetime.datetime.combine(wed, datetime.time(9, 12))
+# The week is pictured a little later the same day, when the line that marks the time crosses an empty stretch, not a title.
+LUNCH = datetime.datetime.combine(wed, datetime.time(12, 48))
 
-def ready(c):
-    c.add_init_script(SEEN); c.clock.install(time=NOW)
+def ready(c, now=NOW):
+    c.add_init_script(SEEN); c.clock.install(time=now)
+    c.route(lambda url: not url.startswith(BASE), lambda route: route.abort())   # nothing is fetched from outside while the pictures are taken
     p = c.new_page(); p.goto(BASE + '/?demo'); p.wait_for_timeout(1500)
-    p.evaluate("document.querySelector('#dlg[open]')?.close()"); p.wait_for_timeout(300)
+    shut(p); p.add_style_tag(content=BARE)
     return p
+def shut(p): p.evaluate("document.querySelector('#dlg[open]')?.close()"); p.wait_for_timeout(300)
 def nav(p, name): p.evaluate(f"document.querySelector('#mainNav [data-nav={name}]').click()"); p.wait_for_timeout(500)
-def week(p): nav(p, 'calendar'); p.evaluate("document.querySelector('#grid').scrollTop = 52 * 8.6"); p.wait_for_timeout(300)
+def tall(p, h): p.set_viewport_size({'width': p.viewport_size['width'], 'height': h}); p.wait_for_timeout(400)
+def cut(p, name, x, y, w, h):
+    # whole pixels only, a hair inside the edge, so that no sliver of what is behind comes along
+    x2, y2 = math.floor(x + w), math.floor(y + h); x, y = math.ceil(x), math.ceil(y)
+    p.wait_for_timeout(350); p.screenshot(path=os.path.join(IMG, name + '.png'), clip={'x': x, 'y': y, 'width': x2 - x, 'height': y2 - y})
+def edge(p, css, text='', side='top'):
+    # where on the screen the first thing matching `css` (and starting with `text`) begins or ends; 0 if it is not there
+    return p.evaluate("([css, text, side]) => { const e = [...document.querySelectorAll(css)].find(e => e.textContent.trim().startsWith(text)); return e ? e.getBoundingClientRect()[side] : 0 }", [css, text, side])
+def box(p, name, end=0):
+    # the open box or panel; `end` stops the picture early, at a gap between two parts, so that no line is cut in half
+    r = p.locator('#dlg').bounding_box(); cut(p, name, r['x'], r['y'], r['width'], end - r['y'] if end else r['height'])
+def panel(p, name, css, text):
+    # a side panel, made just tall enough to end above the heading that says `text`; its Close button stays at the foot
+    top, foot = edge(p, css, text), p.locator('#dlg .actions').bounding_box()
+    if top and foot: tall(p, round(top - 10 + foot['height']))
+    p.evaluate("document.querySelector('#dlg').scrollTop = 0"); box(p, name)
+def meeting(p): p.locator('#gridBody [data-key]', has_text='Client call').first.click(); p.wait_for_timeout(900)
+def person(p):
+    p.evaluate("document.querySelector('#mainNav [data-act=people]').click()"); p.wait_for_timeout(1000)
+    p.locator('#dlg [data-x=person]', has_text='Ravi Menon').click(); p.wait_for_timeout(1000)
+    p.locator('#dlg textarea[name=about]').fill('Decides on the budget. Likes a written plan before a call.'); p.wait_for_timeout(300)
+    p.evaluate("document.activeElement.blur()"); p.wait_for_timeout(300)
+def png_size(path):
+    with open(path, 'rb') as f: return struct.unpack('>II', f.read(24)[16:24])
+def sizes_into_page():
+    # the width and height beside each picture in index.html, so that the page keeps room for it before it loads
+    page = os.path.join(ROOT, 'index.html'); html = open(page, encoding='utf-8').read()
+    def fix(m):
+        w, h = png_size(os.path.join(ROOT, m.group(2)))
+        return f'{m.group(1)}="{m.group(2)}" width="{w}" height="{h}"'
+    new = re.sub(r'\b(src|srcset)="(img/[a-z-]+\.png)" width="\d+" height="\d+"', fix, html)
+    if new != html: open(page, 'w', encoding='utf-8').write(new)
 
 with sync_playwright() as pw:
     b = pw.chromium.launch(channel='chrome', headless=True)
     if only in ('', 'pictures'):
-        for scheme in ('light', 'dark'):
-            s = '' if scheme == 'light' else '-dark'
-            c = b.new_context(viewport={'width': 1360, 'height': 850}, device_scale_factor=2, color_scheme=scheme); p = ready(c)
-            shot = lambda name: (p.wait_for_timeout(350), p.screenshot(path=os.path.join(IMG, name + s + '.png')))
-            shot('home')
-            week(p); shot('calendar')
-            p.locator('#gridBody [data-key]', has_text='Client call').first.click(); p.wait_for_timeout(900); shot('meeting')
-            p.evaluate("document.querySelector('#dlg[open]')?.close()"); p.wait_for_timeout(300)
-            nav(p, 'notes'); p.locator('#notes .nrow', has_text='Client call').click(); p.wait_for_timeout(600); shot('notes')
-            box = lambda name: (p.wait_for_timeout(350), p.locator('#dlg').screenshot(path=os.path.join(IMG, name + s + '.png')))
-            nav(p, 'home'); p.evaluate("document.querySelector('#recBtn').click()"); p.wait_for_timeout(600); box('record')
-            p.evaluate("document.querySelector('#dlg[open]')?.close()")
-            p.evaluate("document.querySelector('#mainNav [data-act=people]').click()"); p.wait_for_timeout(1200); box('people')
-            c.close()
-        c = b.new_context(viewport={'width': 390, 'height': 800}, device_scale_factor=2); p = ready(c)
-        p.wait_for_timeout(300); p.screenshot(path=os.path.join(IMG, 'phone.png')); c.close()
-    if only in ('', 'clip'):
-        tmp = os.path.join(VID, '_tmp'); shutil.rmtree(tmp, ignore_errors=True)
-        c = b.new_context(viewport={'width': 1280, 'height': 800}, record_video_dir=tmp, record_video_size={'width': 1280, 'height': 800})
-        c.add_init_script("""addEventListener('DOMContentLoaded', () => { const d = document.createElement('div'); d.id = '__cur';
-          d.style.cssText = 'position:fixed;z-index:2147483647;left:0;top:0;width:22px;height:22px;margin:-4px 0 0 -4px;pointer-events:none;transition:transform .08s linear;background:no-repeat center/contain url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27%3E%3Cpath d=%27M5 3l14 8-6.500 1.500L10 19z%27 fill=%27%2317201b%27 stroke=%27%23fff%27 stroke-width=%271.500%27 stroke-linejoin=%27round%27/%3E%3C/svg%3E")';
-          document.documentElement.append(d); addEventListener('mousemove', e => { d.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`; }, true); });""".replace('.500', '.5'))
-        p = ready(c)
-        def go(sel, wait=900, click=True, text=None):
-            loc = p.locator(sel, has_text=text).first if text else p.locator(sel).first
-            box = loc.bounding_box(); x, y = box['x'] + min(box['width'] / 2, 60), box['y'] + box['height'] / 2
-            p.mouse.move(x, y, steps=28); p.wait_for_timeout(260)
-            if click: p.mouse.click(x, y)
-            p.wait_for_timeout(wait)
-        p.mouse.move(640, 420, steps=4); p.wait_for_timeout(1400)
-        go('#recBtn', 2300); p.keyboard.press('Escape'); p.wait_for_timeout(500)
-        go('#mainNav [data-nav=calendar]', 400); p.evaluate("document.querySelector('#grid').scrollTo({ top: 52 * 8.6, behavior: 'smooth' })"); p.wait_for_timeout(2000)
-        go('#gridBody [data-key]', 2600, text='Client call')
-        go('#dlg .ed .b.todo', 1300)
-        p.keyboard.press('Escape'); p.wait_for_timeout(500)
-        go('#mainNav [data-nav=notes]', 1500)
-        go('#notes .nrow', 2200, text='Weekend list')
-        go('#mainNav [data-nav=home]', 1800)
-        video = p.video; c.close()
-        shutil.move(video.path(), os.path.join(VID, 'tour.webm')); shutil.rmtree(tmp, ignore_errors=True)
+        # on a computer
+        c = b.new_context(viewport={'width': WIDE[0], 'height': WIDE[1]}, device_scale_factor=2); p = ready(c)
+        p.evaluate("document.querySelector('#recBtn').click()"); p.wait_for_timeout(700); box(p, 'record'); shut(p)
+        nav(p, 'calendar'); tall(p, 1100); meeting(p); panel(p, 'notes', '#dlg .ed .sec', 'Open questions'); shut(p)
+        tall(p, 1100); person(p); panel(p, 'people', '#dlg h4', 'Your notes from meetings'); shut(p)
+        c.close()
+        c = b.new_context(viewport={'width': WIDE[0], 'height': WIDE[1]}, device_scale_factor=2); p = ready(c, LUNCH)
+        # the calendar: Monday to Wednesday, from nine in the morning to nine at night, where both accounts and the tasks show.
+        # The nine o'clock line is brought just under the row of days, so that no meeting is cut in half at the top.
+        nav(p, 'calendar'); tall(p, 820)
+        p.evaluate("""() => { const grid = document.querySelector('#grid'), head = document.querySelector('#gridHead').getBoundingClientRect().bottom;
+            const nine = [...grid.querySelectorAll('.gutter *')].find(e => e.textContent.trim() === '9am');
+            if (nine) { const r = nine.getBoundingClientRect(); grid.scrollTop += r.top + r.height / 2 - head - 12; } }"""); p.wait_for_timeout(300)
+        pane = p.locator('main').bounding_box(); day = p.locator('#gridBody .col').nth(CAL_DAYS - 1).bounding_box()
+        night = edge(p, '#grid .gutter *', '9pm')
+        cut(p, 'calendar', pane['x'] + 1, pane['y'] + 1, day['x'] + day['width'] - pane['x'] - 1, (night - 6 if night else pane['y'] + 760) - pane['y'] - 1)
+        c.close()
+        # on a phone
+        c = b.new_context(viewport={'width': PHONE[0], 'height': PHONE[1]}, device_scale_factor=2, is_mobile=True, has_touch=True); p = ready(c)
+        p.evaluate("document.querySelector('#recBtn').click()"); p.wait_for_timeout(700); box(p, 'record-phone'); shut(p)
+        nav(p, 'calendar'); p.locator('#viewSeg [data-view=list]').click(); p.wait_for_timeout(600)
+        cut(p, 'calendar-phone', 0, 0, PHONE[0], (edge(p, '#list .lday', '', 'bottom') or 700) + 6)
+        p.locator('#viewSeg [data-view=day]').click(); p.evaluate("document.querySelector('#prev').click(); document.querySelector('#prev').click()"); p.wait_for_timeout(500)
+        meeting(p); box(p, 'notes-phone', (edge(p, '#dlg .airow', '', 'bottom') or 0) + 16); shut(p)
+        person(p); box(p, 'people-phone', edge(p, '#dlg h4', 'Your notes from meetings') - 12); shut(p)
+        c.close()
+        sizes_into_page()
     if only in ('', 'card'):
-        # The picture shown when the website is shared (og.png), and the one on the GitHub page (cover.png).
-        # The website itself must be being served: python3 -m http.server 4380 --directory site
-        html = """<base href="http://localhost:4380/"><link rel="stylesheet" href="site.css"><style>
-          body { width: 100vw; height: 100vh; overflow: hidden; position: relative; }
-          .c { position: absolute; left: 72px; top: 66px; right: 60px; }
-          .m { display: flex; align-items: center; gap: 14px; font: 700 34px/1 var(--display); letter-spacing: -.02em; }
-          h1 { font: 700 78px/.98 var(--display); letter-spacing: -.03em; margin-top: 58px; }
-          p { font-size: 27px; line-height: 1.35; color: var(--on-box-soft); margin-top: 26px; max-width: 15em; }
-          .s { position: absolute; left: 60%; top: 210px; width: 900px; }
-          .s .card { margin: 0; padding: 12px; }
-          .s img { border-radius: 14px; }</style>
-          <div class="c"><div class="m"><img src="icon.svg" width="50" height="50">Weftday</div><h1>Your day,<br>woven together.</h1><p>Calendar, meeting recorder and notes that write themselves. Free and open source.</p></div>
-          <div class="s"><section class="card first"><div class="dividers"><i class="t-record"></i><i class="t-notes"></i><i class="t-calendar"></i><i class="t-people"></i><i class="t-yours"></i></div><img src="img/home.png"></section></div>"""
+        # The app's Home screen, as it is on a computer.
+        c = b.new_context(viewport={'width': WIDE[0], 'height': WIDE[1]}, device_scale_factor=2); p = ready(c)
+        home = base64.b64encode(p.screenshot()).decode(); c.close()
+        # The card: the website's own headline on its green ground, and beside it a card from the drawer, with its
+        # tabs, holding that picture. It is drawn by the website's stylesheet, so the website must be being served.
+        page = open(os.path.join(ROOT, 'index.html'), encoding='utf-8').read()
+        tabs = ''.join(f'<a class="t-{name}"><svg><use href="#i-{name}"/></svg></a>' for name in ('record', 'notes', 'calendar', 'people', 'yours', 'open'))
+        html = f"""<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="/site.css"><style>
+          body {{ width: 100vw; height: 100vh; overflow: hidden; position: relative; }}
+          .c {{ position: absolute; left: 72px; top: 66px; right: 60px; }}
+          .m {{ display: flex; align-items: center; gap: 14px; font: 700 34px/1 var(--display); letter-spacing: -.02em; }}
+          h1 {{ font: 700 78px/.98 var(--display); letter-spacing: -.03em; margin-top: 58px; }}
+          p {{ font-size: 27px; line-height: 1.35; color: var(--on-box-soft); margin-top: 26px; max-width: 15em; }}
+          .s {{ position: absolute; left: 60%; top: 210px; width: 900px; }}
+          .s .card {{ margin: 0; padding: 12px; }}
+          .s .frame {{ border-radius: 14px; }}</style>
+          {re.search(r'<svg class="sprite".*?</svg>', page, re.S).group(0)}
+          <div class="c"><div class="m"><img src="/icon.svg" width="50" height="50" alt="">Weftday</div><h1>Your day,<br>woven together.</h1><p>Calendar, meeting recorder and notes that write themselves. Free and open source.</p></div>
+          <div class="s"><section class="card first"><div class="dividers">{tabs}</div><div class="frame"><img src="data:image/png;base64,{home}" alt=""></div></section></div>"""
         for name, w, h in (('og.png', 1200, 630), (os.path.join('img', 'cover.png'), 1280, 640)):
-            c = b.new_context(viewport={'width': w, 'height': h}, reduced_motion='reduce'); p = c.new_page()
-            p.goto('http://localhost:4380/404.html'); p.set_content(html); p.wait_for_timeout(1500); p.screenshot(path=os.path.join(ROOT, name)); c.close()
+            c = b.new_context(viewport={'width': w, 'height': h}, reduced_motion='reduce')
+            c.route(SITE + '/share-card', lambda route: route.fulfill(body=html, content_type='text/html; charset=utf-8'))
+            p = c.new_page(); p.goto(SITE + '/share-card'); p.evaluate('document.fonts.ready'); p.wait_for_timeout(800)
+            p.screenshot(path=os.path.join(ROOT, name)); c.close()
     b.close()
 print('done')
