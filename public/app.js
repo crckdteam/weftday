@@ -2904,15 +2904,14 @@ function openSettings(msg, pane) {
             <input id="setupLinkBox" name="setupLink" placeholder="https://…#setup=…" autocomplete="off" spellcheck="false">
             <div><button type="button" class="btn" data-x="uselink">Use this link</button></div>
           </div></div>
-          <details><summary>How to get these (one time, about 10 minutes)</summary><ol>
-            <li>Open <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">console.cloud.google.com</a> and create a project called “Weftday”.</li>
-            <li>Go to <b>APIs &amp; Services → Library</b>, find <b>Google Calendar API</b> and press Enable.</li>
-            <li>Go to <b>Google Auth Platform</b> (OAuth consent screen). Choose <b>External</b>, give it a name and your email.</li>
-            <li>Under <b>Audience</b>, press <b>Publish app</b>. This stops Google signing you out every 7 days. Only you can use it.</li>
-            <li>Under <b>Clients</b>, create a client of type <b>Web application</b>. Add <code>${esc(location.origin)}</code> under “Authorised JavaScript origins” and <code>${esc(G.redirectUri())}</code> under “Authorised redirect URIs”.</li>
-            <li>Copy the Client ID and Client secret into the boxes above and press Save.</li>
-            <li>When you connect an account, Google shows a “not verified” warning. Choose <b>Advanced → Go to Weftday</b>. That is expected for a private app.</li>
-          </ol></details>`)}
+          <details class="keyhelp"><summary>How to get these · four steps, once</summary><ol>
+            <li><b>Make a project and switch the calendar on.</b> <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Create a project</a> called “Weftday”, then open <a href="https://console.cloud.google.com/apis/library/calendar-json.googleapis.com" target="_blank" rel="noopener">Google Calendar API</a> and press Enable.</li>
+            <li><b>Tell Google who you are.</b> Open <a href="https://console.cloud.google.com/auth/clients" target="_blank" rel="noopener">Google Auth Platform</a> and press Get started: choose <b>External</b>, give it a name and your email. Then under <b>Audience</b> press <b>Publish app</b>, so Google does not sign you out every 7 days. Only you can use it.</li>
+            <li><b>Make the sign-in.</b> Under <b>Clients</b>, create a client of type <b>Web application</b> and paste these two in:
+              <span class="copyrow"><code>${esc(location.origin)}</code><button type="button" class="mini" data-x="copyval" data-v="${esc(location.origin)}">Copy</button><i>under “Authorised JavaScript origins”</i></span>
+              <span class="copyrow"><code>${esc(G.redirectUri())}</code><button type="button" class="mini" data-x="copyval" data-v="${esc(G.redirectUri())}">Copy</button><i>under “Authorised redirect URIs”</i></span></li>
+            <li><b>Paste the two keys here.</b> Copy the Client ID and the Client secret into the boxes above and press Save.</li>
+          </ol><p class="note">The first time you connect an account, Google shows a “not verified” warning. Choose <b>Advanced → Go to Weftday</b>. That is expected for a private app.</p></details>`)}
       </div>
       <div class="sfoot"><span class="sp"></span>
         <button type="button" class="btn ghost" data-x="close">Cancel</button>
@@ -2951,6 +2950,7 @@ function openSettings(msg, pane) {
       closeDialog();
       if (homeFromLink) adoptHome(homeFromLink).then(refresh); else { render(); toast('Keys added. Now press “+ Connect Google account”.'); }
     },
+    copyval(btn) { navigator.clipboard.writeText(btn.dataset.v).then(() => toast('Copied'), () => toast('Could not copy. Select it and copy by hand.', true)); },
     async checkkey() { // asks the service a tiny question, so a wrong key is found now and not in the middle of a meeting
       keep();
       const svc = S.aiService(provider), msg = part('aiKeyMsg'), key = keys[provider];
@@ -4129,10 +4129,11 @@ async function notesFromRecording(rec, signal, say) {
       + '"decisions":["…"],"mine":["…"],"theirs":["…"],"questions":["…"],"facts":["…"],"settled":["…"],'
       + '"voices":{"Speaker 1":"that person’s real name, only when the talk makes it certain, otherwise empty"},"chapters":[{"at":"m:ss","title":"three to six words"}]}',
     'voices: give a voice a name only when the talk leaves no doubt whose voice it is. A name that is said TO someone (“Morning Rohan”) belongs to the person spoken to, never to the one saying it. Never use a company name, and never guess from the list of names to spell: when unsure, leave it empty.',
-    'decisions: what was agreed or settled. mine: what I have to do; start with a verb and keep the deadline, written as a date when one was meant (“Send the contract by Fri 20 Nov”). theirs: what somebody else promised; start with their name and a colon (“Ravi: send the security questionnaire by Wed 18 Nov”). When it is not clear who will do something, it goes in theirs, starting with “Someone:”. questions: what was left open. facts: prices, numbers, dates, names and other details worth keeping exactly as said. settled: lines from “Still open from earlier meetings” that this meeting dealt with, copied word for word.',
+    'decisions: what was agreed or settled. mine: what I have to do; start with a verb and keep the deadline, written as a date when one was meant (“Send the contract by Fri 20 Nov”). theirs: what somebody else promised; start with their name and a colon (“Ravi: send the security questionnaire by Wed 18 Nov”). When it is not clear who will do something, it goes in theirs, starting with “Someone:”. questions: what was left open. facts: prices, numbers, names and other details worth keeping exactly as said, and only ones that are not already in decisions, mine or theirs: never the date of the meeting, who was there, or a deadline or an email address that an action already carries. settled: lines from “Still open from earlier meetings” that this meeting dealt with, copied word for word.',
     'Fit the notes to the kind of meeting: for a sales or customer call bring out what they need, their objections and the next step; for an interview, strengths, concerns and what happens next; for a team meeting, who does what by when.',
     'chapters: where the talk moves to a new subject, with the time from the transcript where it starts; three to eight for a long meeting, none for one shorter than five minutes.',
     'Use only what was said. Leave a list empty when there is nothing for it. Write in the language the meeting was held in.',
+    'Write every date the same way everywhere, as “Mon 7 Dec” (add the year only when it is not this year). Say things once: a point belongs in one list. No filler sentences that would be true of any meeting (“coordination is needed to meet the goal”); for a recording of a minute or two, one plain sentence of summary is enough.',
     `Transcript (each line starts with its time):\n${transcript.slice(0, Math.max(4000, room - 9000))}`,
   ].filter(Boolean).join('\n'), signal);
   let got = {};
@@ -4731,13 +4732,16 @@ async function renderHome() {
 // recording. The list is on the left, the note you pick opens beside it and is edited right there.
 let noteOpen = '', noteFind = '', noteDraft = null; // the note showing, the search, and a new note not yet typed in
 const isOwnNote = id => id.startsWith('note:');
+// The day a note is filed under and shown with: the day of its meeting, unless that is still to come.
+// Notes written ahead of a meeting (or from a recording made early) belong to the day they were written.
+const noteDay = n => (n.when && n.when <= Date.now() ? n.when : n.t && n.t <= Date.now() ? n.t : Math.min(n.when || Date.now(), Date.now())) || 0;
 async function noteDocs() {
   const recs = await R.all().catch(() => []), recorded = new Set(recs.filter(r => r.key && r.kind !== 'shot').map(r => r.key));
   // said: the recording whose words are written down (for a meeting, its newest one that has them)
   const said = new Map();
   for (const r of recs) if (r.key && r.transcript && (!said.has(r.key) || (said.get(r.key).at || 0) < (r.at || 0))) said.set(r.key, r);
   const docs = Object.entries(state.notes || {}).filter(([key, n]) => !key.startsWith('person:') && (n.text || key === noteOpen))
-    .map(([key, n]) => ({ id: key, kind: isOwnNote(key) ? 'own' : 'meeting', title: n.title || (isOwnNote(key) ? 'Untitled' : 'Meeting'), when: n.when || n.t || 0, text: n.text || '', people: n.people || [], recorded: recorded.has(key), said: said.get(key) || null }));
+    .map(([key, n]) => ({ id: key, kind: isOwnNote(key) ? 'own' : 'meeting', title: n.title || (isOwnNote(key) ? 'Untitled' : 'Meeting'), when: noteDay(n), text: n.text || '', people: n.people || [], recorded: recorded.has(key), said: said.get(key) || null }));
   for (const r of recs) if (!r.key && r.notes) docs.push({ id: `rec:${r.id}`, kind: 'rec', title: r.title, when: r.at, text: r.notes, people: [], recorded: true, said: r.transcript ? r : null });
   if (noteDraft && !docs.some(d => d.id === noteDraft.id)) docs.push(noteDraft);
   return docs.sort((a, b) => b.when - a.when);

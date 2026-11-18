@@ -43,7 +43,7 @@ Try it first with sample data: add `?demo` to the address. That needs no Google 
 
 To connect a Google account, Weftday needs a Google Cloud "OAuth client": a Client ID and a
 Client secret. You create it once, and it takes about ten minutes. The same steps are in the app
-under **Settings → Advanced → How to get these**, where the two addresses for step 5 are filled
+under **Settings → Advanced → How to get these**, where the two addresses for step 3 are filled
 in for you.
 
 1. Open [console.cloud.google.com](https://console.cloud.google.com/projectcreate) and create a
