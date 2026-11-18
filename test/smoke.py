@@ -249,6 +249,210 @@ def note_page_checks(browser):
     phone.close()
 
 
+KEY_WHY = 'Weftday writes your meeting notes, answers questions about them and drafts your follow-up emails.'
+NO_SIDEWAYS = 'document.documentElement.scrollWidth <= innerWidth + 1'
+
+
+def open_real(context, label, wait=1200):
+    """The app itself, not the sample data, in a browser that has never had a key."""
+    page = context.new_page()
+    watch(page, label)
+    page.goto(BASE + '/')
+    page.wait_for_load_state('networkidle')
+    page.wait_for_timeout(wait)
+    return page
+
+
+def nudge_checks(browser):
+    """Switching AI on: the nudges while there is no key, the search key after it, the Settings split."""
+    today = datetime.date.today().isoformat()
+    yesterday = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+    ctx = browser.new_context(viewport={'width': 1440, 'height': 860}, permissions=['microphone', 'camera'])
+    ctx.add_init_script(SEEN + QUIET + 'delete self.LanguageModel;')
+    ctx.route(re.compile(r'https://(generativelanguage|api\.tavily)'), lambda r: r.abort())  # no real AI is ever asked
+    pg = open_real(ctx, 'nudges, no key')
+    card = pg.locator('#home .hkey')
+    check('no key: Home has the card to switch on AI, with one button', card.is_visible() and card.locator('h3').inner_text() == 'Switch on AI with one free key'
+          and KEY_WHY in card.inner_text() and card.locator('.btn.primary').inner_text() == 'Add my free key')
+    row = pg.locator('#keyRow')
+    check('no key: the side panel says “AI is off” under Record, with “Add key”', row.is_visible() and row.locator('span').inner_text() == 'AI is off'
+          and row.locator('.mini').inner_text() == 'Add key' and 'off' in (row.get_attribute('class') or '')
+          and pg.evaluate("document.querySelector('#recBtn').nextElementSibling.id") == 'keyRow')
+    card.locator('[data-act=key-later]').click()
+    pg.wait_for_timeout(300)
+    check('“Remind me tomorrow” hides the card for today', pg.locator('#home .hkey').count() == 0 and pg.evaluate("localStorage.getItem('weftday.keyLater')") == today)
+    pg.evaluate(f"localStorage.setItem('weftday.keyLater', '{yesterday}')")
+    pg.reload()
+    pg.wait_for_load_state('networkidle')
+    pg.wait_for_timeout(1000)
+    check('the card is back the next day', pg.locator('#home .hkey').is_visible())
+
+    # the Record box: Meeting is held back, the other kinds are not
+    pg.locator('#recBtn').click()
+    pg.wait_for_timeout(400)
+    pg.locator('#dlg input[name=what][value=sound]').check(force=True)
+    pg.wait_for_timeout(150)
+    note = pg.locator('#dlg #recKeyNote')
+    check('no key: the Record box says a meeting is recorded but no notes are written', note.is_visible()
+          and note.locator('span').inner_text() == 'Without an AI key this meeting is recorded, but no notes are written.'
+          and note.locator('.btn').inner_text() == 'Add my free key' and not pg.locator('#dlg #recAutoRow').is_visible())
+    pg.locator('#dlg input[name=what][value=mic]').check(force=True)
+    pg.wait_for_timeout(150)
+    check('the other kinds keep the quiet line, without the notice', not note.is_visible() and pg.locator('#dlg #recAutoRow').is_visible())
+    pg.locator('#dlg input[name=what][value=sound]').check(force=True)
+    pg.locator('#dlg button.primary').click()
+    pg.wait_for_timeout(400)
+    held = pg.evaluate("({ title: document.querySelector('#dlg .needkey h3')?.textContent, text: document.querySelector('#dlg .needkey p')?.textContent, "
+                       "alt: document.querySelector('#dlg .needkey [data-x=alt]')?.textContent, add: document.querySelector('#dlg .needkey [data-x=add]')?.textContent, bar: !!document.querySelector('#recBar') })")
+    check('Start recording a meeting with no key asks “Record without notes?” first', held['title'] == 'Record without notes?' and held['alt'] == 'Record anyway'
+          and held['add'] == 'Add my free key' and 'It is free and takes a minute.' in (held['text'] or '') and not held['bar'], json.dumps(held))
+    pg.screenshot(path=os.path.join(OUT, 'record-without-notes.png'))
+    pg.locator('#dlg [data-x=alt]').click()
+    try:
+        pg.wait_for_selector('#recBar', timeout=20000)
+        started = True
+    except Exception:  # noqa: BLE001
+        started = False
+    check('“Record anyway” starts the recording', started, pg.evaluate("document.querySelector('#toast').innerText"))
+    if started:
+        pg.wait_for_timeout(1500)
+        pg.locator('#recBar [data-r=stop]').click()
+        pg.wait_for_selector('#recBar', state='detached', timeout=30000)
+    pg.evaluate("document.querySelector('#toast').className = ''")
+    close_dialog(pg)
+
+    # away from Home: one message a day; a note's ask bar is locked
+    pg.locator('#mainNav [data-nav=notes]').click()
+    pg.wait_for_timeout(700)
+    said = pg.evaluate("document.querySelector('#toast.show')?.innerText || ''")
+    check('away from Home, once a day: “AI is off” with “Add key”', 'AI is off. Add your free key and Weftday writes your notes for you.' in said and 'Add key' in said
+          and pg.evaluate("localStorage.getItem('weftday.keyToast')") == today, said)
+    check('“Ask my notes” wears the lock and says it needs the key', pg.locator('#noteAskAll .lockmark').count() == 1 and pg.locator('#noteAskAll').get_attribute('title') == 'Needs your AI key')
+    check('the AI button in “Add a task” wears the lock', pg.locator('#quickAi .lockmark').count() == 1 and pg.locator('#quickAi').get_attribute('title') == 'Needs your AI key')
+    pg.locator('#noteNew').click()
+    pg.wait_for_timeout(500)
+    pg.keyboard.type('Pricing call. Ravi wants 40 dollars a seat.')
+    pg.wait_for_timeout(900)
+    ask = pg.locator('#notes .naskbar [name=nq]')
+    check('no key: a note’s ask bar is locked and says why', ask.get_attribute('placeholder') == 'Add your AI key to ask about this note'
+          and pg.locator('#notes .naskbar.locked .lockmark').count() == 1 and pg.locator('#notes .naskbar').get_attribute('title') == 'Needs your AI key')
+    ask.click()
+    pg.wait_for_timeout(400)
+    box = pg.evaluate("({ title: document.querySelector('#dlg .needkey h3')?.textContent, body: document.querySelector('#dlg .needkey p')?.textContent })")
+    check('pressing the locked ask bar opens the key box', box['title'] == 'Add your AI key to use this' and 'Asking about a note' in (box['body'] or ''), json.dumps(box))
+    check('the daily message never sits on top of an open box', not pg.evaluate("document.querySelector('#toast').classList.contains('show')"))
+    pg.locator('#dlg .needkey [data-x=add]').click()
+    pg.wait_for_timeout(500)
+    keys = pg.evaluate("""(() => { const side = s => document.querySelector(`#dlg .aiside[data-side=${s}]`);
+      return { keys: !side('keys').hidden, does: !side('does').hidden, on: document.querySelector('#dlg .aiseg button.on')?.textContent,
+        one: document.querySelector('#aiCard .aihead b')?.textContent, two: document.querySelector('#searchCard .aihead b')?.textContent,
+        plain: document.querySelector('#searchCard').classList.contains('plain'), aiReady: document.querySelector('#aiCard').classList.contains('ready'),
+        why: document.querySelector('#searchWhy')?.textContent, get: document.querySelector('#searchKeyGet')?.textContent, steps: document.querySelector('#searchHelpBox').open,
+        auto: document.querySelector('#dlg [name=aiAuto]').checked, quick: document.querySelector('#dlg [name=aiQuick]').checked }; })()""")
+    check('no key: Settings → AI opens on “Keys”, two numbered cards, the second one plain', keys['keys'] and not keys['does'] and keys['on'] == 'Keys'
+          and keys['one'] == '1 · Your AI key' and keys['two'] == '2 · Search key' and keys['plain'] and not keys['aiReady']
+          and keys['why'] == 'Recommended. With it Weftday finds facts about the person, not only their company.' and keys['get'] == 'Get my free search key' and keys['steps'], json.dumps(keys))
+    check('both switches under “What it does” start on', keys['auto'] and keys['quick'], json.dumps(keys))
+    pg.screenshot(path=os.path.join(OUT, 'settings-ai-keys-nokey.png'))
+
+    # a (pretend) AI key is saved: the AI-off nudges go, the search key is next
+    pg.locator('#dlg #aiKeyBox').fill('pretend-key-for-tests')
+    pg.locator('#dlg .sfoot button.primary').click()
+    pg.wait_for_timeout(700)
+    said = pg.evaluate("document.querySelector('#toast.show')?.innerText || ''")
+    check('saving the AI key: one message asks for the search key next', 'AI is on. One more free key makes looking people up much better.' in said and 'Add search key' in said, said)
+    check('with a key the note’s ask bar is back as it was', pg.locator('#notes .naskbar [name=nq]').get_attribute('placeholder') == 'Ask anything about this note'
+          and pg.locator('#notes .naskbar.locked').count() == 0 and pg.locator('#noteAskAll .lockmark').count() == 0 and pg.locator('#quickAi .lockmark').count() == 0)
+    row = pg.locator('#keyRow')
+    check('with a key the side row asks for the free search key, and can be hidden (Google)', row.is_visible() and row.locator('span').inner_text() == 'Add the free search key'
+          and row.locator('.mini').inner_text() == 'Add' and row.locator('.kclose').count() == 1 and 'search' in (row.get_attribute('class') or ''))
+    pg.locator('#toast [data-act=toast-go]').click()
+    pg.wait_for_timeout(600)
+    keys = pg.evaluate("""(() => ({ keys: !document.querySelector('#dlg .aiside[data-side=keys]').hidden, aiReady: document.querySelector('#aiCard').classList.contains('ready'),
+      next: !document.querySelector('#searchCard').classList.contains('plain') && !document.querySelector('#searchCard').classList.contains('ready'),
+      seen: (() => { const r = document.querySelector('#searchCard').getBoundingClientRect(), p = document.querySelector('#dlg .spanes').getBoundingClientRect(); return r.top >= p.top - 1 && r.top < p.bottom - 60; })() }))()""")
+    check('“Add search key” opens Settings → AI on “Keys”: card 1 ready, card 2 the next step, in view', keys['keys'] and keys['aiReady'] and keys['next'] and keys['seen'], json.dumps(keys))
+    pg.screenshot(path=os.path.join(OUT, 'settings-ai-keys-search.png'))
+    pg.locator('#dlg [name=aiProvider]').select_option('openai')
+    pg.wait_for_timeout(200)
+    own = pg.evaluate("({ card: !!document.querySelector('#searchCard').offsetParent, line: document.querySelector('#ownSearchNote').offsetParent ? document.querySelector('#ownSearchNote').textContent : '' })")
+    check('a service that searches by itself: card 2 gives way to one quiet line', not own['card'] and own['line'] == 'OpenAI searches the web by itself, so no search key is needed.', json.dumps(own))
+    close_dialog(pg)
+    pg.locator('#mainNav [data-nav=home]').click()
+    pg.wait_for_timeout(700)
+    check('with a key Home has no card, and the side row no longer says AI is off', pg.locator('#home .hkey').count() == 0 and 'AI is off' not in pg.locator('#keyRow').inner_text())
+    pg.locator('#keyRow .kclose').click()
+    pg.wait_for_timeout(200)
+    check('the search row for Google hides for good', not pg.locator('#keyRow').is_visible() and pg.evaluate("localStorage.getItem('weftday.searchLater')") == '1')
+    pg.close()
+    ctx.close()
+
+    # the first tour ends with the one ask for the key, once
+    tour = browser.new_context(viewport={'width': 1440, 'height': 860})
+    tour.add_init_script(QUIET + "localStorage.setItem('weftday.seenHome','1');")
+    tp = open_real(tour, 'tour key ask', 1800)
+    on = tp.evaluate("!!document.querySelector('#tour')")
+    tp.keyboard.press('Escape')
+    tp.wait_for_timeout(500)
+    title = tp.evaluate("document.querySelector('#dlg[open] .needkey h3')?.textContent || ''")
+    check('the first tour ends with “One more thing: switch on AI”', on and title == 'One more thing: switch on AI'
+          and KEY_WHY in tp.locator('#dlg .needkey p').inner_text() and tp.locator('#dlg .needkey [data-x=close]').inner_text() == 'Not now', title)
+    tp.keyboard.press('Escape')
+    tp.reload()
+    tp.wait_for_load_state('networkidle')
+    tp.wait_for_timeout(1800)
+    check('…and not on the next start', not tp.evaluate("document.querySelector('#dlg').open") and not tp.evaluate("!!document.querySelector('#tour')"))
+    tp.close()
+    tour.close()
+
+    # sample data: no nudges at all
+    demo = browser.new_context(viewport={'width': 1440, 'height': 860})
+    demo.add_init_script(SEEN + QUIET + 'delete self.LanguageModel;')
+    dp = open_app(demo, 'nudges, sample data')
+    check('sample data: no card, no side row', dp.locator('#home .hkey').count() == 0 and not dp.locator('#keyRow').is_visible())
+    dp.locator('#mainNav [data-nav=notes]').click()
+    dp.wait_for_timeout(700)
+    check('sample data: no daily message and no locks', 'AI is off' not in dp.evaluate("document.querySelector('#toast').innerText")
+          and dp.locator('.lockmark').count() == 0)
+    dp.close()
+    demo.close()
+
+    # the switches start on; a saved choice is kept
+    st = browser.new_context()
+    a = st.new_page()
+    a.goto(BASE + '/terms.html')
+    fresh = a.evaluate("import('./store.js').then(m => m.state.settings.aiAuto)")
+    b = st.new_page()
+    b.add_init_script("localStorage.setItem('planner.v1', JSON.stringify({ settings: { aiAuto: false } }))")
+    b.goto(BASE + '/terms.html')
+    kept = b.evaluate("import('./store.js').then(m => m.state.settings.aiAuto)")
+    check('a fresh store has “Look up today’s guests” on; a saved “off” stays off', fresh is True and kept is False, f'{fresh} {kept}')
+    st.close()
+
+    # a phone: the card, the row and both sides of Settings → AI fit without sideways scrolling
+    ph = browser.new_context(viewport={'width': 390, 'height': 844}, is_mobile=True, has_touch=True)
+    ph.add_init_script(SEEN + QUIET)
+    pp = open_real(ph, 'nudges, phone')
+    check('phone: Home with the card has no sideways scroll', pp.locator('#home .hkey').is_visible() and pp.evaluate(NO_SIDEWAYS))
+    pp.screenshot(path=os.path.join(OUT, 'phone-home-key.png'))
+    pp.locator('#menu').click()
+    pp.wait_for_timeout(400)
+    check('phone: the side panel shows “AI is off”, no sideways scroll', pp.locator('#keyRow').is_visible() and pp.evaluate(NO_SIDEWAYS)
+          and pp.evaluate("document.querySelector('#keyRow').getBoundingClientRect().right <= innerWidth"))
+    pp.locator('#keyRow .mini').click()
+    pp.wait_for_timeout(500)
+    fits = []
+    for side in ('keys', 'does'):
+        pp.evaluate(f"document.querySelector('#dlg .aiseg [data-side={side}]').click()")
+        pp.wait_for_timeout(200)
+        fits.append(pp.evaluate("(() => { const p = document.querySelector('#dlg .spanes'); return p.scrollWidth <= p.clientWidth + 1 && document.documentElement.scrollWidth <= innerWidth + 1 "
+                                "&& [...document.querySelectorAll('#dlg .aiside:not([hidden]) *')].every(e => !e.offsetParent || e.getBoundingClientRect().right <= innerWidth + 1); })()"))
+        pp.screenshot(path=os.path.join(OUT, f'phone-settings-ai-{side}.png'))
+    check('phone: both sides of Settings → AI fit without sideways scroll', all(fits), str(fits))
+    pp.close()
+    ph.close()
+
+
 def run(p):
     browser = p.chromium.launch(channel='chrome', headless=True, args=[
         '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream',
@@ -818,6 +1022,7 @@ def run(p):
     ep.close()
 
     note_page_checks(browser)
+    nudge_checks(browser)
 
     # ---- a feature that needs an AI key, pressed before there is one: one clear box, one way forward
     nokey = browser.new_context(viewport={'width': 1440, 'height': 860})  # a browser that has never had a key

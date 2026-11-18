@@ -11,8 +11,9 @@ two ever disagree, the code decides, and the mismatch is a bug worth reporting.
 2. Everything is kept in the person's browser (`localStorage`, IndexedDB) or in their own Google
    account.
 3. AI features use a key the person gets themselves. Google's is free.
-4. Nothing is sent anywhere until the person presses a button, or switches on a setting, that
-   says so.
+4. Nothing goes to an AI until the person adds their own key. From then on, looking up the guests
+   in today's meetings is on unless they switch it off; everything else is sent only when they
+   press a button, or switch on a setting, that says so.
 5. No analytics, no advertising, no tracking, and no accounts of Weftday's own.
 
 ## What stays on the device
@@ -35,7 +36,7 @@ Clearing the site's data in the browser erases all of it.
 | The sound of one recording, in pieces, with who was in the meeting, the person's own notes, and the summary and open action points from the last meeting with the same people | Google's AI, with the person's key | When they press **Write the notes**, or have left the switch **Write my notes when it ends** on |
 | The written text of a recording and a question | Google's AI, with the person's key | When they ask a question about a recording |
 | The written text of a recording (never the sound) | Another AI service the person saved a key for | Only when Google's AI is busy or has reached its free limit |
-| A person's name, their company and the meeting's title | The AI service the person chose, and a search service if they added one | When they press **Get facts**. Also for today's guests if they switch on the setting for that. Off by default. |
+| A person's name, their company and the meeting's title | The AI service the person chose, and a search service if they added one | When they press **Get facts**. Also, by itself, for the guests in today's meetings once a key is added: on unless they switch off **Look up today's guests by itself**. People at their own company are skipped. |
 | What was typed in "Add a task", today's date and working hours | The AI service the person chose | When they press the AI button there |
 | One meeting note | The AI service of the person's key | When they press **Tidy my notes** and have added a key |
 | One note, what was said in its recording if it has one, and a question | The AI service of the person's key | When they ask in the bar at the foot of a note |

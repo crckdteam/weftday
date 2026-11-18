@@ -1421,6 +1421,57 @@ body.innotes #sideBody > .card, body.innotes #upnext { display: none; }
 .copyrow code { padding: 3px 8px; border-radius: 7px; border: 1px solid var(--line); background: var(--bg); font-size: 12.5px; overflow-wrap: anywhere; }
 .copyrow i { font-style: normal; color: var(--muted); font-size: 12.5px; }
 
+/* ---- switching AI on: the card on Home, the row under Record, the lock on what needs the key, the
+   notice in the Record box, and Settings → AI in two sides ("Keys" | "What it does") with two numbered cards */
+.hkey { grid-column: 1 / -1; display: flex; align-items: flex-start; gap: 16px; padding: 18px 20px; border-radius: 18px; border: 1px solid color-mix(in srgb, var(--h-task) 45%, var(--line)); background: color-mix(in srgb, var(--h-task) 7%, var(--panel)); }
+.hkey .aimark { width: 42px; height: 42px; }
+.hkeybody { min-width: 0; flex: 1; }
+.hkey h3 { margin: 1px 0 6px; font-family: var(--display); font-size: 19px; font-weight: 700; letter-spacing: -.02em; line-height: 1.2; }
+.hkey p { margin: 0 0 14px; max-width: 64ch; color: var(--muted); font-size: 14px; line-height: 1.5; text-wrap: pretty; }
+.hkeyacts { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 18px; }
+.hkeyacts .linkbtn { color: var(--muted); font-weight: 550; font-size: 13.5px; }
+.hkeyacts .linkbtn:hover { color: var(--text); }
+
+#keyRow { display: flex; align-items: center; gap: 8px; margin: -2px 12px 10px; min-height: 36px; padding: 4px 5px 4px 11px; border-radius: 11px; font-size: 13px; font-weight: 600; }
+#keyRow span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#keyRow .mini { flex: none; padding: 4px 10px; font-weight: 600; border-radius: 8px; }
+#keyRow.off { color: color-mix(in srgb, var(--h-task) 62%, var(--text)); background: color-mix(in srgb, var(--h-task) 11%, var(--panel)); border: 1px solid color-mix(in srgb, var(--h-task) 34%, var(--line)); }
+#keyRow.off .lockmark { color: inherit; width: 14px; height: 14px; }
+#keyRow.off .mini { border-color: color-mix(in srgb, var(--h-task) 45%, var(--line)); color: inherit; }
+#keyRow.off .mini:hover { background: color-mix(in srgb, var(--h-task) 14%, var(--panel)); }
+#keyRow.search { color: var(--muted); border: 1px solid var(--line); background: var(--panel); }
+#keyRow .kclose { flex: none; width: 26px; height: 26px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: 11px; display: grid; place-items: center; padding: 0; }
+#keyRow .kclose:hover { background: var(--line2); color: var(--text); }
+#keyRow button:focus-visible, .hkeyacts button:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent); outline-offset: 2px; }
+
+.lockmark { width: 15px; height: 15px; flex: none; color: var(--muted); }
+.btn[data-locked], .mini[data-locked] { display: inline-flex; align-items: center; gap: 6px; }
+.btn[data-locked] .lockmark, .mini[data-locked] .lockmark, .nhead .btn[data-locked] svg, .braise .btn[data-locked] svg { color: var(--muted); }
+.mini[data-locked] .lockmark { width: 13px; height: 13px; }
+.btn.primary[data-locked] .lockmark { color: inherit; opacity: .85; }
+#quickAi[data-locked] { color: var(--muted); }
+.naskbar.locked, .rask.locked input { cursor: pointer; }
+.naskbar.locked .nspark { color: var(--muted); }
+.naskbar.locked .nsend { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+
+.rkey { display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 14px; border-radius: 12px; font-size: 13.5px; line-height: 1.45; color: var(--text); border: 1px solid color-mix(in srgb, var(--h-task) 42%, var(--line)); background: color-mix(in srgb, var(--h-task) 9%, var(--panel)); }
+.rkey span { flex: 1; min-width: 0; }
+.rkey .btn { flex: none; white-space: nowrap; }
+
+.fcover { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
+.fcover span { flex: 1 1 220px; }
+.fcover .btn { flex: none; }
+
+.aiseg { justify-self: start; }
+.aiseg button { min-width: 0; }
+.aiside { display: grid; gap: 16px; }
+.aiside[hidden] { display: none; }
+.aihero.plain { border-color: var(--line); background: var(--panel); }
+.aihero.plain .aimark { background: var(--bg); color: var(--muted); }
+.aihero.ready .aimark { background: var(--accent); color: var(--accent-text); }
+.aiown { margin: 0 2px; }
+.aido .srow .st span { text-wrap: pretty; }
+
 /* ================= phones, the last word =================
    The look above was written for a computer and, coming later in the file, had quietly undone some
    of the phone rules further up. Everything a phone needs to be different is gathered here, last,
@@ -1466,6 +1517,17 @@ dialog:focus { outline: none; }
   .sfield label { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
   .sfield label b { white-space: nowrap; margin-right: auto; }
   .aihead { padding: 12px; }
+  .aiseg { justify-self: stretch; }
+  .aiseg button { flex: 1; }
+  .hkey { flex-direction: column; gap: 12px; padding: 16px; }
+  .hkey .aimark { width: 38px; height: 38px; }
+  .hkeyacts .btn { flex: 1 1 100%; justify-content: center; }
+  .hkeyacts .linkbtn { margin: 0 auto; min-height: 36px; }
+  .rkey { flex-wrap: wrap; }
+  .rkey .btn { flex: 1 1 100%; justify-content: center; }
+  #keyRow { min-height: 42px; }
+  .naskbar.locked .nsend { display: none; }  /* the whole bar is the button: room for its words */
+  .naskbar.locked { padding-block: 9px; }
   .keyrow { gap: 8px; }
   .stag { font-size: 12px; }
 

@@ -47,7 +47,7 @@ const STEPS = [
       <div class="row"><span class="mini">Brief me</span></div></div>` },
   { name: 'People', title: 'Know who you are meeting',
     say: '<b>Get facts</b> looks a guest up on the web and fills in their profile: role, background, their company, its funding and team, and a photo. <b>People</b> lists everyone you meet, and every company gets its own page.',
-    tip: 'This uses a key of your own. Google AI with a Tavily search key is free and takes about three minutes to set up in Settings → AI.',
+    tip: 'This uses a key of your own. Google AI with a Tavily search key is free and takes about three minutes to set up in Settings → AI. Once the key is in, today’s guests are looked up by themselves, unless you switch that off.',
     art: `<div class="wf"><div class="row"><span class="ava" style="width:44px;height:44px;font-size:15px">JD</span><div><b style="font-size:15px">Jane Doe</b><p>VP Operations at Acme</p><p class="mut">Berlin</p></div></div>
       <div class="note"><span class="lbl">Background</span><p>Fifteen years in logistics. Led the Hamburg hub.</p>
         <span class="lbl" style="margin-top:5px">Acme</span><p>Delivery robots for warehouses. About 120 people. Series B, $40M.</p>

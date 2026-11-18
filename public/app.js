@@ -71,6 +71,7 @@ function toast(msg, o = {}) {
   (el.dlg.open && !el.dlg.classList.contains('closing') ? el.dlg : document.body).append(el.toast);
   el.toast.innerHTML = `<span>${esc(msg)}</span>${o.undo ? '<button data-act="undo">Undo</button>' : ''}${o.reload ? '<button data-act="reload">Refresh</button>' : ''}${o.go ? `<button data-act="toast-go">${esc(o.go[0])}</button>` : ''}`;
   toastGo = o.go ? o.go[1] : null;
+  nudgeShowing = !!o.nudge;
   el.toast.className = 'show' + (o.err ? ' err' : '');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { el.toast.className = ''; }, o.reload ? 30000 : o.go ? 15000 : o.err || o.undo ? 6000 : 3200);
@@ -92,6 +93,7 @@ function saveOpenNote() { aiJob?.abort(); aiJob = null; const f = noteCommit; no
 function dialog(html, handlers = {}, cls = '') {
   saveOpenNote();
   clearTimeout(closeTimer); // a box that was fading out is taken over by the new one
+  if (nudgeShowing && el.toast.classList.contains('show')) el.toast.className = ''; // a nudge never sits on top of a box
   const showing = el.toast.classList.contains('show');
   document.body.append(el.toast);
   el.dlg.className = cls;
@@ -401,6 +403,8 @@ function render() {
   renderBar();
   renderSide();
   renderView();
+  lockNow();
+  maybeKeyToast();
 }
 
 function renderBar() {
@@ -495,8 +499,65 @@ function miniHtml() {
     <div class="mc">${cells}</div></div>`;
 }
 
+// ---------------------------------------------------------------- nudges to switch AI on
+// While there is no AI key: a card on Home, a slim row under Record, one box after the first tour and
+// one message a day away from Home. Once the key is in, the same row asks for the search key when it
+// would help. Each is one thing in one place, and all of them read aiOff() / searchWanted().
+const remembered = name => { try { return localStorage.getItem(name) || ''; } catch { return ''; } };
+const remember = (name, value) => { try { localStorage.setItem(name, value); } catch { /* private window */ } };
+const keyCardShown = () => aiOff() && remembered('weftday.keyLater') !== todayYmd();
+const keyCardHtml = () => `<section class="hkey" aria-labelledby="hkeyTitle"><span class="aimark" aria-hidden="true">${SPARK}</span>
+  <div class="hkeybody"><h3 id="hkeyTitle">Switch on AI with one free key</h3><p>${esc(KEY_WHY)}</p>
+    <div class="hkeyacts"><button type="button" class="btn primary" data-act="add-key">Add my free key</button><button type="button" class="linkbtn" data-act="key-later">Remind me tomorrow</button></div></div></section>`;
+// For Google the search key is a nice extra (that row can be hidden for good); for the others it is needed.
+const searchOptional = () => S.aiService(state.settings.aiProvider).kind === 'google';
+function renderKeyRow() {
+  const row = $('#keyRow');
+  if (!row) return;
+  if (aiOff()) {
+    row.className = 'off';
+    row.innerHTML = `${LOCK}<span>AI is off</span><button type="button" class="mini" data-act="add-key">Add key</button>`;
+  } else if (searchWanted() && !(searchOptional() && remembered('weftday.searchLater'))) {
+    row.className = 'search';
+    row.innerHTML = `<span>Add the free search key</span><button type="button" class="mini" data-act="add-search">Add</button>${searchOptional()
+      ? '<button type="button" class="kclose" data-act="search-later" aria-label="Hide this for good" title="Hide this for good">✕</button>' : ''}`;
+  } else { row.className = ''; row.innerHTML = ''; }
+  row.hidden = !row.className;
+}
+// The things outside the drawn pages that need the key: "Ask my notes" and the AI button in "Add a task".
+function lockNow() {
+  const ask = $('#noteAskAll');
+  if (ask) {
+    ask.innerHTML = `${aiOff() ? LOCK : SPARK}Ask my notes`;
+    ask.title = aiOff() ? LOCKED : 'One question, answered from all your notes and recordings';
+    ask.toggleAttribute('data-locked', aiOff());
+  }
+  const q = $('#quickAi'), locked = quickLocked();
+  if (q && q.hasAttribute('data-locked') !== locked) {
+    q.toggleAttribute('data-locked', locked);
+    q.innerHTML = locked ? LOCK : SPARK.replace(/width="22" height="22"/, 'width="16" height="16"');
+    q.title = locked ? LOCKED : 'Say it in your own words and let AI turn it into tasks (Shift+Enter)';
+    q.setAttribute('aria-label', locked ? `Let AI turn this into tasks. ${LOCKED}` : 'Let AI turn this into tasks');
+  }
+}
+// Once a day, the first time you are somewhere other than Home, one quiet message (never over a box).
+let nudgeShowing = false; // the message on screen is a nudge: a box that opens puts it away
+function maybeKeyToast() {
+  if (!aiOff() || view === 'home' || tourOn || el.dlg.open || !remembered('weftday.toured') || remembered('weftday.keyToast') === todayYmd()) return;
+  remember('weftday.keyToast', todayYmd());
+  toast('AI is off. Add your free key and Weftday writes your notes for you.', { go: ['Add key', () => openSettings('', 'ai')], nudge: true });
+}
+// After the first tour only: the key box once, in the tour's own words.
+function askKeyOnce() {
+  if (!aiOff() || remembered('weftday.keyAsked')) return false;
+  remember('weftday.keyAsked', '1');
+  needKey('', { title: 'One more thing: switch on AI', text: KEY_WHY });
+  return true;
+}
+
 const openAccts = new Set(); // the accounts whose calendars are unfolded in the sidebar
 function renderSide() {
+  renderKeyRow();
   const today = todayYmd();
   const carried = state.tasks.filter(t => t.date && t.date < today && !t.done).sort((a, b) => a.date.localeCompare(b.date));
   const inbox = state.tasks.filter(t => !t.date && !t.done).sort((a, b) => (b.priority === 'high') - (a.priority === 'high') || b.created - a.created);
@@ -734,6 +795,10 @@ function doAct(btn) {
   if (act === 'undo') return undo();
   if (act === 'reload') return location.reload();
   if (act === 'plan') return openPlan();
+  if (act === 'add-key') return openSettings('', 'ai');
+  if (act === 'add-search') return openSettings('', 'ai', 'search');
+  if (act === 'key-later') { remember('weftday.keyLater', todayYmd()); return renderHome(); }
+  if (act === 'search-later') { remember('weftday.searchLater', '1'); return renderKeyRow(); }
   if (act.startsWith('home-')) { // the buttons on the Home screen
     const ev = events.get(btn.dataset.ev);
     if (act === 'home-record' && ev) return quickRecord(ev);
@@ -950,7 +1015,7 @@ function bind() {
     if (e.key === 'Escape') { if (planJob) return planJob.abort(); input.value = ''; quickHint(); input.blur(); }
     if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); quickPlan(); } // Shift+Enter: let AI work it out
   });
-  $('#quickAi').onclick = quickPlan;
+  $('#quickAi').onclick = e => (quickLocked() ? needKey('Adding tasks in your own words') : quickPlan(e));
   // The greyed example in the empty box changes every few seconds, to show what can be typed.
   $('#todayBtn').onclick = goToday;
   $('#prev').onclick = () => step(-1);
@@ -1363,15 +1428,33 @@ function metLine(list, key) {
 // with one way forward: the key screen. what: the feature, as the start of a sentence ("Asking your
 // meetings"); sent: what would go to the AI, when that is worth saying; back: where "Back" returns to.
 const SPARK = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 3.5l1.9 5.1L18 10.5l-5.1 1.9L11 17.5l-1.9-5.1L4 10.5l5.1-1.9z"/><path d="M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></svg>';
-function needKey(what, { sent = '', back = null } = {}) {
+// title and text replace the usual heading and sentence; alt: [label, what it does] in place of "Not now".
+function needKey(what, { sent = '', back = null, title = '', text = '', alt = null } = {}) {
+  const left = alt ? `<button type="button" class="btn ghost" data-x="alt">${esc(alt[0])}</button>`
+    : `<button type="button" class="btn ghost" data-x="${back ? 'back' : 'close'}">${back ? 'Back' : 'Not now'}</button>`;
   dialog(`<div class="dbody needkey"><span class="aimark">${SPARK}</span>
-    <h3>Add your AI key to use this</h3>
-    <p>${esc(what)} uses AI, and AI in Weftday runs on a key of your own. Google gives the key away free, and adding it takes about a minute.</p>
+    <h3>${esc(title || 'Add your AI key to use this')}</h3>
+    <p>${text ? esc(text) : `${esc(what)} uses AI, and AI in Weftday runs on a key of your own. Google gives the key away free, and adding it takes about a minute.`}</p>
     ${sent ? `<p class="note">${esc(sent)}</p>` : ''}
-    <div class="actions"><button type="button" class="btn ghost" data-x="${back ? 'back' : 'close'}">${back ? 'Back' : 'Not now'}</button><span class="sp"></span><button type="button" class="btn primary" data-x="add">Add my free key</button></div></div>`, {
+    <div class="actions">${left}<span class="sp"></span><button type="button" class="btn primary" data-x="add">Add my free key</button></div></div>`, {
     back: () => back?.(),
+    alt: () => alt?.[1](),
     add: () => openSettings('', 'ai'),
   });
+}
+// The same few words wherever Weftday asks for the key: on Home, after the tour.
+const KEY_WHY = 'Weftday writes your meeting notes, answers questions about them and drafts your follow-up emails. That runs on a key of your own. Google gives it away free, and adding it takes about a minute.';
+// While AI is off, everything that needs the key wears this lock (in place of the sparkle) and says why.
+const LOCK = '<svg class="lockmark" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg>';
+const LOCKED = 'Needs your AI key';
+const lockAttr = on => (on ? ` data-locked="1" title="${LOCKED}"` : '');
+const tidyLocked = () => aiOff() && !AI.supported();   // without a key, Tidy still runs on the browser's own AI where there is one
+const quickLocked = () => aiOff() && !AI.supported();  // and so does "Add a task" in your own words
+const factsLocked = () => aiOff() && !factsKey();
+// A question box that cannot be used yet: going into it (by mouse, finger or keyboard) shows the key box.
+function lockedAsk(input, what, o) {
+  if (!input) return;
+  input.addEventListener('focus', () => { input.blur(); needKey(what, o); });
 }
 // "Get facts" pressed before an AI key has been added.
 const openFactsHelp = (guest, from) => needKey('Looking people up on the web', {
@@ -1468,7 +1551,7 @@ function factsHtml(f, day, who) {
     ${firm ? `<div class="fgroup"><h4>${logoHtml(who.domain)}${esc(who.company || 'Their company')}</h4>${firm}</div>` : ''}
     ${f.recent.length || f.ideas.length || f.other.length ? `<div class="fgroup"><h4>For this meeting</h4>${part('Recently', f.recent)}${part('Worth asking', f.ideas)}${part('Also', f.other)}</div>` : ''}
     ${f.sources.length ? `<div class="chips2">${f.sources.map(x => `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.host)}</a>`).join('')}</div>` : ''}
-    ${f.coverage ? '<div class="note">This comes from the company’s own website, so it says little about the person. Add a free search key in Settings → AI for more.</div>' : ''}
+    ${f.coverage ? '<div class="note fcover"><span>This comes from the company’s own website, so it says little about the person.</span><button type="button" class="btn" data-x="searchkey">Add the free search key</button></div>' : ''}
     <div class="ffoot"><span>From the web${day ? ` · ${esc(day)}` : ''}${f.hint ? `, using your hint “${esc(f.hint)}”` : ''}. Check before relying on it.</span>
       <span class="flinks">${f.photos.length || f.photo ? '<button type="button" class="linkbtn" data-x="photo">Change photo</button>' : ''}<button type="button" class="linkbtn" data-x="notthem">Not them?</button><button type="button" class="linkbtn" data-x="facts">Refresh</button></span></div>
     <form class="hintrow" id="hintRow" hidden><input name="hint" maxlength="120" placeholder="A hint: their job, city, or LinkedIn address" autocomplete="off" value="${esc(f.hint || '')}"><button class="btn" data-x="retry" type="button">Look again</button></form>`;
@@ -1497,7 +1580,7 @@ function openPerson(guest, from) {
         <div class="meta">${esc([f?.location, p.email].filter(Boolean).join(' · '))}</div></div></div>
     ${canLook ? `<div class="btnrow">${linkedin ? link(f?.linkedin ? 'LinkedIn profile' : 'Find on LinkedIn', linkedin) : ''}${p.company ? `<button type="button" class="btn" data-x="firm">${logoHtml(p.domain)}${esc(p.company)}</button>` : ''}${link('Ask AI', askAiUrl(p, from?.title))}</div>` : ''}
     <div class="facts" id="factsBox">${f ? factsHtml(f, day, p)
-      : canLook ? `<div class="fempty"><b>No facts yet</b><span>Weftday can look ${esc(first)} up on the web and fill this in.</span><button type="button" class="btn primary" data-x="facts">Get facts</button></div>`
+      : canLook ? `<div class="fempty"><b>No facts yet</b><span>Weftday can look ${esc(first)} up on the web and fill this in.</span><button type="button" class="btn primary" data-x="facts"${lockAttr(factsLocked())}>${factsLocked() ? LOCK : ''}Get facts</button></div>`
       : '<div class="fempty"><span>There is not enough to look this person up. A first name alone is too little.</span></div>'}</div>
     <div class="note" id="searched" hidden></div>
     <label><span>Your notes about ${esc(first)} <i>· only you can see this</i></span>
@@ -1512,6 +1595,7 @@ function openPerson(guest, from) {
     ret: () => { commitAbout(true); const go = returnTo; returnTo = null; go(); },
     firm: () => { commitAbout(true); const back = returnTo; openCompany(p.domain, () => { returnTo = back; openPerson(guest, from); }); },
     photo: () => { commitAbout(true); openPhotoPick(guest, from); },
+    searchkey: () => { commitAbout(true); openSettings('', 'ai', 'search'); },
     // "Not them?": shows a box for a hint, then looks again with it.
     notthem() {
       const row = $('#hintRow', el.dlg);
@@ -1628,7 +1712,7 @@ function openBrief(ev) {
     ${recent.length ? `<h4>Recently</h4><div class="fsec multi">${list(recent)}</div>` : ''}
     ${ideas.length ? `<h4>Worth asking</h4><div class="fsec multi">${list(ideas)}</div>` : ''}
     ${mine ? `<h4>Your notes for this meeting</h4><div class="fsec"><p>${esc(AI.gistOf(mine, 400))}</p></div>` : ''}
-    <div class="braise"><button type="button" class="btn" data-x="raise">${SPARK}What should I raise?</button>
+    <div class="braise"><button type="button" class="btn" data-x="raise"${lockAttr(aiOff())}>${aiOff() ? LOCK : SPARK}What should I raise?</button>
       <div class="fsec multi" id="raiseOut" hidden></div><p class="note" id="raiseSay" hidden></p></div>
     <div class="actions"><button type="button" class="btn" data-x="back">Back to the meeting</button><span class="sp"></span><button type="button" class="btn primary" data-x="close">Close</button></div></div>`, {
     back: () => openEvent(ev),
@@ -1715,7 +1799,7 @@ function openEvent(ev, writeNotes) { // writeNotes: put the cursor in the notes 
       <div><button type="button" class="nm" data-x="person" data-email="${esc(p.email)}" title="Everything about this person">${esc(p.name)} ›</button>${p.organizer ? ' <i>· organiser</i>' : ''}${STATUS_LABEL[p.status] ? ` <i>· ${STATUS_LABEL[p.status]}</i>` : ''}</div>
       ${aboutLine(p.email) ? `<div class="abt">${esc(aboutLine(p.email))}</div>` : ''}
       <div class="wm">${lookup ? '<span class="met">Checking your past meetings…</span>' : ''}<span class="look">${lookupLinks(p, ev.title)}</span></div>
-      ${lookupLinks(p, ev.title) ? `<div><button type="button" class="mini" data-x="facts" data-email="${esc(p.email)}">${hasFacts(p.email) ? 'See profile' : 'Get facts'}</button></div>` : ''}</div></div>`;
+      ${lookupLinks(p, ev.title) ? `<div><button type="button" class="mini" data-x="facts" data-email="${esc(p.email)}"${lockAttr(!hasFacts(p.email) && factsLocked())}>${hasFacts(p.email) ? 'See profile' : `${factsLocked() ? LOCK : ''}Get facts`}</button></div>` : ''}</div></div>`;
   // The box is laid out the way the meeting is used: who and when, the few things to press, and the
   // notes. Everything else (the people in full, last time, the invitation's details) is folded away.
   const where = ev.location && !/^https?:\/\//i.test(ev.location) && ev.location.length <= 60 ? ev.location : '';
@@ -1738,10 +1822,10 @@ function openEvent(ev, writeNotes) { // writeNotes: put the cursor in the notes 
     <div class="field"><span>Your notes <i>· only you can see these</i></span>
       <textarea name="note" rows="7" maxlength="${N.MAX_LENGTH}" aria-label="Your notes" placeholder="What do you want to cover? What was decided?  Type - for a bullet, [] for a tick-box.">${esc(note?.text || '')}</textarea></div>
     <div class="airow">
-      <button type="button" class="mini" data-x="tidy">Tidy my notes</button>
+      <button type="button" class="mini" data-x="tidy"${lockAttr(tidyLocked())}>${tidyLocked() ? LOCK : ''}Tidy my notes</button>
       <button type="button" class="mini" data-x="mktasks" hidden>Make tasks</button>
       <button type="button" class="mini" data-x="untidy" hidden>Undo tidy</button>
-      <button type="button" class="mini" data-x="followup" hidden>${followupLabel()}</button>
+      <button type="button" class="mini" data-x="followup" hidden${lockAttr(aiOff())}>${followupLabel()}</button>
       <span class="sp"></span><span class="saved" id="noteState"></span></div>
     ${last ? `<details class="rfold"${ev.e > Date.now() ? ' open' : ''}><summary>Last time${lastDay ? ` · ${esc(lastDay)}` : ''}<i>${esc(short(lastGist, 64))}</i></summary>
     <div class="last"><div class="lt2">${esc(last.title || 'Meeting')}</div>
@@ -1805,6 +1889,7 @@ function openEvent(ev, writeNotes) { // writeNotes: put the cursor in the notes 
     // Your AI (with your key) turns rough notes into a summary, decisions and action points; with no
     // key, the browser's own AI does it on this computer where there is one.
     async tidy(btn) {
+      if (tidyLocked()) return needKey('Tidying your notes', { sent: 'When you press Tidy, the note goes to your AI to be tidied. Nothing is sent before that.', back: () => openEvent(ev) });
       const rough = AI.originalOf(box.value).trim();
       if (rough.length < 15) return toast('Write a few notes first, then press Tidy.');
       const withKey = writers().length > 0;
@@ -2743,8 +2828,11 @@ const SET_PANES = [['general', 'General'], ['reminders', 'Reminders'], ['account
 const setIcon = name => `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${SET_ICONS[name]}</svg>`;
 let settingsPane = 'general'; // the section you last looked at
 
-function openSettings(msg, pane) {
-  const s = state.settings;
+// focus: 'search' opens the AI section with the search key's card in view.
+function openSettings(msg, pane, focus) {
+  const s = state.settings, offBefore = aiOff();
+  // The AI section opens on its keys while a key is still to add, else on what AI does for you.
+  const aiFirst = focus === 'search' || !writers().length || searchWanted() ? 'keys' : 'does';
   // The key boxes show the key of the chosen service; the others are remembered until Save.
   const keys = { ...(s.aiKeys || {}), google: s.aiKey || '', claude: s.claudeKey || '' };
   const models = { ...(s.aiModels || {}) };
@@ -2831,9 +2919,12 @@ function openSettings(msg, pane) {
           </div>`)}
 
         ${section('ai', 'AI', 'AI in Weftday runs on a key of your own. It is free, and nobody else sees what you send.', `
-          <div class="aihero${s.aiKey ? ' ready' : ''}">
+          <div class="seg aiseg" role="group" aria-label="Show">${[['keys', 'Keys'], ['does', 'What it does']].map(([k, l]) =>
+            `<button type="button" data-x="aiside" data-side="${k}"${k === aiFirst ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"'}>${l}</button>`).join('')}</div>
+          <div class="aiside" data-side="keys"${aiFirst === 'keys' ? '' : ' hidden'}>
+          <div class="aihero" id="aiCard">
             <div class="aihead"><span class="aimark" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 3.5l1.9 5.1L18 10.5l-5.1 1.9L11 17.5l-1.9-5.1L4 10.5l5.1-1.9z"/><path d="M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></svg></span>
-              <div><b>${s.aiKey ? 'AI is switched on' : 'Switch AI on with one free key'}</b><span>${s.aiKey ? 'Notes from recordings, questions about your meetings and tasks in your own words are ready.' : 'It takes about a minute. Google gives the key away free; you paste it below.'}</span></div></div>
+              <div><b>1 · Your AI key</b><span></span></div></div>
             ${row('AI service', 'Google’s is free and does everything here', `<select name="aiProvider">${costly(Object.values(S.AI_SERVICES))}</select>`)}
             <div class="sfield" id="aiKeyPart">
               <label for="aiKeyBox"><b id="aiKeyLabel"></b><i class="stag rec" id="aiRecTag" hidden>Recommended</i>${keyTag('', 'aiKeyTag')}</label>
@@ -2842,15 +2933,17 @@ function openSettings(msg, pane) {
               <details id="aiHelpBox" class="keyhelp"><summary id="aiHelpTitle"></summary><ol id="aiKeyHelp"></ol><a class="btn primary" id="aiKeyGet" target="_blank" rel="noopener"></a></details>
             </div>
           </div>
-          <h4>What it does for you</h4>
-          <div class="sgroup aido">
-            ${row('Notes from a recording', 'When a recording ends: a summary, the decisions, and who does what.', tag(s.aiKey ? 'Ready' : 'Needs the Google key', s.aiKey ? 'ok' : ''))}
-            ${row('Ask my meetings', 'Ask a question and get the answer from your saved notes.', tag(s.aiKey ? 'Ready' : 'Needs the Google key', s.aiKey ? 'ok' : ''))}
-            ${toggle('aiQuick', s.aiQuick !== false, 'Tasks in your own words', 'Type “call Priya tomorrow, gym at 6” and get separate tasks. You see them before anything is added.')}
-            ${row('Tidy my notes', `<span id="tidyWhy">${writers().length ? 'Turns rough notes into a summary. The note is sent to your AI when you press it.' : 'Turns rough notes into a summary. Runs inside this browser; nothing is sent.'}</span>`, writers().length ? tag('Ready', 'ok') : tag('Checking…', '', 'aiState'))}
-            ${row('Facts about a person', 'Looks someone up on the web and fills in their page: role, company, background.', tag(...factsState(), 'factsState'))}
-            ${toggle('aiAuto', s.aiAuto, 'Look up today’s guests by itself', 'Their pages are ready when you open a meeting. Names go to the AI without a press. Your own company is skipped.')}
+          <div class="aihero" id="searchCard">
+            <div class="aihead"><span class="aimark" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg></span>
+              <div><b>2 · Search key</b><span id="searchWhy"></span></div></div>
+            ${row('Search service', 'Tavily is free and asks for no card', `<select name="searchProvider">${costly(Object.values(S.SEARCH_SERVICES))}</select>`)}
+            <div class="sfield">
+              <label for="searchKeyBox"><b id="searchKeyLabel"></b><i class="stag rec" id="searchRecTag" hidden>Recommended</i>${keyTag('', 'searchKeyTag')}</label>
+              <input id="searchKeyBox" name="searchKey" type="password" placeholder="Paste your key here" autocomplete="off" spellcheck="false">
+              <details id="searchHelpBox" class="keyhelp"><summary id="searchHelpTitle"></summary><ol id="searchKeyHelp"></ol><a class="btn primary" id="searchKeyGet" target="_blank" rel="noopener"></a></details>
+            </div>
           </div>
+          <p class="note aiown" id="ownSearchNote" hidden></p>
           <details class="aimore"><summary>More choices</summary>
             <div class="sgroup">
               <div class="sfield">
@@ -2858,19 +2951,21 @@ function openSettings(msg, pane) {
                   <input name="aiModel" placeholder="Automatic" autocomplete="off" spellcheck="false" aria-label="Model name">
                   <span class="hint" id="aiModelHint"></span></details>
               </div>
-              <div class="srow" id="ownSearchNote" hidden><div class="st"><b>Web search</b><span id="ownSearchText"></span></div>${tag('Built in', 'ok')}</div>
-              <div id="searchPart">
-                ${row('Search service', '<span id="searchWhy"></span>', `<select name="searchProvider">${costly(Object.values(S.SEARCH_SERVICES))}</select>`)}
-                <div class="sfield">
-                  <label for="searchKeyBox"><b id="searchKeyLabel"></b><i class="stag rec" id="searchRecTag" hidden>Recommended</i>${keyTag('', 'searchKeyTag')}</label>
-                  <input id="searchKeyBox" name="searchKey" type="password" placeholder="Paste your key here" autocomplete="off" spellcheck="false">
-                  <details class="keyhelp"><summary id="searchHelpTitle"></summary><ol id="searchKeyHelp"></ol></details>
-                </div>
-              </div>
               ${row('“Ask AI” opens', 'A chat app in a new tab, with a question about the person already typed', select('aiApp', Object.entries(AI_APPS).map(([k, v]) => [k, v[0]]), s.aiApp))}
             </div>
           </details>
-          <p class="note">Nothing is sent until you press a button, or switch on a setting that says so. Keys are kept only in this browser.</p>`)}
+          <p class="note">Nothing goes to an AI until you add your own key. From then on, looking up today’s guests is on unless you switch it off; everything else waits for a press. Keys are kept only in this browser.</p>
+          </div>
+          <div class="aiside" data-side="does"${aiFirst === 'does' ? '' : ' hidden'}>
+          <div class="sgroup aido">
+            ${row('Notes from a recording', 'A summary, decisions and who does what.', tag(s.aiKey ? 'Ready' : 'Needs the Google key', s.aiKey ? 'ok' : ''))}
+            ${row('Ask my meetings', 'Answers from your saved notes.', tag(s.aiKey ? 'Ready' : 'Needs the Google key', s.aiKey ? 'ok' : ''))}
+            ${toggle('aiQuick', s.aiQuick !== false, 'Tasks in your own words', 'One sentence becomes separate tasks. You see them first.')}
+            ${row('Tidy my notes', `<span id="tidyWhy">${writers().length ? 'Rough notes into a summary. Sent to your AI when you press it.' : 'Rough notes into a summary, in this browser. Nothing is sent.'}</span>`, writers().length ? tag('Ready', 'ok') : tag('Checking…', '', 'aiState'))}
+            ${row('Facts about a person', 'Role, company and background, from the web.', tag(...factsState(), 'factsState'))}
+            ${toggle('aiAuto', s.aiAuto !== false, 'Look up today’s guests by itself', 'On unless you switch it off: once you add a key, the names of today’s guests go to your AI so their pages are ready. Your own company is skipped.')}
+          </div>
+          </div>`)}
 
         ${section('data', 'Your data', 'Weftday has no server. Everything lives in this browser and in your own Google accounts.', `
           <div class="sgroup">
@@ -2933,10 +3028,13 @@ function openSettings(msg, pane) {
         if (share) { if (!wasSharing || moving) state.sharedSeen = false; s.shareAccounts = true; }
         save();
         if (share) await shareSync();
-        closeDialog(); render(); toast('Settings saved');
+        closeDialog(); render();
+        if (offBefore && !aiOff() && searchWanted()) toast('AI is on. One more free key makes looking people up much better.', { go: ['Add search key', () => openSettings('', 'ai', 'search')], nudge: true });
+        else toast('Settings saved');
       } catch (err) { $('button.primary', form).disabled = false; toast(err.message, true); }
     },
     pane: x => show(x.dataset.pane),
+    aiside: x => showSide(x.dataset.side),
     async notif() { await Notification.requestPermission(); showPerm(); },
     tour: () => { stash(); closeDialog(); setTimeout(startTour, 250); },
     recordings: () => { stash(); openRecordings(null); },
@@ -3022,6 +3120,10 @@ function openSettings(msg, pane) {
     }
     $('.spanes', el.dlg).scrollTop = 0;
   }
+  function showSide(name) { // the AI section: "Keys" | "What it does"
+    for (const b of $$('.aiseg button', el.dlg)) { b.classList.toggle('on', b.dataset.side === name); b.setAttribute('aria-pressed', String(b.dataset.side === name)); }
+    for (const p of $$('.aiside', el.dlg)) p.hidden = p.dataset.side !== name;
+  }
   function showPerm() {
     const part = $('#permPart', el.dlg), now = permNow();
     if (part) part.innerHTML = now === 'default' ? '<button type="button" class="btn" data-x="notif">Turn on</button>' : tag(...PERM[now]);
@@ -3053,11 +3155,16 @@ function openSettings(msg, pane) {
   function showServices() {
     const svc = S.aiService(provider), find = S.searchService(finder);
     part('aiKeyPart').hidden = !!svc.noKey;
-    const on = !!svc.noKey || !!aiKeyOf(provider), head = $('.aihead div', el.dlg);
-    $('.aihero', el.dlg).classList.toggle('ready', on);
-    $('b', head).textContent = on ? 'AI is switched on' : svc.kind === 'google' ? 'Switch AI on with one free key' : `Switch AI on with your ${svc.name} key`;
-    $('span', head).textContent = on ? (svc.kind === 'google' ? 'Notes from recordings, questions about your meetings and tasks in your own words are ready.' : `${svc.name} is set up. Notes from a recording still use the free Google key.`)
-      : svc.kind === 'google' ? 'It takes about a minute. Google gives the key away free; you paste it below.' : 'Paste the key below. Notes from a recording still use the free Google key.';
+    const on = !!svc.noKey || !!aiKeyOf(provider), head = $('#aiCard .aihead div', el.dlg);
+    part('aiCard').classList.toggle('ready', on);
+    $('span', head).textContent = on ? (svc.kind === 'google' ? 'AI is on. Notes from recordings, questions about your meetings and tasks in your own words are ready.' : `AI is on with ${svc.name}. Notes from a recording still use the free Google key.`)
+      : svc.kind === 'google' ? 'Switch AI on with one free key. It takes about a minute: Google gives the key away free, and you paste it below.' : `Switch AI on with your ${svc.name} key. Notes from a recording still use the free Google key.`;
+    // The search key's card: plain while the AI key is still to add, the next step once it is in, ready once saved.
+    const found = !!((finder === 'tavily' ? state.settings.searchKey : state.settings.searchKeys?.[finder]) || '');
+    const card = part('searchCard');
+    card.hidden = !!svc.ownSearch;
+    card.classList.toggle('plain', !on && !found);
+    card.classList.toggle('ready', found);
     part('aiKeyLabel').textContent = svc.label || '';
     part('aiRecTag').hidden = !svc.recommended;
     part('searchRecTag').hidden = !find.recommended;
@@ -3075,12 +3182,15 @@ function openSettings(msg, pane) {
     box('aiModel').value = models[provider] || '';
     part('aiModelHint').textContent = svc.local ? 'Leave empty to use the first model you have downloaded.' : `Leave empty and Weftday picks a good one${svc.model ? ` (${svc.model})` : ''}.`;
     part('ownSearchNote').hidden = !svc.ownSearch;
-    part('ownSearchText').textContent = `${svc.name} searches the web by itself, so no search key is needed.`;
-    part('searchPart').hidden = !!svc.ownSearch;
-    part('searchWhy').textContent = svc.kind === 'google' ? 'Optional. Finds facts about the person, not only their company.' : `Needed: ${svc.name} cannot search the web by itself.`;
+    part('ownSearchNote').textContent = `${svc.name} searches the web by itself, so no search key is needed.`;
+    part('searchWhy').textContent = svc.kind === 'google' ? 'Recommended. With it Weftday finds facts about the person, not only their company.' : `Needed for looking people up: ${svc.name} cannot search the web by itself.`;
     part('searchKeyLabel').textContent = `${find.name} key`;
     box('searchKey').value = findKeys[finder] || '';
     part('searchKeyHelp').innerHTML = find.help;
+    part('searchHelpBox').open = !findKeys[finder]; // no key yet: the steps are in plain sight
+    const sget = part('searchKeyGet'), spage = /href="([^"]+)"/.exec(find.help || '');
+    sget.hidden = !spage;
+    if (spage) { sget.href = spage[1]; sget.textContent = /^free/.test(find.cost) ? 'Get my free search key' : 'Get my search key'; }
     showStates();
   }
   showServices();
@@ -3093,8 +3203,9 @@ function openSettings(msg, pane) {
     line.textContent = { ready: 'Ready', download: 'One-time download', no: 'Needs a key' }[st];
     line.className = `stag ${st === 'ready' ? 'ok' : ''}`;
     const why = $('#tidyWhy', el.dlg); // no key and no AI in this browser: say what would make it work
-    if (st === 'no' && why) why.textContent = 'Turns rough notes into a summary. Add your AI key above to use it.';
+    if (st === 'no' && why) why.textContent = 'Rough notes into a summary. Needs your AI key.';
   });
+  if (focus === 'search' && first === 'ai') part('searchCard').scrollIntoView({ block: 'start' });
 }
 
 // ---------------------------------------------------------------- reminders
@@ -3934,7 +4045,7 @@ const recStartFailed = err => {
 function quickRecord(ev) {
   const prefs = recPrefs();
   if (R.current()) return toast('A recording is already running. Stop it first.');
-  if (!prefs.seen || !R.canCaptureScreen()) return openRecordSetup(ev);
+  if (!prefs.seen || !R.canCaptureScreen() || aiOff()) return openRecordSetup(ev); // with AI off, the box says that no notes will be written
   beginRecording(ev, { what: 'sound', mic: !prefs.micOff, micId: prefs.micId, auto: !!state.settings.aiKey && prefs.auto !== false }).catch(recStartFailed);
 }
 
@@ -3961,7 +4072,8 @@ function openRecordSetup(ev) {
     <p class="note" id="recWhy" hidden></p>
     ${hasKey
     ? `<label class="ropt" id="recAutoRow"><span>Write my notes when it ends<i>Google’s AI, with your own key, is sent the sound, who was there and your notes.</i></span><input type="checkbox" class="switch" name="auto"${prefs.seen && prefs.auto === false ? '' : ' checked'}></label>`
-    : '<p class="note" id="recAutoRow">To have the notes written for you, <button type="button" class="linkbtn" data-x="aikey">add the free Google AI key</button>.</p>'}
+    : `<p class="note" id="recAutoRow">To have the notes written for you, <button type="button" class="linkbtn" data-x="aikey">add the free Google AI key</button>.</p>${aiOff()
+      ? '<div class="rkey" id="recKeyNote"><span>Without an AI key this meeting is recorded, but no notes are written.</span><button type="button" class="btn" data-x="addkey">Add my free key</button></div>' : ''}`}
     <label class="ropt" id="recMicRow"><span>Record my own voice too</span><input type="checkbox" class="switch" name="mic"${prefs.micOff ? '' : ' checked'}></label>
     <label class="ropt" id="recCamRow" hidden><span>Show my face in a corner</span><input type="checkbox" class="switch" name="cam"${prefs.camOn ? ' checked' : ''}></label>
     <div class="rcamset" id="recCamSet" hidden>
@@ -3980,18 +4092,27 @@ function openRecordSetup(ev) {
     <p class="rtell">Please tell everyone that you are recording.</p></form>`, {
     shot: () => { stopPreview(); takeShot(ev); },
     aikey: () => { stopPreview(); openSettings('Making notes from a recording needs the free Google AI key. Add it here.', 'ai'); },
-    async submit(fd, form) {
-      const what = fd.get('what'), btn = $('button.primary', form);
-      const wantCam = what === 'camera' || (what === 'video' && drawCam && fd.get('cam') === 'on');
-      saveRecPrefs({ seen: 1, auto: hasKey ? fd.get('auto') === 'on' : prefs.auto, micOff: fd.get('mic') !== 'on', camOn: fd.get('cam') === 'on', corner: fd.get('corner'), size: fd.get('size'), micId: fd.get('micId'), camId: fd.get('camId') });
-      btn.disabled = true;
-      try {
-        const held = wantCam ? preview : null;
-        const session = await beginRecording(ev, { what, mic: fd.get('mic') === 'on', cam: wantCam, micId: fd.get('micId'), camId: fd.get('camId'), corner: fd.get('corner'), size: fd.get('size'), auto: hasKey && fd.get('auto') === 'on', preview: held });
-        if (held && session.cam === held) preview = null; // it lives on in the recording
-      } catch (err) { btn.disabled = false; recStartFailed(err); }
+    addkey: () => { stopPreview(); openSettings('', 'ai'); },
+    submit(fd, form) {
+      // A meeting with AI off: one small box first, so nobody records a meeting expecting notes that never come.
+      if (fd.get('what') === 'sound' && aiOff()) {
+        return needKey('', { title: 'Record without notes?', text: 'Weftday can only write the notes with your AI key. It is free and takes a minute.', alt: ['Record anyway', () => start(fd, null)] });
+      }
+      return start(fd, form);
     },
   });
+  // Starts the recording as set up in the box (form is gone when "Record anyway" was pressed instead).
+  async function start(fd, form) {
+    const what = fd.get('what'), btn = form ? $('button.primary', form) : $('#dlg [data-x=alt]');
+    const wantCam = what === 'camera' || (what === 'video' && drawCam && fd.get('cam') === 'on');
+    saveRecPrefs({ seen: 1, auto: hasKey ? fd.get('auto') === 'on' : prefs.auto, micOff: fd.get('mic') !== 'on', camOn: fd.get('cam') === 'on', corner: fd.get('corner'), size: fd.get('size'), micId: fd.get('micId'), camId: fd.get('camId') });
+    if (btn) btn.disabled = true;
+    try {
+      const held = wantCam ? preview : null;
+      const session = await beginRecording(ev, { what, mic: fd.get('mic') === 'on', cam: wantCam, micId: fd.get('micId'), camId: fd.get('camId'), corner: fd.get('corner'), size: fd.get('size'), auto: hasKey && fd.get('auto') === 'on', preview: held });
+      if (held && session.cam === held) preview = null; // it lives on in the recording
+    } catch (err) { if (btn) btn.disabled = false; recStartFailed(err); }
+  }
   const form = $('form', el.dlg), f = name => form.elements[name];
   const names = async () => { // the lists of microphones and cameras (their names show once the browser may use them)
     const { mics, cams } = await R.devices();
@@ -4027,6 +4148,8 @@ function openRecordSetup(ev) {
   const sync = () => {
     const what = f('what').value;
     $('#recWhy', form).textContent = REC_KINDS[what][1];
+    const keyNote = $('#recKeyNote', form); // AI off: a meeting gets the clear notice, the other kinds the quiet line
+    if (keyNote) { keyNote.hidden = what !== 'sound'; $('#recAutoRow', form).hidden = what === 'sound'; }
     $('#recMicRow', form).hidden = what === 'mic' || what === 'camera';
     $('#recCamRow', form).hidden = what !== 'video' || !drawCam;
     const how = $('#recHow', form);
@@ -4204,6 +4327,12 @@ function writers() {
   for (const id of Object.keys(S.AI_SERVICES)) add(id);
   return out;
 }
+// AI is off: no key yet for a service that can write. Every nudge to add the key reads this, so they
+// all go the moment a key is saved. Sample data never counts as off.
+const aiOff = () => !DEMO && writers().length === 0;
+// The search key is the next thing to add: AI is on, the chosen service cannot search the web by
+// itself, and no search key is saved.
+const searchWanted = () => !DEMO && !aiOff() && !S.aiService(state.settings.aiProvider).ownSearch && !searchKeyOf(searchKind());
 // build(room) gives the text to send, cut to what a service can take in one go.
 async function askWriter(build, signal) {
   const list = writers();
@@ -4252,7 +4381,8 @@ function followupTemplate(ev, text) {
 // A meeting's note can be turned into a follow-up email when the meeting has begun, has people from
 // outside in it, and the note has something in it.
 const canFollowUp = (ev, text) => !!ev && !!String(text || '').trim() && ev.s <= Date.now() && outsiders(ev).length > 0;
-const followupLabel = () => (writers().length ? 'Write follow-up email' : 'Follow-up email');
+// (HTML: while AI is off it carries the lock; with no key in sample data it is the plain version)
+const followupLabel = () => (aiOff() ? `${LOCK}Write follow-up email` : writers().length ? 'Write follow-up email' : 'Follow-up email');
 // The newest recording of a meeting that has what was said written down, or null.
 async function saidIn(key) {
   const list = key ? await R.forMeeting(key).catch(() => []) : [];
@@ -4384,7 +4514,7 @@ async function openRecording(id, back) {
     <div class="meta">${esc(facts.filter(Boolean).join(' · '))}</div>
     ${stage}
     <div class="btnrow">
-      ${canNote ? `<button type="button" class="btn primary" data-x="notes">${rec.notes ? 'Write the notes again' : 'Write the notes'}</button>` : ''}
+      ${canNote ? `<button type="button" class="btn primary" data-x="notes"${lockAttr(aiOff())}>${aiOff() ? LOCK : ''}${rec.notes ? 'Write the notes again' : 'Write the notes'}</button>` : ''}
       ${rec.notes && AI.actionsIn(rec.notes).length ? '<button type="button" class="btn" data-x="mktasks">Make tasks</button>' : ''}
       ${shot && url ? '<button type="button" class="btn primary" data-x="copy">Copy</button>' : ''}
       ${shot && url ? `<a class="btn" href="${url}" download="${esc(recFileName(rec))}">Save as a file</a>` : ''}
@@ -4395,7 +4525,7 @@ async function openRecording(id, back) {
     <p class="note">${rec.share.open === false ? 'Your organisation does not allow links that anyone can open. Share this copy from Google Drive with the people who should see it.' : 'Anyone you send this link to can watch. The copy is in your own Google Drive, in “Weftday recordings”.'}</p>` : ''}
     <div class="note" id="recSay" hidden></div>
     ${rec.notes ? `<div class="rnotes">${notesHtml(AI.originalOf(rec.notes) === rec.notes ? rec.notes : rec.notes.slice(0, rec.notes.indexOf(AI.ORIGINAL_MARK)).trim())}</div>` : ''}
-    ${rec.transcript ? `<form class="rask"><input name="q" maxlength="300" autocomplete="off" placeholder="Ask about this ${ev ? 'meeting' : 'recording'}: what did we agree on price?" aria-label="Ask about this recording"><button class="btn">Ask</button></form>
+    ${rec.transcript ? `<form class="rask${aiOff() ? ' locked' : ''}"${aiOff() ? ` title="${LOCKED}"` : ''}><input name="q" maxlength="300" autocomplete="off" placeholder="${aiOff() ? 'Add your AI key to ask about this recording' : `Ask about this ${ev ? 'meeting' : 'recording'}: what did we agree on price?`}" aria-label="Ask about this recording"><button class="btn"${lockAttr(aiOff())}>${aiOff() ? LOCK : ''}Ask</button></form>
     <div class="desc rtext ranswer" id="recAnswer" hidden></div>` : ''}
     ${rec.chapters?.length > 1 ? `<details class="rfold"><summary>Chapters</summary><div class="rchaps">${rec.chapters.map(c => `<button type="button" data-x="jump" data-t="${+c.t}"><em>${clock(Math.floor(c.t))}</em>${esc(c.title)}</button>`).join('')}</div></details>` : ''}
     ${rec.transcript ? `<details class="rfold"><summary>What was said</summary>${rec.lines?.length
@@ -4479,6 +4609,7 @@ async function openRecording(id, back) {
       if (back) back(); else closeDialog();
     },
     async notes(btn) {
+      if (aiOff()) return needKey('Writing notes from a recording', { back: () => openRecording(rec.id) });
       const say = $('#recSay', el.dlg), job = newJob();
       btn.disabled = true;
       say.hidden = false;
@@ -4497,6 +4628,7 @@ async function openRecording(id, back) {
     },
   }, rec.kind === 'audio' ? '' : 'wide');
   asPanel();
+  lockedAsk($('.rask.locked input', el.dlg), 'Asking about a recording', { back: () => openRecording(rec.id) });
   const title = $('.rtitle', el.dlg), media = $('.rplay', el.dlg);
   const keep = { from: 0, to: rec.secs || 0 }; // the stretch a trimmed copy would keep
   const showKeep = () => { const span = $('#trimSpan', el.dlg); if (span) span.textContent = `${clock(Math.floor(keep.from))} – ${clock(Math.ceil(keep.to))} (${clock(Math.max(1, Math.round(keep.to - keep.from)))})`; };
@@ -4714,6 +4846,7 @@ async function renderHome() {
   const untimed = mine.filter(t => t.start == null);
   el.home.innerHTML = `<div class="hwrap">
     <header class="hhello"><h2>${hello}${name ? `, ${esc(name)}` : ''}</h2><p>${esc(sum.charAt(0).toUpperCase() + sum.slice(1))}</p></header>
+    ${keyCardShown() ? keyCardHtml() : ''}
     <div class="hmain">${hero}
       <section class="hsec"><h4><span>Today</span><button type="button" class="linkbtn" data-act="home-calendar">Open the calendar</button></h4>
         ${timed.length ? timed.map(row).join('') : '<p class="hnone">Nothing is scheduled today.</p>'}</section>
@@ -4773,8 +4906,9 @@ async function renderNotes() {
   if (!docs.some(d => d.id === noteOpen)) noteOpen = innerWidth >= 760 && docs.length ? docs[0].id : '';
   const typing = el.notes.contains(document.activeElement) && $('.ndoc', el.notes)?.dataset.id === noteOpen && !!document.activeElement.closest('.ndoc');
   if (!$('.nlist', el.notes)) {
-    el.notes.innerHTML = `<div class="nlist"><div class="nhead"><input type="search" id="noteFind" placeholder="Search your notes" aria-label="Search your notes" autocomplete="off"><button type="button" class="btn" id="noteAskAll" title="One question, answered from all your notes and recordings">${SPARK}Ask my notes</button><button type="button" class="btn" id="noteNew">New note</button></div><div class="nrows"></div></div><div class="ndoc"></div>`;
+    el.notes.innerHTML = `<div class="nlist"><div class="nhead"><input type="search" id="noteFind" placeholder="Search your notes" aria-label="Search your notes" autocomplete="off"><button type="button" class="btn" id="noteAskAll"></button><button type="button" class="btn" id="noteNew">New note</button></div><div class="nrows"></div></div><div class="ndoc"></div>`;
     $('#noteAskAll', el.notes).addEventListener('click', openAskAll);
+    lockNow();
     $('#noteFind', el.notes).addEventListener('input', e => { noteFind = e.target.value; noteDocs().then(all => { $('.nrows', el.notes).innerHTML = noteRows(all); }); });
     $('#noteNew', el.notes).addEventListener('click', () => {
       noteDraft = { id: `note:${uid()}`, kind: 'own', title: 'Untitled', when: Date.now(), text: '', people: [], recorded: false };
@@ -4817,10 +4951,10 @@ async function renderNotes() {
     <div class="nask">
       <div class="nanswer" hidden aria-live="polite"><div class="nq"></div><div class="na"></div>
         <div class="nsrc"><span></span><button type="button" class="icon" data-ask="close" aria-label="Close the answer" title="Close">✕</button></div></div>
-      <div class="naskrow"><form class="naskbar"><span class="nspark">${SPARK}</span>
-        <input name="nq" maxlength="300" autocomplete="off" enterkeyhint="send" placeholder="Ask anything about this note" aria-label="Ask anything about this note">
+      <div class="naskrow"><form class="naskbar${aiOff() ? ' locked' : ''}"${aiOff() ? ` title="${LOCKED}"` : ''}><span class="nspark">${aiOff() ? LOCK : SPARK}</span>
+        <input name="nq" maxlength="300" autocomplete="off" enterkeyhint="send" placeholder="${aiOff() ? 'Add your AI key to ask about this note' : 'Ask anything about this note'}" aria-label="${aiOff() ? 'Add your AI key to ask about this note' : 'Ask anything about this note'}">
         <button class="nsend" aria-label="Ask"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button></form>
-        ${mailEv ? `<button type="button" class="btn" id="ndocFollow" hidden>${followupLabel()}</button>` : ''}</div></div>`;
+        ${mailEv ? `<button type="button" class="btn" id="ndocFollow" hidden${lockAttr(aiOff())}>${followupLabel()}</button>` : ''}</div></div>`;
   const box = $('textarea', pane), title = $('.ntitle', pane), state2 = $('#ndocState', pane), tasks = $('#ndocTasks', pane);
   E.attach(box);
   const about = () => ({ title: (title.value.trim() || 'Untitled').slice(0, 140), when: doc.when, people: doc.people });
@@ -4883,6 +5017,9 @@ async function renderNotes() {
     askNote(doc, box.value, said, q);
   });
   $('[data-ask=close]', pane).addEventListener('click', () => { noteJob?.abort(); noteJob = null; noteAnswer = null; showNoteAnswer(); $('[name=nq]', pane).focus(); });
+  const noteKeyWhy = { sent: 'When you ask, this note, and what was said in its recording if it has one, go to your AI for that one answer.' };
+  lockedAsk($('.naskbar.locked [name=nq]', pane), 'Asking about a note', noteKeyWhy);
+  $('.naskbar.locked .nsend', pane)?.addEventListener('click', e => { e.preventDefault(); needKey('Asking about a note', noteKeyWhy); });
   showNoteAnswer();
 }
 // What was said, one row a line: its time, who spoke and the words. From lines when there are
@@ -4953,7 +5090,7 @@ const TOUR = [ // three steps, never more: the rest explains itself as you use i
     title: 'Add a task the way you say it', text: 'Type “gym tomorrow 7am” and press Enter. That is the whole tour.' },
 ];
 let tourOn = false;
-function startTour() {
+function startTour(first) { // first: the tour that opens by itself on the first visit
   if (tourOn) return;
   const phone = innerWidth < 760;
   // only the parts that are on screen here (a phone has no second-time-zone button, for one)
@@ -5005,6 +5142,7 @@ function startTour() {
     removeEventListener('resize', place);
     removeEventListener('keydown', keys, true);
     try { localStorage.setItem('weftday.toured', '1'); } catch { /* private window */ }
+    if (first && askKeyOnce()) return; // the first tour ends with the one ask for the AI key, in place of the closing words
     toast(done ? 'That’s the tour. Each feature also explains itself the first time you open it.' : 'Tour closed. You can take it again from Settings → Your data.');
   }
   function go(step) {
@@ -5034,7 +5172,7 @@ function maybeTour() {
   try { seen = localStorage.getItem('weftday.toured'); } catch { /* private window: no tour */ }
   if (seen || tourOn) return;
   if (el.dlg.open) return el.dlg.addEventListener('close', () => setTimeout(maybeTour, 500), { once: true });
-  startTour();
+  startTour(true);
 }
 // One line at the top of a feature's box, the first time that box is opened.
 const FIRST_TIPS = {

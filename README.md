@@ -97,8 +97,10 @@ Weftday also works offline once it has been opened, and can be installed to a ho
 | A recording you share | A copy in a folder in your own Google Drive, until you stop sharing |
 
 Your browser talks straight to Google and to any AI service you add. Nothing passes through a
-server run by Weftday, because there is none. Nothing is sent anywhere until you press a button, or
-switch on a setting, that says so. No analytics, no advertising, no tracking.
+server run by Weftday, because there is none. Nothing goes to an AI until you add your own key. From
+then on, looking up the guests in today's meetings is on unless you switch it off in Settings → AI;
+everything else is sent only when you press a button, or switch on a setting, that says so. No
+analytics, no advertising, no tracking.
 
 The full detail is in [docs/privacy-and-security.md](docs/privacy-and-security.md) and in the
 [privacy policy](https://app.weftday.crckd.live/privacy.html).
