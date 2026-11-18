@@ -5,7 +5,7 @@ browser. Reports of security problems are taken seriously and are welcome.
 
 ## Supported version
 
-Only the latest published version is supported: the one at https://crckdteam.github.io/planner/
+Only the latest published version is supported: the one at https://app.weftday.crckd.live/
 and the tip of the `main` branch. Fixes are not made to older copies. If you host your own copy,
 update it to get fixes.
 
@@ -13,7 +13,7 @@ update it to get fixes.
 
 Use GitHub's private vulnerability reporting:
 
-1. Open https://github.com/crckdteam/planner
+1. Open https://github.com/crckdteam/weftday
 2. Go to the **Security** tab.
 3. Press **Report a vulnerability** and fill in the form.
 

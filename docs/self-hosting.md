@@ -8,8 +8,8 @@ reach it. There is nothing to build and no server to run.
 ### On your own computer
 
 ```bash
-git clone https://github.com/crckdteam/planner.git
-cd planner
+git clone https://github.com/crckdteam/weftday.git
+cd weftday
 node serve.mjs
 ```
 

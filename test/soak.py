@@ -66,7 +66,7 @@ with sync_playwright() as p:
     page = context.new_page()
     page.on('pageerror', lambda e: report['errors'].append(str(e)[:300]))
     page.on('console', lambda m: report['errors'].append(m.text[:300]) if m.type == 'error' else None)
-    page.goto(BASE + '/about.html')
+    page.goto(BASE + '/terms.html')
 
     # ---- 1. a long meeting: its sound and the microphone, Weftday's tab in the background
     report['long'] = {'start': page.evaluate(START, {'ask': {'screen': True, 'mic': True}, 'opts': {'title': 'Soak test, sound'}})}
@@ -99,7 +99,7 @@ with sync_playwright() as p:
     time.sleep(40)
     page.close()
     again = context.new_page()
-    again.goto(BASE + '/about.html')
+    again.goto(BASE + '/terms.html')
     report['rescue'] = again.evaluate("""async () => {
       const R = await import('./recorder.js');
       const fixed = await R.recover(), rec = (await R.all()).find(r => r.title === 'Soak test, cut off');

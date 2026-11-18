@@ -1,0 +1,28 @@
+/* The one page left at Weftday's old address. Same look as the app: soft green ground, one white card. */
+@font-face { font-family: Figtree; src: url(figtree.woff2) format('woff2'); font-weight: 300 900; font-display: swap; }
+@font-face { font-family: 'Bricolage Grotesque'; src: url(bricolage.woff2) format('woff2'); font-weight: 200 800; font-display: swap; }
+:root { --bg: #edf1ea; --panel: #fff; --text: #17201b; --muted: #5a675f; --line: #d9e0d6; --accent: #16775a; --on-accent: #fff; color-scheme: light dark; }
+@media (prefers-color-scheme: dark) { :root { --bg: #111613; --panel: #1a211d; --text: #eaf0ea; --muted: #a3b0a7; --line: #2c3731; --accent: #4cc39a; --on-accent: #08130e; } }
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { min-height: 100dvh; display: grid; place-items: center; padding: 24px 18px; background: var(--bg); color: var(--text); font: 16px/1.55 Figtree, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+main { width: min(31rem, 100%); padding: 34px 30px 28px; border-radius: 24px; background: var(--panel); box-shadow: 0 1px 2px rgba(23, 32, 27, .06), 0 20px 60px rgba(23, 32, 27, .1); }
+main[hidden] { display: none; }
+img { display: block; border-radius: 13px; }
+h1 { font: 700 clamp(26px, 6vw, 32px)/1.1 'Bricolage Grotesque', Figtree, sans-serif; letter-spacing: -.025em; margin: 18px 0 10px; text-wrap: balance; }
+p { margin: 0; color: var(--muted); text-wrap: pretty; }
+p b { color: var(--text); font-weight: 650; }
+#status { margin-top: 14px; padding: 10px 14px; border-radius: 12px; background: color-mix(in srgb, var(--accent) 11%, transparent); color: var(--text); font-weight: 550; }
+#status.bad { background: color-mix(in srgb, #e0503a 14%, transparent); }
+.go { display: grid; gap: 10px; margin: 24px 0 18px; }
+.btn { display: flex; align-items: center; justify-content: center; min-height: 48px; padding: 10px 20px; border-radius: 14px; border: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; font-weight: 650; text-decoration: none; text-align: center; cursor: pointer; transition: transform .12s ease-out, background .15s; }
+.btn.solid { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.btn.solid:hover { background: color-mix(in srgb, var(--accent) 88%, var(--text)); }
+.btn:active { transform: scale(.98); }
+.btn[disabled] { opacity: .6; cursor: default; }
+.btn[hidden] { display: none; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+::selection { background: color-mix(in srgb, var(--accent) 28%, transparent); }
+.small { font-size: 13.5px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

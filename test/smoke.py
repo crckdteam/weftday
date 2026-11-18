@@ -598,7 +598,7 @@ def run(p):
     watch(fp, 'setup code')
     fp.request.post(BASE + '/mock/reset')
     fp.request.post(BASE + '/mock/lookalike', data={'acct': 'me@test.dev'})
-    fp.goto(BASE + '/about.html')
+    fp.goto(BASE + '/terms.html')
     made = fp.evaluate("""async () => {
       const V = await import('./vault.js');
       const d = { i: 'test.apps.googleusercontent.com', s: 'pretend', e: 'me@test.dev', r: 'rt:me@test.dev' };
@@ -699,7 +699,7 @@ def run(p):
     check('the guide is five steps, not more', guide.locator('#rail button').count() == 5)
     guide.screenshot(path=os.path.join(OUT, 'guide-record.png'))
     guide.close()
-    for path in ['/home.html', '/guide.html', '/about.html', '/privacy.html', '/terms.html']:
+    for path in ['/guide.html', '/privacy.html', '/terms.html']:
         other = open_app(context, path, path)
         check(f'{path} opens', other.locator('body').inner_text().strip() != '')
         check(f'{path} has no sideways scrolling', other.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'))

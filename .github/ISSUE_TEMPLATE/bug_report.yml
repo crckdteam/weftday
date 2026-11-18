@@ -41,7 +41,7 @@ body:
     attributes:
       label: Where does it happen
       options:
-        - The published app (crckdteam.github.io/planner)
+        - The published app (app.weftday.crckd.live)
         - The sample data (?demo)
         - My own hosted copy
         - On my computer (node serve.mjs)

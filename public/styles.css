@@ -1354,3 +1354,10 @@ body.innotes #sideBody > .card, body.innotes #upnext { display: none; }
 /* ---- Home */
 #home .hgreet h2, #home h2 { font-family: var(--display); font-weight: 700; letter-spacing: -.03em; }
 .hnext { border-radius: 20px; }
+
+/* ---- taking things over from the old address (movein.js): one quiet full-screen card */
+.movein { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; padding: 24px; background: var(--bg); text-align: center; }
+.movein > div { max-width: 26rem; padding: 34px 28px 28px; border-radius: 22px; background: var(--panel); box-shadow: 0 1px 2px rgba(23, 32, 27, .06), 0 18px 50px rgba(23, 32, 27, .1); }
+.movein h2 { font: 700 24px/1.15 var(--display); letter-spacing: -.02em; margin: 14px 0 8px; }
+.movein p { color: var(--muted); margin: 0; }
+.movein p + p { margin-top: 18px; }

@@ -10,8 +10,8 @@ By taking part you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 You need [Node.js](https://nodejs.org) (a current version) and nothing else.
 
 ```bash
-git clone https://github.com/crckdteam/planner.git
-cd planner
+git clone https://github.com/crckdteam/weftday.git
+cd weftday
 node serve.mjs
 ```
 

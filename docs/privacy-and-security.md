@@ -2,7 +2,7 @@
 
 This page describes the model for people who want to check it against the code. The page written
 for everyone who uses the app is the
-[privacy policy](https://crckdteam.github.io/planner/privacy.html) (`public/privacy.html`). If the
+[privacy policy](https://app.weftday.crckd.live/privacy.html) (`public/privacy.html`). If the
 two ever disagree, the code decides, and the mismatch is a bug worth reporting.
 
 ## The model in five lines

@@ -54,13 +54,13 @@ your browser. There is no server behind it.
 - No analytics, no advertising, no tracking.
 
 The full detail is in [docs/privacy-and-security.md](docs/privacy-and-security.md) and in the
-[privacy policy](https://crckdteam.github.io/planner/privacy.html).
+[privacy policy](https://app.weftday.crckd.live/privacy.html).
 
 ## Try it
 
-- Open the app: https://crckdteam.github.io/planner/
-- Look around with sample data, no sign-in needed: https://crckdteam.github.io/planner/?demo
-- Read the guide: https://crckdteam.github.io/planner/guide.html
+- Open the app: https://app.weftday.crckd.live/
+- Look around with sample data, no sign-in needed: https://app.weftday.crckd.live/?demo
+- Read the guide: https://app.weftday.crckd.live/guide.html
 
 ## Run it yourself
 
@@ -68,8 +68,8 @@ You need [Node.js](https://nodejs.org) only for the small local server. The app 
 nothing.
 
 ```bash
-git clone https://github.com/crckdteam/planner.git
-cd planner
+git clone https://github.com/crckdteam/weftday.git
+cd weftday
 node serve.mjs
 ```
 

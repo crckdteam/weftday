@@ -31,9 +31,9 @@ Weftday is made by CRCKD (https://www.crckd.live). The code is public under the 
 ## Links
 
 - Website: https://weftday.crckd.live/
-- The app: https://crckdteam.github.io/planner/
-- The app with sample data: https://crckdteam.github.io/planner/?demo
-- Guide: https://crckdteam.github.io/planner/guide.html
-- Privacy policy: https://crckdteam.github.io/planner/privacy.html
-- Terms of use: https://crckdteam.github.io/planner/terms.html
-- Source code: https://github.com/crckdteam/planner
+- The app: https://app.weftday.crckd.live/
+- The app with sample data: https://app.weftday.crckd.live/?demo
+- Guide: https://app.weftday.crckd.live/guide.html
+- Privacy policy: https://app.weftday.crckd.live/privacy.html
+- Terms of use: https://app.weftday.crckd.live/terms.html
+- Source code: https://github.com/crckdteam/weftday

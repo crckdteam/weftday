@@ -42,8 +42,9 @@ Everything the app needs is in `public/`.
 | `claude.js` | "Get facts" with Claude, for people who bring their own Anthropic key. |
 | `qr.js` | Draws the square (QR code) used to set up another device. |
 | `sw.js` | The service worker: keeps a copy of the app's files so it opens offline. |
-| `config.js` | The public address of this copy of the app. |
-| `home.html`, `guide.html`, `guide.js`, `about.html`, `privacy.html`, `terms.html`, `site.css` | The pages around the app. |
+| `config.js` | The public address of this copy of the app, and the address it was published at before. |
+| `movein.js` | Takes over what a browser saved at the app's old address, handed across by the page left there (`legacy/`). |
+| `guide.html`, `guide.js`, `privacy.html`, `terms.html`, `site.css` | The pages around the app: the guide, the privacy policy and the terms. |
 | `helpers/teams-to-google.gs` | A Google Apps Script the person can run in their own account to copy a Teams or Outlook calendar into Google. |
 | `vendor/anthropic-sdk.js` | The official Anthropic SDK in one file. Loaded only when Claude is chosen. |
 | `fonts/` | Figtree and Bricolage Grotesque, under the SIL Open Font License. |
@@ -54,8 +55,9 @@ Around it:
 |---|---|
 | `serve.mjs` | A tiny local web server (Node.js, no dependencies) that serves `public/` on port 4321. |
 | `test/` | Logic tests (`*.test.mjs`), the browser check (`smoke.py`) and a pretend Google (`mock-google.mjs`). |
-| `tools/` | `check.sh` (all checks), `secrets.sh` (nothing key-shaped in the files), `publish.sh`. |
-| `site/` | The marketing website, a separate static folder. |
+| `tools/` | `check.sh` (all checks), `secrets.sh` (nothing key-shaped in the files), and the publish steps: `publish.sh` (the app), `publish-site.sh` (the website), `publish-legacy.sh` (the page at the old address). |
+| `site/` | The website (weftday.crckd.live), a separate static folder. |
+| `legacy/` | The one page left at the address the app used to live at. It names the new address and moves what the browser saved at the old one. |
 
 ## Where data lives
 

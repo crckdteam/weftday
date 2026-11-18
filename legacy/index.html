@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'">
+<meta name="robots" content="noindex">
+<!-- The address Weftday lives at now. move.js sends what this browser saved here to that address and nowhere else. -->
+<meta name="weftday-new" content="https://app.weftday.crckd.live/">
+<meta name="theme-color" content="#edf1ea" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111613" media="(prefers-color-scheme: dark)">
+<title>Weftday has a new address</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="move.css">
+<script type="module" src="move.js"></script>
+</head>
+<body>
+<main id="card" hidden>
+  <img src="icon.svg" width="52" height="52" alt="">
+  <h1 id="title">Weftday has a new address</h1>
+  <p id="lede">It now lives at <b id="where">app.weftday.crckd.live</b>. What you saved in this browser can come with you: your tasks, notes, connected accounts, keys and recordings.</p>
+  <p id="status" role="status" hidden></p>
+  <div class="go">
+    <button id="move" type="button" class="btn solid">Move my things</button>
+    <a id="open" class="btn line" href="https://app.weftday.crckd.live/">Open it without moving anything</a>
+  </div>
+  <p class="small" id="note">Everything passes from this tab to the new one inside your own browser. Nothing is sent anywhere else, and nothing is deleted here.</p>
+</main>
+<noscript><p style="font:16px/1.5 sans-serif;max-width:30em;margin:15vh auto;padding:0 20px">Weftday has moved to <a href="https://app.weftday.crckd.live/">app.weftday.crckd.live</a>.</p></noscript>
+</body>
+</html>

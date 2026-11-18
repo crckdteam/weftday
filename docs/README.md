@@ -1,7 +1,7 @@
 # Weftday documentation
 
 For people who want to run, check or change Weftday. If you only want to use it, the
-[guide](https://crckdteam.github.io/planner/guide.html) is the place to start.
+[guide](https://app.weftday.crckd.live/guide.html) is the place to start.
 
 | Page | What it covers |
 |---|---|

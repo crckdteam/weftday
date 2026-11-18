@@ -21,3 +21,13 @@ server=$!
 trap 'kill $server 2>/dev/null' EXIT
 for i in 1 2 3 4 5 6 7 8 9 10; do curl -s -o /dev/null http://localhost:4399/ && break; sleep 0.5; done
 WEFTDAY_URL=http://localhost:4399 .venv/bin/python test/smoke.py
+echo "== the move from the old address"
+# The page left at the old address (legacy/), served from a second address on this computer and pointed at the app above.
+old=$(mktemp -d)
+cp -R legacy/. "$old/"
+sed -i.bak 's#name="weftday-new" content="[^"]*"#name="weftday-new" content="http://localhost:4399/"#' "$old/index.html" && rm -f "$old/index.html.bak"
+python3 -m http.server 4396 --directory "$old" > /dev/null 2>&1 &
+oldserver=$!
+trap 'kill $server $oldserver 2>/dev/null; rm -rf "$old"' EXIT
+for i in 1 2 3 4 5 6 7 8 9 10; do curl -s -o /dev/null http://localhost:4396/ && break; sleep 0.5; done
+WEFTDAY_URL=http://localhost:4399 WEFTDAY_OLD_URL=http://localhost:4396 .venv/bin/python test/move.py

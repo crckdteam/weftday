@@ -52,6 +52,8 @@ const PIECE_STEP = 100000; // parts of sound piece k are numbered k * PIECE_STEP
 const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 const putRec = rec => store(RECS, 'readwrite', s => wait(s.put(rec)));
 
+// A recording, or one stored part of one, handed over from the address Weftday used to live at (movein.js).
+export const takeIn = (kind, value) => store(kind === 'rec' ? RECS : PARTS, 'readwrite', s => wait(s.put(value)));
 export const all = async () => (await store(RECS, 'readonly', s => wait(s.getAll()))).sort((a, b) => b.at - a.at);
 export const forMeeting = async key => (await all()).filter(r => r.key === key);
 export const get = id => store(RECS, 'readonly', s => wait(s.get(id)));
