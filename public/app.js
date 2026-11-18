@@ -2839,7 +2839,7 @@ function openSettings(msg, pane) {
             ${row('Privacy', 'What is kept, and where', '<a class="btn" href="privacy.html" target="_blank" rel="noopener">Read</a>')}
             ${row('Terms', 'The rules for using Weftday', '<a class="btn" href="terms.html" target="_blank" rel="noopener">Read</a>')}
             ${row('Help', 'Report a problem or ask a question', '<a class="btn" href="https://github.com/crckdteam/planner/issues" target="_blank" rel="noopener">Get help</a>')}
-            ${row('About Weftday', 'The website: what it is and who makes it', '<a class="btn" href="https://weftday.crckd.live/" target="_blank" rel="noopener">Open</a>')}
+            ${row('About Weftday', 'The website: what it is and who makes it', '<a class="btn" href="https://crckdteam.github.io/weftday/" target="_blank" rel="noopener">Open</a>')}
           </div>`)}
 
         ${section('advanced', 'Advanced', 'Weftday talks to Google with keys of your own. If this device was set up from another one, they are already filled in.', `
@@ -4625,6 +4625,7 @@ async function renderNotes() {
     <div class="meta">${esc([dayLabel(new Date(doc.when), true), names.join(', '), doc.kind === 'rec' ? 'written from a recording' : doc.kind === 'own' ? 'your note' : doc.recorded ? 'recorded' : ''].filter(Boolean).join(' · '))}</div>
     <textarea name="ndoc" maxlength="${N.MAX_LENGTH}" aria-label="The note" placeholder="Start writing.  - makes a bullet, [] a tick-box, # a heading.">${esc(doc.text)}</textarea>
     <div class="ndocfoot"><span class="saved" id="ndocState"></span><span class="sp"></span>
+      <button type="button" class="btn" id="ndocCopy" title="Copy the note, ready to paste into an email or a chat">Copy</button>
       <button type="button" class="btn" id="ndocTasks" hidden>Make tasks</button>
       ${ev ? '<button type="button" class="btn" id="ndocMeeting">Open the meeting</button>' : ''}${doc.kind === 'rec' ? '<button type="button" class="btn" id="ndocRec">Open the recording</button>' : ''}
       ${doc.kind === 'own' ? '<button type="button" class="btn danger" id="ndocDel">Delete</button>' : ''}</div>`;
@@ -4652,6 +4653,10 @@ async function renderNotes() {
   title.addEventListener('input', soon);
   title.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); box.focus(); } });
   tasks.addEventListener('click', () => tasksFromNotes(box.value, `${about().title} (${dayLabel(new Date(doc.when))})`, new Date(doc.when)));
+  $('#ndocCopy', pane).addEventListener('click', () => { // the title, the day, then the note as it is kept: plain text that reads well anywhere
+    const text = `${title.value.trim() || doc.title}\n${dayLabel(new Date(doc.when), true)}\n\n${box.value.trim()}\n`;
+    navigator.clipboard.writeText(text).then(() => toast('Note copied'), () => toast('Could not copy the note', true));
+  });
   $('#ndocMeeting', pane)?.addEventListener('click', () => openEvent(ev));
   $('#ndocRec', pane)?.addEventListener('click', () => openRecording(doc.id.slice(4)));
   $('#ndocDel', pane)?.addEventListener('click', () => {
