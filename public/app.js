@@ -2839,7 +2839,7 @@ function openSettings(msg, pane) {
             ${row('Privacy', 'What is kept, and where', '<a class="btn" href="privacy.html" target="_blank" rel="noopener">Read</a>')}
             ${row('Terms', 'The rules for using Weftday', '<a class="btn" href="terms.html" target="_blank" rel="noopener">Read</a>')}
             ${row('Help', 'Report a problem or ask a question', '<a class="btn" href="https://github.com/crckdteam/planner/issues" target="_blank" rel="noopener">Get help</a>')}
-            ${row('About Weftday', 'The website: what it is and who makes it', '<a class="btn" href="https://crckdteam.github.io/weftday/" target="_blank" rel="noopener">Open</a>')}
+            ${row('About Weftday', 'The website: what it is and who makes it', '<a class="btn" href="https://weftday.crckd.live/" target="_blank" rel="noopener">Open</a>')}
           </div>`)}
 
         ${section('advanced', 'Advanced', 'Weftday talks to Google with keys of your own. If this device was set up from another one, they are already filled in.', `

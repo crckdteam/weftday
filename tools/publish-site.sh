@@ -2,19 +2,20 @@
 # Publishes the "site" folder (the website) to its own place: the gh-pages branch of crckdteam/weftday.
 # The app is published separately by tools/publish.sh.
 #
-#   sh tools/publish-site.sh            the website at https://crckdteam.github.io/weftday/
-#   sh tools/publish-site.sh --domain   the website at https://weftday.crckd.live/
+#   sh tools/publish-site.sh            the website at https://weftday.crckd.live/
+#   sh tools/publish-site.sh --github   the website at https://crckdteam.github.io/weftday/ instead
 #
-# Use --domain only once the domain has a CNAME record "weftday" pointing at crckdteam.github.io.
-# The files in site/ are written for the domain; without --domain the addresses in them are changed
-# on the way out, so that the page works at the GitHub address too.
+# The domain has a CNAME record "weftday" pointing at crckdteam.github.io (added 18 Nov 2026), and the
+# published folder carries a CNAME file that tells GitHub the address is ours. Leaving that file out
+# takes the website off its address, so --github is only for a copy that has no domain of its own:
+# it changes the addresses in the files on the way out, so that the page works at the GitHub address.
 set -e
 cd "$(dirname "$0")/.."
 sh tools/secrets.sh
 out=$(mktemp -d)
 cp -R site/. "$out/"
 touch "$out/.nojekyll"
-if [ "$1" = "--domain" ]; then
+if [ "$1" != "--github" ]; then
   printf 'weftday.crckd.live\n' > "$out/CNAME"
   where="https://weftday.crckd.live/"
 else
