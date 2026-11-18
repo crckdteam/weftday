@@ -4438,7 +4438,7 @@ async function openRecording(id, back) {
       out.textContent = 'Looking through what was said…';
       try {
         const answer = await askWriter(room => [
-          'Answer the question from the transcript of a recorded meeting below, and from nothing else. Be brief and plain: a sentence or two, or a short list. Quote names, numbers and dates exactly as they were said. If the transcript does not say, answer: “That did not come up in this recording.”',
+          'Answer the question from the transcript of a recorded meeting below, and from nothing else. Answer directly and plainly, in a sentence or two or a short list, with no opening words such as “Based on the transcript”. Say what was said, even when it only partly answers the question: if I ask what was decided and nothing was, say so and say what was left open. Quote names, numbers and dates exactly as they were said. Only when nothing at all was said about it, answer: “That did not come up in this recording.”',
           `Question: ${q}`,
           `Transcript:\n${rec.transcript.slice(0, Math.max(4000, room - 2000))}`,
         ].join('\n'), job.signal);
@@ -4554,7 +4554,7 @@ function openAskAll() {
           for (const block of [...notes, ...said]) { if (block.length > left) { if (left > 2000) fit.push(block.slice(0, left)); break; } fit.push(block); left -= block.length; }
           return [
             `Today is ${dayLabel(new Date(), true)}. Answer my question from my meeting notes and recordings below, and from nothing else.`,
-            'Be brief and plain: a few sentences or a short list. After each point, say which meeting it comes from and its date, in brackets. Quote names, numbers and dates exactly. If they do not say, answer: “That is not in your notes or recordings.”',
+            'Answer directly and plainly, in a few sentences or a short list, with no opening words such as “Based on your notes”. After each point, say which meeting it comes from and its date, in brackets. Say what they do tell me, even when it only partly answers the question. Quote names, numbers and dates exactly. Only when they say nothing at all about it, answer: “That is not in your notes or recordings.”',
             `Question: ${q}`,
             fit.join('\n\n'),
           ].join('\n');
@@ -4779,6 +4779,10 @@ async function renderNotes() {
     return;
   }
   const ev = doc.kind === 'meeting' ? eventFor(doc.id) : null, names = doc.people.map(e => knownNames.get(e) || person({ email: e }).name).slice(0, 4);
+  // The follow-up email does not need the meeting to be on screen in the calendar: a note of an
+  // older meeting knows its title, its day and who was there, and that is enough to write to them.
+  const mailEv = ev || (doc.kind !== 'own' && doc.people.length ? { title: doc.title, s: doc.when, nk: doc.id, id: doc.id,
+    accountId: (plannerAccount() || state.accounts[0])?.id, att: doc.people.map(email => ({ email, displayName: knownNames.get(email) || '' })) } : null);
   const said = doc.said?.transcript ? doc.said : null;
   pane.innerHTML = `<div class="ndochead"><button type="button" class="icon only-mobile" id="noteBack" aria-label="Back to the list">‹</button>
       <input class="ntitle" value="${esc(doc.title)}" maxlength="140" aria-label="Title"${doc.kind === 'own' ? '' : ' readonly'}></div>
@@ -4797,7 +4801,7 @@ async function renderNotes() {
       <div class="naskrow"><form class="naskbar"><span class="nspark">${SPARK}</span>
         <input name="nq" maxlength="300" autocomplete="off" enterkeyhint="send" placeholder="Ask anything about this note" aria-label="Ask anything about this note">
         <button class="nsend" aria-label="Ask"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button></form>
-        ${ev ? `<button type="button" class="btn" id="ndocFollow" hidden>${followupLabel()}</button>` : ''}</div></div>`;
+        ${mailEv ? `<button type="button" class="btn" id="ndocFollow" hidden>${followupLabel()}</button>` : ''}</div></div>`;
   const box = $('textarea', pane), title = $('.ntitle', pane), state2 = $('#ndocState', pane), tasks = $('#ndocTasks', pane);
   E.attach(box);
   const about = () => ({ title: (title.value.trim() || 'Untitled').slice(0, 140), when: doc.when, people: doc.people });
@@ -4847,10 +4851,10 @@ async function renderNotes() {
     $('.nsaid', pane).hidden = !toSaid;
   });
   // the follow-up email, for a meeting that has begun, with people from outside, once the note has text
-  const follow = $('#ndocFollow', pane), showFollow = () => { if (follow) follow.hidden = !canFollowUp(ev, box.value); };
+  const follow = $('#ndocFollow', pane), showFollow = () => { if (follow) follow.hidden = !canFollowUp(mailEv, box.value); };
   showFollow();
   box.addEventListener('input', showFollow);
-  follow?.addEventListener('click', () => { keep(); openFollowup(ev, box.value); });
+  follow?.addEventListener('click', () => { keep(); openFollowup(mailEv, box.value); });
   // asking about this note, from the bar at the bottom
   $('.naskbar', pane).addEventListener('submit', e => {
     e.preventDefault();
@@ -4900,8 +4904,9 @@ async function askNote(doc, text, said, q) {
   const src = `${said ? 'Answered from this note and what was said in its recording.' : 'Answered from this note.'} Sent to your AI for this one answer.`;
   try {
     const answer = await askWriter(room => [
-      `Answer my question from my note below${said ? ' and the transcript of its recording' : ''}, and from nothing else.`,
-      'Be brief and plain: a sentence or two, or a short list. Quote names, numbers and dates exactly as they are written. If the answer is not there, answer: “That is not in this note.”',
+      `I am asking about one of my meetings. Use only my note below${said ? ' and the transcript of its recording' : ''}. Do not add facts from anywhere else.`,
+      // (tried on a real note: told only "if the answer is not there, say so", the AI gave up on "what was decided?" although the note said nothing had been)
+      'Answer directly and plainly, in a few sentences or a short list, with no opening words such as “Based on your note”. Tell me what the note and the transcript do say, even when they only partly answer the question: if I ask what was decided and nothing was, say that nothing was decided and what was left open. Do not mention what the note or the transcript leave out. Quote names, numbers and dates exactly as they are written. Only when they say nothing at all about the question, answer: “That is not in this note.”',
       `Question: ${q}`,
       `My note, “${doc.title}” (${dayLabel(new Date(doc.when), true)}):\n${text.slice(0, 20000) || '(the note is empty)'}`,
       said ? `Transcript of the recording (each line starts with its time):\n${said.transcript.slice(0, Math.max(4000, room - 24000))}` : '',
