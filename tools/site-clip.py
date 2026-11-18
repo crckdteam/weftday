@@ -123,7 +123,7 @@ def story(t):
     t.play(1.3)
     t.cursor_at(*((1150, 190) if wide else (left + 330, 190))); t.cursor(True)
     if not wide:                                            # Lena is below the first names: the camera goes down to her
-        lena = t.box('#pplList .prow2', text='Lena'); t.show(left, lena['y'] - 330, 420, over=1.0)
+        lena = t.box('#pplList .prow2', text='Lena'); t.show(left, lena['y'] - 262, 420, over=1.0)
     t.point('#pplList .prow2', text='Lena', over=1.0, fx=.16)
     t.play(1.4)
     t.cover()                                               # the click changes the whole panel, so it happens under a still picture
