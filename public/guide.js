@@ -54,7 +54,7 @@ const STEPS = [
         <div class="row" style="gap:5px;margin-top:4px"><span class="chip plain">DHL</span><span class="chip plain">Zalando</span><span class="chip plain">robotics</span></div></div>
       <div class="row"><span class="mini">LinkedIn</span><span class="mini">Acme</span><span class="mini">Ask AI</span></div></div>` },
   { name: 'Notes', title: 'Notes that turn into action',
-    say: 'Write private notes on any meeting; guests never see them. <b>Tidy my notes</b> turns them into a summary, decisions and action points, on your own device. Then <b>Make tasks</b>, or open a <b>Follow-up email</b> draft in Gmail.',
+    say: 'Write private notes on any meeting; guests never see them. <b>Tidy my notes</b> turns them into a summary, decisions and action points, with your AI key, or on your own device where the browser has its own AI. Then <b>Make tasks</b>, or open a <b>Follow-up email</b> draft in Gmail.',
     tip: 'After a meeting with outside guests, Weftday asks once how it went, so the notes actually get written.',
     art: `<div class="wf"><span class="lbl">Your notes · only you can see these</span>
       <div class="note"><b>Summary</b><p class="mut">Jane accepted the price. Legal still has to check the contract.</p>

@@ -160,8 +160,8 @@ the question the same way.
 
 Two other AI features work differently:
 
-- **Tidy my notes** uses the model built into the browser, where there is one. Nothing leaves the
-  device.
+- **Tidy my notes** sends the note to the AI service of the person's key when they press it. Without
+  a key it uses the model built into the browser, where there is one, and nothing leaves the device.
 - **Get facts** about a person sends their name, company and the meeting's title to the AI service
   the person chose, only when asked.
 

@@ -66,7 +66,9 @@ Google's is free.
 
 ### And around the meeting
 
-- **Ask your meetings.** Ask a question about one recording, or one question across all of them.
+- **Ask your meetings.** Ask about the note in front of you, about one recording, or one question
+  across all of them. A follow-up email is written from the note, for you to read before it opens
+  in Gmail.
 - **People and company pages.** A page for each person you meet and their company, with your
   history together and, if you choose, facts gathered from the web.
 - **Share links through your own Google Drive.** A share link puts a copy of one recording in a

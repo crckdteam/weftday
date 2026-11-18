@@ -37,15 +37,20 @@ Clearing the site's data in the browser erases all of it.
 | The written text of a recording (never the sound) | Another AI service the person saved a key for | Only when Google's AI is busy or has reached its free limit |
 | A person's name, their company and the meeting's title | The AI service the person chose, and a search service if they added one | When they press **Get facts**. Also for today's guests if they switch on the setting for that. Off by default. |
 | What was typed in "Add a task", today's date and working hours | The AI service the person chose | When they press the AI button there |
+| One meeting note | The AI service of the person's key | When they press **Tidy my notes** and have added a key |
+| One note, what was said in its recording if it has one, and a question | The AI service of the person's key | When they ask in the bar at the foot of a note |
+| A meeting's note, what was said in its recording if it has one, and the names of the people it is for | The AI service of the person's key | When they press **Write follow-up email** |
+| The person's notes with the people in a meeting, what is still open with them, and the facts saved about them | The AI service of the person's key | When they press **What should I raise?** in a brief |
 | A copy of one recording | The person's own Google Drive | When they press **Share link** |
 | A company's web address; a scrambled form (hash) of a person's email address | Google's site-icon service; Gravatar | When a profile or brief is opened. Can be switched off in Settings. |
 | A request for the app's own files | The static host (GitHub Pages for the published app) | When the app is opened or updated |
 
 Things that are never sent anywhere:
 
-- **Tidy my notes** runs on the model built into the browser. Where there is none, the feature
-  is not offered.
-- **Follow-up email** opens a draft in the person's own Gmail. Weftday sends nothing.
+- **Tidy my notes** without an AI key runs on the model built into the browser, where there is one.
+  With a key, the note goes to that AI service when the button is pressed (see the table above).
+- **Follow-up email** without an AI key is put together from the note on the device. With or without
+  a key, it opens as a draft in the person's own Gmail, and Weftday sends no email itself.
 - **Share my free times** writes a text to copy.
 
 Each outside service has its own terms for what it receives. The privacy policy names them.

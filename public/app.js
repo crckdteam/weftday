@@ -668,7 +668,7 @@ function scrollToNow(gently) {
 }
 
 // ---------------------------------------------------------------- navigation
-function setView(v) { view = v; if (VIEWS.includes(v)) { state.settings.view = v; save(); } nav(); }
+function setView(v) { if (v !== 'notes') stopNoteAsk(); view = v; if (VIEWS.includes(v)) { state.settings.view = v; save(); } nav(); }
 function nav(dir = 'fade') { smooth(dir, render).then(() => refresh()); }
 function step(n) {
   if (view === 'notes' || view === 'home') return;
@@ -1628,9 +1628,48 @@ function openBrief(ev) {
     ${recent.length ? `<h4>Recently</h4><div class="fsec multi">${list(recent)}</div>` : ''}
     ${ideas.length ? `<h4>Worth asking</h4><div class="fsec multi">${list(ideas)}</div>` : ''}
     ${mine ? `<h4>Your notes for this meeting</h4><div class="fsec"><p>${esc(AI.gistOf(mine, 400))}</p></div>` : ''}
+    <div class="braise"><button type="button" class="btn" data-x="raise">${SPARK}What should I raise?</button>
+      <div class="fsec multi" id="raiseOut" hidden></div><p class="note" id="raiseSay" hidden></p></div>
     <div class="actions"><button type="button" class="btn" data-x="back">Back to the meeting</button><span class="sp"></span><button type="button" class="btn primary" data-x="close">Close</button></div></div>`, {
     back: () => openEvent(ev),
     person: btn => openPerson(guests.find(g => (g.email || '').toLowerCase() === btn.dataset.email), ev),
+    // Three to five points worth raising, from your own notes with these people, what is still open
+    // with them and the facts saved about them. Nothing is sent until this is pressed.
+    async raise(btn) {
+      if (!writers().length) return needKey('Asking what to raise', { sent: 'Your notes with these people, what is still open with them and the facts saved about them go to your AI when you press it.', back: () => openBrief(ev) });
+      const out = $('#raiseOut', el.dlg), say = $('#raiseSay', el.dlg), job = newJob();
+      btn.disabled = true;
+      out.hidden = false;
+      out.replaceChildren(Object.assign(document.createElement('p'), { textContent: 'Reading your notes…' }));
+      say.hidden = true;
+      const facts = withFacts.map(x => {
+        const f = x.f, bits = f ? [f.role, f.company, ...(f.recent || []).slice(0, 3), ...(f.ideas || []).slice(0, 3), ...(f.expertise || []).slice(0, 4)].filter(Boolean) : [];
+        return bits.length || x.own ? `${x.who.name}${x.who.company ? ` (${x.who.company})` : ''}: ${[...bits, x.own ? `my notes: ${AI.gistOf(x.own, 300)}` : ''].filter(Boolean).join('; ')}` : '';
+      }).filter(Boolean);
+      try {
+        const answer = await askWriter(room => {
+          const past = earlier.slice(0, 6).map(n => `### ${n.title || 'Meeting'} · ${dayLabel(new Date(n.when || Date.now()), true)}\n${n.text.slice(0, 3000)}`).join('\n\n');
+          return [
+            `I am about to meet ${others.map(x => x.who.name).join(', ') || 'some people'} in a meeting called “${ev.title}” on ${eventWhen(ev)}.`,
+            'From what is below, and from nothing else, give me three to five short points worth raising in this meeting. One point per line, each starting with “- ”, each one sentence. Be specific: name the thing, the person or the number. No other words.',
+            open.length ? `Still open with them:\n${open.slice(0, 12).map(x => `- ${x}`).join('\n')}` : '',
+            facts.length ? `What I know about them:\n${facts.join('\n')}` : '',
+            mine ? `My notes for this meeting:\n${mine.slice(0, 3000)}` : '',
+            past ? `My notes from earlier meetings with them:\n${past.slice(0, Math.max(3000, room - 8000))}` : '',
+          ].filter(Boolean).join('\n');
+        }, job.signal);
+        if (!out.isConnected) return;
+        const points = String(answer || '').split('\n').map(l => l.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim()).filter(Boolean).slice(0, 5);
+        out.replaceChildren(...(points.length ? points : ['No points came back. Please try again.']).map(x => Object.assign(document.createElement('p'), { textContent: x })));
+        say.hidden = false;
+        say.textContent = 'Sent to your AI for this: your notes with these people, what is still open with them and the facts saved about them.';
+      } catch (err) {
+        if (err.name !== 'AbortError' && out.isConnected) out.replaceChildren(Object.assign(document.createElement('p'), { textContent: err.message || 'That could not be answered just now. Please try again.' }));
+      } finally {
+        if (aiJob === job) aiJob = null;
+        if (btn.isConnected) btn.disabled = false;
+      }
+    },
     // Looks up the people who have no profile yet, one after another, then shows the brief again.
     async fill(btn) {
       if (!factsKey()) return openFactsHelp(missing[0].guest, ev);
@@ -1699,10 +1738,10 @@ function openEvent(ev, writeNotes) { // writeNotes: put the cursor in the notes 
     <div class="field"><span>Your notes <i>· only you can see these</i></span>
       <textarea name="note" rows="7" maxlength="${N.MAX_LENGTH}" aria-label="Your notes" placeholder="What do you want to cover? What was decided?  Type - for a bullet, [] for a tick-box.">${esc(note?.text || '')}</textarea></div>
     <div class="airow">
-      ${AI.supported() ? '<button type="button" class="mini" data-x="tidy">Tidy my notes</button>' : ''}
+      <button type="button" class="mini" data-x="tidy">Tidy my notes</button>
       <button type="button" class="mini" data-x="mktasks" hidden>Make tasks</button>
       <button type="button" class="mini" data-x="untidy" hidden>Undo tidy</button>
-      <button type="button" class="mini" data-x="followup" hidden>Follow-up email</button>
+      <button type="button" class="mini" data-x="followup" hidden>${followupLabel()}</button>
       <span class="sp"></span><span class="saved" id="noteState"></span></div>
     ${last ? `<details class="rfold"${ev.e > Date.now() ? ' open' : ''}><summary>Last time${lastDay ? ` · ${esc(lastDay)}` : ''}<i>${esc(short(lastGist, 64))}</i></summary>
     <div class="last"><div class="lt2">${esc(last.title || 'Meeting')}</div>
@@ -1732,21 +1771,8 @@ function openEvent(ev, writeNotes) { // writeNotes: put the cursor in the notes 
     brief: () => openBrief(ev),
     record: () => quickRecord(ev),
     recs: () => openRecordings(ev),
-    // Opens a draft in Gmail, written from your notes. Nothing is sent: you read it and press Send yourself.
-    followup() {
-      const text = $('[name=note]', el.dlg).value, to = outsiders(ev).map(x => x.who);
-      const summary = /^Summary\n/.test(text.trim()) ? AI.gistOf(text, 600) : '', agreed = AI.decisionsIn(text), next = AI.actionsIn(text);
-      const sameDay = startOfDay(new Date(ev.s)).getTime() === startOfDay(new Date()).getTime();
-      const lines = [`Hi ${to.slice(0, 3).map(w => w.name.split(' ')[0]).join(', ') || 'there'},`, '', `Thank you for your time ${sameDay ? 'today' : `on ${dayLabel(new Date(ev.s))}`}. A short recap of our conversation:`, ''];
-      if (summary) lines.push(summary, '');
-      if (agreed.length) lines.push('What we agreed:', ...agreed.map(x => `- ${x}`), '');
-      if (next.length) lines.push('Next steps:', ...next.map(x => `- ${x}`), '');
-      if (!summary && !agreed.length && !next.length) lines.push([...AI.originalOf(text).trim()].slice(0, 1200).join(''), '');
-      lines.push('Best regards,');
-      window.open(`https://mail.google.com/mail/?authuser=${G.enc(a?.email || '')}&view=cm&fs=1&to=${G.enc(to.map(w => w.email).join(','))}`
-        + `&su=${G.enc(`Follow-up: ${ev.title}`)}&body=${G.enc([...lines.join('\n')].slice(0, 1800).join(''))}`, '_blank', 'noopener');
-      toast('A draft opened in Gmail. Read it before you send.');
-    },
+    // A follow-up email to read and change before it goes anywhere (written by your AI when there is a key).
+    followup() { commitNote(); openFollowup(ev, box.value, () => openEvent(ev)); },
     // Looks the person up on the web, saves what it finds about them, then shows their page.
     async facts(btn) {
       const guest = guests.find(g => (g.email || '').toLowerCase() === btn.dataset.email), who = person(guest);
@@ -1776,10 +1802,13 @@ function openEvent(ev, writeNotes) { // writeNotes: put the cursor in the notes 
       btn.hidden = true;
       commitNote();
     },
-    // The browser's own AI turns rough notes into a summary, decisions and action points.
+    // Your AI (with your key) turns rough notes into a summary, decisions and action points; with no
+    // key, the browser's own AI does it on this computer where there is one.
     async tidy(btn) {
       const rough = AI.originalOf(box.value).trim();
       if (rough.length < 15) return toast('Write a few notes first, then press Tidy.');
+      const withKey = writers().length > 0;
+      if (!withKey && !AI.supported()) return needKey('Tidying your notes', { sent: 'When you press Tidy, the note goes to your AI to be tidied. Nothing is sent before that.', back: () => openEvent(ev) });
       // Tidying a second time: keep what you put above the summary and any points you added by hand.
       const markAt = box.value.indexOf(AI.ORIGINAL_MARK), tidied = markAt < 0 ? '' : box.value.slice(0, markAt);
       const head = tidied ? tidied.split(/^Summary$/m)[0].trim() : '';
@@ -1789,10 +1818,11 @@ function openEvent(ev, writeNotes) { // writeNotes: put the cursor in the notes 
       const job = newJob(), label = btn.textContent;
       btn.disabled = box.readOnly = true;
       btn.textContent = 'Tidying…';
-      saved.textContent = 'This can take a minute or two. It runs on your computer.';
+      saved.textContent = withKey ? 'Sent to your AI for tidying. This takes a few seconds.' : 'This can take a minute or two. It runs on your computer.';
       try {
-        const result = await AI.tidy({ title: ev.title, people: others.map(p => p.name).join(', '), text: rough },
-          { signal: job.signal, onProgress: part => { if (part < 1) saved.textContent = `Getting the AI ready… ${Math.round(part * 100)}%`; } });
+        const about = { title: ev.title, people: others.map(p => p.name).join(', '), text: rough };
+        const result = withKey ? await tidyWithKey(about, job.signal)
+          : await AI.tidy(about, { signal: job.signal, onProgress: part => { if (part < 1) saved.textContent = `Getting the AI ready… ${Math.round(part * 100)}%`; } });
         if (job.signal.aborted || !box.isConnected) return;
         beforeTidy = box.value;
         for (const part of ['actions', 'decisions']) for (const x of kept[part]) if (!result[part].some(y => alike(x, y))) result[part].push(x);
@@ -1802,7 +1832,7 @@ function openEvent(ev, writeNotes) { // writeNotes: put the cursor in the notes 
         $('[data-x=untidy]', el.dlg).hidden = false;
         showTaskButton();
       } catch (err) {
-        if (err.name !== 'AbortError' && box.isConnected) { saved.textContent = ''; toast(AI.explain(err), true); }
+        if (err.name !== 'AbortError' && box.isConnected) { saved.textContent = ''; toast(withKey ? err.message || 'The AI could not tidy these notes. Please try again.' : AI.explain(err), true); }
       } finally {
         if (aiJob === job) aiJob = null;
         btn.disabled = box.readOnly = false;
@@ -1852,7 +1882,7 @@ function openEvent(ev, writeNotes) { // writeNotes: put the cursor in the notes 
     const n = AI.actionsIn(box.value).length, b = $('[data-x=mktasks]', el.dlg);
     b.hidden = !n;
     b.textContent = n === 1 ? 'Make 1 task' : `Make ${n} tasks`;
-    $('[data-x=followup]', el.dlg).hidden = !box.value.trim() || ev.s > Date.now() || !outsiders(ev).length;
+    $('[data-x=followup]', el.dlg).hidden = !canFollowUp(ev, box.value);
   };
   showTaskButton();
   box.dataset.key = key; // lets notes written from a recording appear here while the box is open
@@ -2817,7 +2847,7 @@ function openSettings(msg, pane) {
             ${row('Notes from a recording', 'When a recording ends: a summary, the decisions, and who does what.', tag(s.aiKey ? 'Ready' : 'Needs the Google key', s.aiKey ? 'ok' : ''))}
             ${row('Ask my meetings', 'Ask a question and get the answer from your saved notes.', tag(s.aiKey ? 'Ready' : 'Needs the Google key', s.aiKey ? 'ok' : ''))}
             ${toggle('aiQuick', s.aiQuick !== false, 'Tasks in your own words', 'Type “call Priya tomorrow, gym at 6” and get separate tasks. You see them before anything is added.')}
-            ${row('Tidy my notes', 'Turns rough notes into a summary. Runs inside this browser; nothing is sent.', tag('Checking…', '', 'aiState'))}
+            ${row('Tidy my notes', `<span id="tidyWhy">${writers().length ? 'Turns rough notes into a summary. The note is sent to your AI when you press it.' : 'Turns rough notes into a summary. Runs inside this browser; nothing is sent.'}</span>`, writers().length ? tag('Ready', 'ok') : tag('Checking…', '', 'aiState'))}
             ${row('Facts about a person', 'Looks someone up on the web and fills in their page: role, company, background.', tag(...factsState(), 'factsState'))}
             ${toggle('aiAuto', s.aiAuto, 'Look up today’s guests by itself', 'Their pages are ready when you open a meeting. Names go to the AI without a press. Your own company is skipped.')}
           </div>
@@ -3060,8 +3090,10 @@ function openSettings(msg, pane) {
   AI.status().then(st => {
     const line = $('#aiState', el.dlg);
     if (!line) return;
-    line.textContent = { ready: 'Ready', download: 'One-time download', no: 'Chrome on a computer only' }[st];
+    line.textContent = { ready: 'Ready', download: 'One-time download', no: 'Needs a key' }[st];
     line.className = `stag ${st === 'ready' ? 'ok' : ''}`;
+    const why = $('#tidyWhy', el.dlg); // no key and no AI in this browser: say what would make it work
+    if (st === 'no' && why) why.textContent = 'Turns rough notes into a summary. Add your AI key above to use it.';
   });
 }
 
@@ -4167,6 +4199,106 @@ async function askWriter(build, signal) {
   }
   throw first;
 }
+// "Tidy my notes" with the person's own key: the same result as the browser's own AI gives
+// ({ summary, decisions, actions, questions, info }), asked for and read the way notes from a recording are.
+async function tidyWithKey({ title, people, text }, signal) {
+  const raw = await askWriter(room => [
+    `You tidy my rough notes of a meeting called “${title || 'Meeting'}”${people ? ` with ${people}` : ''}.`,
+    'Answer with JSON only, no other words, in this shape:',
+    '{"summary":"one or two short sentences: what the meeting was about and where things stand","decisions":["…"],"actions":["…"],"questions":["…"],"info":["…"]}',
+    'decisions: what was agreed or settled. actions: what somebody still has to do; start with a verb and keep any name or deadline from the notes. questions: what is unsure or left open. info: anything else worth keeping.',
+    'Go through every line of the notes and put each point in one list; a line can give a decision and an action. Write each point plainly and briefly. Use only what is written: never add facts, names, dates or tasks. Leave a list empty when there is nothing for it. Write in the language the notes are written in.',
+    `Notes:\n${text.slice(0, Math.max(2000, room - 3000))}`,
+  ].join('\n'), signal);
+  let got = {};
+  try { got = JSON.parse(/\{[\s\S]*\}/.exec(raw)?.[0] || '{}'); } catch { got = {}; }
+  const line = v => String(v || '').replace(/\s+/g, ' ').trim();
+  const list = v => (Array.isArray(v) ? v : []).map(line).filter(Boolean).slice(0, 30);
+  const result = { summary: line(got.summary), decisions: list(got.decisions), actions: list(got.actions), questions: list(got.questions), info: list(got.info) };
+  if (!result.summary && !result.actions.length && !result.decisions.length) throw new Error('The AI could not tidy these notes. Please try again.');
+  return result;
+}
+
+// ---- the follow-up email, shared by the meeting box and the note page
+// The plain version, written from the note alone (no AI): thanks, the recap, what was agreed, next steps.
+function followupTemplate(ev, text) {
+  const to = outsiders(ev).map(x => x.who);
+  const summary = /^Summary\n/.test(text.trim()) ? AI.gistOf(text, 600) : '', agreed = AI.decisionsIn(text), next = AI.actionsIn(text);
+  const sameDay = startOfDay(new Date(ev.s)).getTime() === startOfDay(new Date()).getTime();
+  const lines = [`Hi ${to.slice(0, 3).map(w => w.name.split(' ')[0]).join(', ') || 'there'},`, '', `Thank you for your time ${sameDay ? 'today' : `on ${dayLabel(new Date(ev.s))}`}. A short recap of our conversation:`, ''];
+  if (summary) lines.push(summary, '');
+  if (agreed.length) lines.push('What we agreed:', ...agreed.map(x => `- ${x}`), '');
+  if (next.length) lines.push('Next steps:', ...next.map(x => `- ${x}`), '');
+  if (!summary && !agreed.length && !next.length) lines.push([...AI.originalOf(text).trim()].slice(0, 1200).join(''), '');
+  lines.push('Best regards,');
+  return lines.join('\n');
+}
+// A meeting's note can be turned into a follow-up email when the meeting has begun, has people from
+// outside in it, and the note has something in it.
+const canFollowUp = (ev, text) => !!ev && !!String(text || '').trim() && ev.s <= Date.now() && outsiders(ev).length > 0;
+const followupLabel = () => (writers().length ? 'Write follow-up email' : 'Follow-up email');
+// The newest recording of a meeting that has what was said written down, or null.
+async function saidIn(key) {
+  const list = key ? await R.forMeeting(key).catch(() => []) : [];
+  return list.filter(r => r.transcript).sort((a, b) => (b.at || 0) - (a.at || 0))[0] || null;
+}
+// "Follow-up email": one small box with who it goes to, the subject and the body to read and change.
+// With a key the body is written by the person's AI from the note (and what was said, when the meeting
+// was recorded); pressing the button that opens this box is the press that sends it. Without a key the
+// plain version shows at once. Nothing goes to anyone until "Open in Gmail" and Send in Gmail itself.
+async function openFollowup(ev, text, back) {
+  const a = acct(ev.accountId), to = outsiders(ev).map(x => x.who), withKey = writers().length > 0;
+  const plain = followupTemplate(ev, text), subject = `Follow-up: ${ev.title}`;
+  const said = withKey ? await saidIn(noteKey(ev)) : null;
+  dialog(`<div class="dbody fubox">
+    <h3>Follow-up email</h3>
+    <div class="fufield"><span>To</span><div class="futo">${to.length ? to.slice(0, 8).map(w => `<span class="stag">${esc(w.name)}</span>`).join('') + (to.length > 8 ? `<span class="note">+${to.length - 8} more</span>` : '') : '<span class="note">Nobody from outside</span>'}</div></div>
+    <label class="fufield"><span>Subject</span><input name="fusubject" maxlength="200" value="${esc(subject)}"></label>
+    <label class="fufield fubody"><span>Email</span><textarea name="fubody" rows="12" maxlength="6000" aria-label="The email">${withKey ? '' : esc(plain)}</textarea></label>
+    <p class="note" id="fuSay">${withKey ? 'Writing your email…' : '<button type="button" class="linkbtn" data-x="fukey">Add your AI key and Weftday writes this for you.</button>'}</p>
+    ${withKey ? `<p class="note">Your note${said ? ' and what was said in its recording' : ''} went to your AI to write this. Nothing goes to anyone else until you send it from Gmail.</p>` : ''}
+    <div class="actions"><button type="button" class="btn ghost" data-x="${back ? 'back' : 'close'}">${back ? 'Back' : 'Close'}</button><span class="sp"></span>
+      <button type="button" class="btn" data-x="fucopy">Copy</button><button type="button" class="btn primary" data-x="fugmail">Open in Gmail</button></div></div>`, {
+    back: () => back?.(),
+    fukey: () => needKey('Writing a follow-up email', { back: () => openFollowup(ev, text, back) }),
+    fucopy() {
+      const body = $('[name=fubody]', el.dlg).value.trim();
+      navigator.clipboard.writeText(body).then(() => toast('Email copied'), () => toast('Could not copy the email', true));
+    },
+    // opened from the click itself, so a pop-up blocker never stops it
+    fugmail() {
+      const body = $('[name=fubody]', el.dlg).value, su = $('[name=fusubject]', el.dlg).value.trim() || subject;
+      window.open(`https://mail.google.com/mail/?authuser=${G.enc(a?.email || '')}&view=cm&fs=1&to=${G.enc(to.map(w => w.email).join(','))}`
+        + `&su=${G.enc(su)}&body=${G.enc([...body].slice(0, 1800).join(''))}`, '_blank', 'noopener');
+      toast('A draft opened in Gmail. Read it before you send.');
+    },
+  });
+  if (!withKey) return;
+  const box = $('[name=fubody]', el.dlg), say = $('#fuSay', el.dlg), job = newJob();
+  box.readOnly = true;
+  try {
+    const me = ev.att?.find(p => p.self)?.displayName || '';
+    const answer = await askWriter(room => [
+      `Write a follow-up email from me${me ? ` (${me})` : ''} to ${to.slice(0, 8).map(w => w.name).join(', ') || 'the people I met'} after our meeting “${ev.title}” on ${dayLabel(new Date(ev.s), true)}.`,
+      'Make it short, warm and plain: thank them, recap the meeting in two or three sentences, say what was agreed, then the next steps with who does what. Use only what is in my note and the transcript below; add nothing that is not there.',
+      'Write only the body of the email, starting with the greeting and ending with a short sign-off. No subject line, no placeholders in square brackets, no notes about the email.',
+      `My note:\n${text.slice(0, 8000)}`,
+      said ? `What was said in the meeting (each line starts with its time):\n${said.transcript.slice(0, Math.max(3000, room - 12000))}` : '',
+    ].filter(Boolean).join('\n'), job.signal);
+    if (!box.isConnected) return;
+    const body = String(answer || '').trim();
+    if (!body) throw new Error('empty');
+    box.value = body;
+    say.textContent = 'Written by your AI. Read it and change anything before you send it.';
+  } catch (err) {
+    if (err.name === 'AbortError' || !box.isConnected) return;
+    box.value = plain;
+    say.textContent = 'Your AI could not write it just now, so this is the plain version from your note.';
+  } finally {
+    if (aiJob === job) aiJob = null;
+    if (box.isConnected) box.readOnly = false;
+  }
+}
 // Each action point in a note becomes a task in the inbox (ones you already have are not made twice).
 function tasksFromNotes(text, from, when = new Date()) {
   const have = new Set(state.tasks.map(t => t.title.toLowerCase()));
@@ -4591,9 +4723,12 @@ let noteOpen = '', noteFind = '', noteDraft = null; // the note showing, the sea
 const isOwnNote = id => id.startsWith('note:');
 async function noteDocs() {
   const recs = await R.all().catch(() => []), recorded = new Set(recs.filter(r => r.key && r.kind !== 'shot').map(r => r.key));
+  // said: the recording whose words are written down (for a meeting, its newest one that has them)
+  const said = new Map();
+  for (const r of recs) if (r.key && r.transcript && (!said.has(r.key) || (said.get(r.key).at || 0) < (r.at || 0))) said.set(r.key, r);
   const docs = Object.entries(state.notes || {}).filter(([key, n]) => !key.startsWith('person:') && (n.text || key === noteOpen))
-    .map(([key, n]) => ({ id: key, kind: isOwnNote(key) ? 'own' : 'meeting', title: n.title || (isOwnNote(key) ? 'Untitled' : 'Meeting'), when: n.when || n.t || 0, text: n.text || '', people: n.people || [], recorded: recorded.has(key) }));
-  for (const r of recs) if (!r.key && r.notes) docs.push({ id: `rec:${r.id}`, kind: 'rec', title: r.title, when: r.at, text: r.notes, people: [], recorded: true });
+    .map(([key, n]) => ({ id: key, kind: isOwnNote(key) ? 'own' : 'meeting', title: n.title || (isOwnNote(key) ? 'Untitled' : 'Meeting'), when: n.when || n.t || 0, text: n.text || '', people: n.people || [], recorded: recorded.has(key), said: said.get(key) || null }));
+  for (const r of recs) if (!r.key && r.notes) docs.push({ id: `rec:${r.id}`, kind: 'rec', title: r.title, when: r.at, text: r.notes, people: [], recorded: true, said: r.transcript ? r : null });
   if (noteDraft && !docs.some(d => d.id === noteDraft.id)) docs.push(noteDraft);
   return docs.sort((a, b) => b.when - a.when);
 }
@@ -4619,7 +4754,8 @@ async function renderNotes() {
   if (!docs.some(d => d.id === noteOpen)) noteOpen = innerWidth >= 760 && docs.length ? docs[0].id : '';
   const typing = el.notes.contains(document.activeElement) && $('.ndoc', el.notes)?.dataset.id === noteOpen && !!document.activeElement.closest('.ndoc');
   if (!$('.nlist', el.notes)) {
-    el.notes.innerHTML = `<div class="nlist"><div class="nhead"><input type="search" id="noteFind" placeholder="Search your notes" aria-label="Search your notes" autocomplete="off"><button type="button" class="btn" id="noteNew">New note</button></div><div class="nrows"></div></div><div class="ndoc"></div>`;
+    el.notes.innerHTML = `<div class="nlist"><div class="nhead"><input type="search" id="noteFind" placeholder="Search your notes" aria-label="Search your notes" autocomplete="off"><button type="button" class="btn" id="noteAskAll" title="One question, answered from all your notes and recordings">${SPARK}Ask my notes</button><button type="button" class="btn" id="noteNew">New note</button></div><div class="nrows"></div></div><div class="ndoc"></div>`;
+    $('#noteAskAll', el.notes).addEventListener('click', openAskAll);
     $('#noteFind', el.notes).addEventListener('input', e => { noteFind = e.target.value; noteDocs().then(all => { $('.nrows', el.notes).innerHTML = noteRows(all); }); });
     $('#noteNew', el.notes).addEventListener('click', () => {
       noteDraft = { id: `note:${uid()}`, kind: 'own', title: 'Untitled', when: Date.now(), text: '', people: [], recorded: false };
@@ -4636,21 +4772,32 @@ async function renderNotes() {
   el.notes.classList.toggle('reading', !!noteOpen); // on a phone: the note takes the place of the list
   if (typing) return; // never redraw a note while it is being typed in
   const doc = docs.find(d => d.id === noteOpen), pane = $('.ndoc', el.notes);
+  stopNoteAsk(noteOpen); // another note (or none): a question about the one before stops
   pane.dataset.id = noteOpen;
   if (!doc) {
     pane.innerHTML = `<div class="nempty">${toolIcon('notes')}<b>${docs.length ? 'Pick a note' : 'Your notes will gather here'}</b><span>${docs.length ? 'Choose one from the list to read or change it.' : 'Notes you write on a meeting, notes written for you from a recording, and notes of your own are all kept here.'}</span></div>`;
     return;
   }
   const ev = doc.kind === 'meeting' ? eventFor(doc.id) : null, names = doc.people.map(e => knownNames.get(e) || person({ email: e }).name).slice(0, 4);
+  const said = doc.said?.transcript ? doc.said : null;
   pane.innerHTML = `<div class="ndochead"><button type="button" class="icon only-mobile" id="noteBack" aria-label="Back to the list">‹</button>
       <input class="ntitle" value="${esc(doc.title)}" maxlength="140" aria-label="Title"${doc.kind === 'own' ? '' : ' readonly'}></div>
-    <div class="meta">${esc([dayLabel(new Date(doc.when), true), names.join(', '), doc.kind === 'rec' ? 'written from a recording' : doc.kind === 'own' ? 'your note' : doc.recorded ? 'recorded' : ''].filter(Boolean).join(' · '))}</div>
-    <textarea name="ndoc" maxlength="${N.MAX_LENGTH}" aria-label="The note" placeholder="Start writing.  - makes a bullet, [] a tick-box, # a heading.">${esc(doc.text)}</textarea>
-    <div class="ndocfoot"><span class="saved" id="ndocState"></span><span class="sp"></span>
+    <div class="ndocbar"><div class="meta">${esc([dayLabel(new Date(doc.when), true), names.join(', '), doc.kind === 'rec' ? 'written from a recording' : doc.kind === 'own' ? 'your note' : doc.recorded ? 'recorded' : ''].filter(Boolean).join(' · '))}</div>
+      <div class="ndocacts"><span class="saved" id="ndocState"></span>
       <button type="button" class="btn" id="ndocCopy" title="Copy the note, ready to paste into an email or a chat">Copy</button>
       <button type="button" class="btn" id="ndocTasks" hidden>Make tasks</button>
       ${ev ? '<button type="button" class="btn" id="ndocMeeting">Open the meeting</button>' : ''}${doc.kind === 'rec' ? '<button type="button" class="btn" id="ndocRec">Open the recording</button>' : ''}
-      ${doc.kind === 'own' ? '<button type="button" class="btn danger" id="ndocDel">Delete</button>' : ''}</div>`;
+      ${doc.kind === 'own' ? '<button type="button" class="btn danger" id="ndocDel">Delete</button>' : ''}</div></div>
+    ${said ? '<div class="seg nswitch" role="group" aria-label="Show"><button type="button" class="on" data-show="notes" aria-pressed="true">Notes</button><button type="button" data-show="said" aria-pressed="false">What was said</button></div>' : ''}
+    <div class="nbody"><textarea name="ndoc" maxlength="${N.MAX_LENGTH}" aria-label="The note" placeholder="Start writing.  - makes a bullet, [] a tick-box, # a heading.">${esc(doc.text)}</textarea></div>
+    ${said ? `<div class="nsaid" hidden tabindex="0" role="region" aria-label="What was said">${saidRows(said)}</div>` : ''}
+    <div class="nask">
+      <div class="nanswer" hidden aria-live="polite"><div class="nq"></div><div class="na"></div>
+        <div class="nsrc"><span></span><button type="button" class="icon" data-ask="close" aria-label="Close the answer" title="Close">✕</button></div></div>
+      <div class="naskrow"><form class="naskbar"><span class="nspark">${SPARK}</span>
+        <input name="nq" maxlength="300" autocomplete="off" enterkeyhint="send" placeholder="Ask anything about this note" aria-label="Ask anything about this note">
+        <button class="nsend" aria-label="Ask"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button></form>
+        ${ev ? `<button type="button" class="btn" id="ndocFollow" hidden>${followupLabel()}</button>` : ''}</div></div>`;
   const box = $('textarea', pane), title = $('.ntitle', pane), state2 = $('#ndocState', pane), tasks = $('#ndocTasks', pane);
   E.attach(box);
   const about = () => ({ title: (title.value.trim() || 'Untitled').slice(0, 140), when: doc.when, people: doc.people });
@@ -4692,6 +4839,80 @@ async function renderNotes() {
     toast('Note deleted');
   });
   showTasks();
+  // "Notes" | "What was said": the transcript, read-only, in place of the editor
+  for (const b of $$('.nswitch button', pane)) b.addEventListener('click', () => {
+    const toSaid = b.dataset.show === 'said';
+    for (const x of $$('.nswitch button', pane)) { x.classList.toggle('on', x === b); x.setAttribute('aria-pressed', String(x === b)); }
+    $('.nbody', pane).hidden = toSaid;
+    $('.nsaid', pane).hidden = !toSaid;
+  });
+  // the follow-up email, for a meeting that has begun, with people from outside, once the note has text
+  const follow = $('#ndocFollow', pane), showFollow = () => { if (follow) follow.hidden = !canFollowUp(ev, box.value); };
+  showFollow();
+  box.addEventListener('input', showFollow);
+  follow?.addEventListener('click', () => { keep(); openFollowup(ev, box.value); });
+  // asking about this note, from the bar at the bottom
+  $('.naskbar', pane).addEventListener('submit', e => {
+    e.preventDefault();
+    const input = $('[name=nq]', pane), q = input.value.trim();
+    if (!q) return;
+    if (writers().length) input.value = ''; // the question shows above the answer
+    askNote(doc, box.value, said, q);
+  });
+  $('[data-ask=close]', pane).addEventListener('click', () => { noteJob?.abort(); noteJob = null; noteAnswer = null; showNoteAnswer(); $('[name=nq]', pane).focus(); });
+  showNoteAnswer();
+}
+// What was said, one row a line: its time, who spoke and the words. From lines when there are
+// some, else from the plain transcript read line by line ("[m:ss] Who: words").
+function saidRows(rec) {
+  const rows = rec.lines?.length ? rec.lines.map(l => ({ t: clock(Math.floor(l.t)), who: l.who || '', text: l.text || '' }))
+    : rec.transcript.split('\n').map(x => x.trim()).filter(Boolean).map(x => {
+      const m = /^\[(\d+:\d{2}(?::\d{2})?)\]\s*(?:([^:]{1,40}):\s+)?(.*)$/.exec(x);
+      return m ? { t: m[1], who: m[2] || '', text: m[3] } : { t: '', who: '', text: x };
+    });
+  return rows.map(r => `<div class="nline"><em>${esc(r.t)}</em><span>${r.who ? `<b>${esc(r.who)}</b> ` : ''}${esc(r.text)}</span></div>`).join('');
+}
+// The answer to a question about the open note. Kept here, so a redraw of the same note shows it
+// again; opening another note, or leaving Notes, stops a question still on its way.
+let noteJob = null, noteAnswer = null; // noteAnswer: { id, q, text, src, waiting }
+function showNoteAnswer() {
+  const pane = $('.ndoc', el.notes), box = pane && $('.nanswer', pane);
+  if (!box) return;
+  const a = noteAnswer && noteAnswer.id === pane.dataset.id ? noteAnswer : null;
+  box.hidden = !a;
+  if (!a) return;
+  $('.nq', box).textContent = a.q;
+  $('.na', box).textContent = a.waiting ? 'Reading the note…' : a.text;
+  box.classList.toggle('waiting', !!a.waiting);
+  $('.nsrc span', box).textContent = a.waiting ? '' : a.src;
+  $('.nsrc', box).hidden = !!a.waiting;
+}
+function stopNoteAsk(keepId) {
+  if (noteAnswer && noteAnswer.id === keepId) return;
+  noteJob?.abort(); noteJob = null; noteAnswer = null;
+}
+async function askNote(doc, text, said, q) {
+  if (!writers().length) return needKey('Asking about a note', { sent: 'When you ask, this note, and what was said in its recording if it has one, go to your AI for that one answer.' });
+  noteJob?.abort();
+  const job = noteJob = new AbortController(), id = doc.id;
+  noteAnswer = { id, q, waiting: true };
+  showNoteAnswer();
+  const src = `${said ? 'Answered from this note and what was said in its recording.' : 'Answered from this note.'} Sent to your AI for this one answer.`;
+  try {
+    const answer = await askWriter(room => [
+      `Answer my question from my note below${said ? ' and the transcript of its recording' : ''}, and from nothing else.`,
+      'Be brief and plain: a sentence or two, or a short list. Quote names, numbers and dates exactly as they are written. If the answer is not there, answer: “That is not in this note.”',
+      `Question: ${q}`,
+      `My note, “${doc.title}” (${dayLabel(new Date(doc.when), true)}):\n${text.slice(0, 20000) || '(the note is empty)'}`,
+      said ? `Transcript of the recording (each line starts with its time):\n${said.transcript.slice(0, Math.max(4000, room - 24000))}` : '',
+    ].filter(Boolean).join('\n'), job.signal);
+    if (job !== noteJob) return;
+    noteAnswer = { id, q, text: String(answer || '').trim() || 'No answer came back. Please try again.', src };
+  } catch (err) {
+    if (err.name === 'AbortError' || job !== noteJob) return;
+    noteAnswer = { id, q, text: err.message || 'That could not be answered just now. Please try again.', src: 'Nothing came back from your AI.' };
+  } finally { if (job === noteJob) noteJob = null; }
+  showNoteAnswer();
 }
 
 // ---------------------------------------------------------------- showing people around

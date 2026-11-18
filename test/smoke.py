@@ -82,6 +82,173 @@ def recordings(page):
     }""")
 
 
+CLIENT_NOTE = "Object.entries(JSON.parse(localStorage.getItem('planner.demo.v1')).notes).find(([, n]) => n.title === 'Client call: Acme')[0]"
+
+
+def add_said(page):
+    """A recording of the sample client call whose words are written down (as notes from a recording leave it)."""
+    page.evaluate("""async key => { const R = await import('./recorder.js');
+      const lines = [{ t: 2, who: 'Ravi Menon', text: 'We agreed the price is 40 dollars a seat.' }, { t: 9, who: 'Speaker 2', text: 'I will send the contract by Friday.' }];
+      await R.takeIn('rec', { id: 'said-test', key, kind: 'audio', title: 'Client call: Acme', at: Date.now() - 3600000, secs: 60, size: 1000, mime: 'audio/webm', done: true,
+        lines, transcript: lines.map(l => `[0:0${l.t}] ${l.who}: ${l.text}`).join('\\n') }); }""", page.evaluate(CLIENT_NOTE))
+
+
+def open_note(page, title):
+    page.locator('#notes .nrow', has_text=title).first.click()
+    page.wait_for_timeout(500)
+
+
+def note_page_checks(browser):
+    """The note page: asking on the note, what was said, the follow-up email, and Tidy on the key."""
+    # ---- no key: every smart part says it needs one, and the follow-up email is the plain version
+    bare = browser.new_context(viewport={'width': 1440, 'height': 860})
+    bare.add_init_script(SEEN + QUIET + 'delete self.LanguageModel;')  # most browsers have no AI of their own
+    np = open_app(bare, 'note page, no key')
+    add_said(np)
+    np.locator('#mainNav [data-nav=notes]').click()
+    np.wait_for_selector('#notes .nrow', timeout=8000)
+    open_note(np, 'Client call')
+    bar = np.locator('#notes .ndoc .naskbar')
+    check('an open note has the ask bar at its foot', bar.is_visible() and np.locator('#notes .ndoc [name=nq]').get_attribute('placeholder') == 'Ask anything about this note'
+          and np.locator('#notes #noteAskAll').is_visible())
+    np.locator('#notes [name=nq]').fill('what price did we agree?')
+    np.locator('#notes [name=nq]').press('Enter')
+    np.wait_for_timeout(500)
+    box = np.evaluate("({ title: document.querySelector('#dlg .needkey h3')?.textContent, body: document.querySelector('#dlg .needkey p')?.textContent })")
+    check('asking about a note with no key shows the one key box', box['title'] == 'Add your AI key to use this' and 'Asking about a note' in (box['body'] or ''), json.dumps(box))
+    close_dialog(np)
+    follow = np.locator('#notes #ndocFollow')
+    check('the follow-up button sits beside the ask bar, named for the plain version', follow.is_visible() and follow.inner_text().strip() == 'Follow-up email')
+    follow.click()
+    np.wait_for_selector('#dlg [name=fubody]', timeout=8000)
+    body = np.locator('#dlg [name=fubody]').input_value()
+    check('with no key the follow-up box shows the plain version at once, and says a key would write it',
+          'Thank you for your time' in body and np.locator('#dlg [name=fusubject]').input_value() == 'Follow-up: Client call: Acme'
+          and 'Add your AI key and Weftday writes this for you.' in np.locator('#dlg #fuSay').inner_text())
+    close_dialog(np)
+    check('“What was said” shows only for a note whose recording has words', np.locator('#notes .nswitch').count() == 1)
+    open_note(np, 'Weekend list')
+    check('a note with no recording has no “What was said”', np.locator('#notes .nswitch').count() == 0 and np.locator('#notes .naskbar').is_visible())
+    np.locator('#mainNav [data-nav=calendar]').click()
+    np.wait_for_timeout(500)
+    np.locator('#gridBody [data-key]', has_text='Client call').first.click()
+    np.wait_for_timeout(700)
+    tidy = np.locator('#dlg [data-x=tidy]')
+    builtin = np.evaluate("'LanguageModel' in self")
+    check('“Tidy my notes” shows in the meeting box even without the browser’s own AI', tidy.is_visible() and not builtin, f'built-in AI: {builtin}')
+    tidy.click()
+    np.wait_for_timeout(500)
+    check('Tidy with no key and no built-in AI asks for a key', 'Tidying your notes' in (np.evaluate("document.querySelector('#dlg .needkey p')?.textContent") or ''))
+    close_dialog(np)
+    bare.close()
+
+    # ---- with a (pretend) key and a pretend AI
+    asked = {}
+
+    def pretend(route):
+        body = route.request.post_data or ''
+        if 'Answer my question from my note below' in body:
+            asked['note'] = 'and the transcript of its recording' in body and 'We agreed the price is 40 dollars' in body
+            text = '<b>40 dollars</b> a seat.\nRavi sends the questionnaire.'
+        elif 'Write a follow-up email' in body:
+            asked['email'] = 'What was said in the meeting' in body
+            text = 'Hi Ravi and Lena,\n\nThank you for today. We agreed on 40 dollars a seat.\n\nBest,\nSam'
+        elif 'You tidy my rough notes' in body:
+            asked['tidy'] = True
+            text = json.dumps({'summary': 'We talked about price.', 'decisions': ['Price is 40 dollars a seat'], 'actions': ['Send the contract by Friday'], 'questions': [], 'info': []})
+        elif 'points worth raising' in body:
+            asked['raise'] = True
+            text = '- Ask Ravi about the security questionnaire\n- Confirm the 50 seats'
+        else:
+            text = 'Fine.'
+        reply = {'outputs': [{'type': 'text', 'text': text}]} if '/interactions' in route.request.url else {'candidates': [{'content': {'parts': [{'text': text}]}}]}
+        route.fulfill(status=200, content_type='application/json', body=json.dumps(reply))
+
+    keyed = browser.new_context(viewport={'width': 1440, 'height': 860})
+    keyed.add_init_script(SEEN + QUIET)
+    kp = open_app(keyed, 'note page, with key')
+    kp.route('https://generativelanguage.googleapis.com/**', pretend)
+    kp.evaluate("""() => { const s = JSON.parse(localStorage.getItem('planner.demo.v1')); s.settings.aiKey = 'pretend-key-for-tests'; localStorage.setItem('planner.demo.v1', JSON.stringify(s)); }""")
+    add_said(kp)
+    kp.reload()
+    kp.wait_for_load_state('networkidle')
+    kp.wait_for_timeout(600)
+    close_dialog(kp)
+    kp.locator('#mainNav [data-nav=notes]').click()
+    kp.wait_for_selector('#notes .nrow', timeout=8000)
+    open_note(kp, 'Client call')
+    kp.locator('#notes [name=nq]').fill('what price did we agree?')
+    kp.locator('#notes .nsend').click()
+    wait_until(kp, "(document.querySelector('#notes .na')?.textContent || '').includes('40 dollars')", 15000)
+    got = kp.evaluate("""(() => { const a = document.querySelector('#notes .nanswer'); return { q: a.querySelector('.nq').textContent, plain: !a.querySelector('.na b'),
+      text: a.querySelector('.na').textContent, src: a.querySelector('.nsrc span').textContent }; })()""")
+    check('a question about a note is answered on the note, as plain text', got['q'] == 'what price did we agree?' and got['plain'] and got['text'].startswith('<b>40 dollars</b>')
+          and '\n' in got['text'], json.dumps(got))
+    check('the answer says where it came from and that it went to your AI', got['src'] == 'Answered from this note and what was said in its recording. Sent to your AI for this one answer.'
+          and asked.get('note'), json.dumps(got))
+    check('the answer sits above the bar, inside the note', kp.evaluate("document.querySelector('#notes .nanswer').getBoundingClientRect().bottom <= document.querySelector('#notes .naskbar').getBoundingClientRect().top + 1"))
+    kp.screenshot(path=os.path.join(OUT, 'note-answer.png'))
+    kp.locator('#notes .nswitch button', has_text='What was said').click()
+    kp.wait_for_timeout(200)
+    check('“What was said” replaces the note with its lines, times and voices', kp.locator('#notes .nsaid').is_visible() and kp.locator('#notes .nsaid .nline').count() == 2
+          and not kp.locator('#notes .ndoc .ed').is_visible() and 'Ravi Menon' in kp.locator('#notes .nline').first.inner_text())
+    kp.screenshot(path=os.path.join(OUT, 'note-said.png'))
+    kp.locator('#notes .nswitch button', has_text='Notes').click()
+    follow = kp.locator('#notes #ndocFollow')
+    check('with a key the button says it writes the email', follow.inner_text().strip() == 'Write follow-up email')
+    follow.click()
+    wait_until(kp, "(document.querySelector('#dlg [name=fubody]')?.value || '').includes('Thank you for today')", 15000)
+    check('the follow-up email is written by your AI from the note and what was said', asked.get('email') and 'Written by your AI' in kp.locator('#dlg #fuSay').inner_text())
+    kp.screenshot(path=os.path.join(OUT, 'followup.png'))
+    kp.evaluate("window.open = (url) => { window.__opened = url; return null; }")
+    kp.locator('#dlg [data-x=fugmail]').click()
+    opened = kp.evaluate("window.__opened || ''")
+    check('“Open in Gmail” builds a Gmail draft address', opened.startswith('https://mail.google.com/mail/?') and 'su=Follow-up%3A' in opened and 'Thank%20you%20for%20today' in opened, opened[:160])
+    close_dialog(kp)
+    kp.locator('#mainNav [data-nav=calendar]').click()
+    kp.wait_for_timeout(500)
+    kp.locator('#gridBody [data-key]', has_text='Client call').first.click()
+    kp.wait_for_timeout(700)
+    kp.locator('#dlg [data-x=tidy]').click()
+    said = kp.locator('#dlg #noteState').inner_text()
+    wait_until(kp, "(document.querySelector('#dlg textarea[name=note]')?.value || '').startsWith('Summary\\nWe talked about price.')", 15000)
+    check('“Tidy my notes” uses your key when there is one', asked.get('tidy') and ('Sent to your AI' in said or said == 'Tidied'), said)
+    kp.locator('#dlg [data-x=brief]').click()
+    kp.wait_for_timeout(500)
+    kp.locator('#dlg [data-x=raise]').click()
+    wait_until(kp, "(document.querySelector('#raiseOut')?.textContent || '').includes('security questionnaire')", 15000)
+    check('“What should I raise?” in the brief asks your AI and says what was sent', asked.get('raise') and kp.locator('#raiseOut p').count() == 2
+          and 'Sent to your AI' in kp.locator('#raiseSay').inner_text())
+    close_dialog(kp)
+    keyed.close()
+
+    # ---- the note page on a phone
+    phone = browser.new_context(viewport={'width': 390, 'height': 844}, is_mobile=True, has_touch=True)
+    phone.add_init_script(SEEN + QUIET)
+    pp = open_app(phone, 'note page, phone')
+    pp.route('https://generativelanguage.googleapis.com/**', pretend)
+    pp.evaluate("""() => { const s = JSON.parse(localStorage.getItem('planner.demo.v1')); s.settings.aiKey = 'pretend-key-for-tests'; localStorage.setItem('planner.demo.v1', JSON.stringify(s)); }""")
+    add_said(pp)
+    pp.reload()
+    pp.wait_for_load_state('networkidle')
+    pp.wait_for_timeout(600)
+    close_dialog(pp)
+    pp.locator('#menu').click()
+    pp.wait_for_timeout(400)
+    pp.locator('#mainNav [data-nav=notes]').click()
+    pp.wait_for_selector('#notes .nrow', timeout=8000)
+    open_note(pp, 'Client call')
+    pp.locator('#notes [name=nq]').fill('what price did we agree?')
+    pp.locator('#notes .nsend').click()
+    wait_until(pp, "(document.querySelector('#notes .na')?.textContent || '').includes('40 dollars')", 15000)
+    fit = pp.evaluate("""(() => { const r = document.querySelector('#notes .naskbar').getBoundingClientRect(), acts = [...document.querySelectorAll('#notes .ndocacts .btn')].filter(b => b.offsetParent);
+      return { wide: document.documentElement.scrollWidth <= innerWidth + 1, inside: r.left >= 0 && r.right <= innerWidth + 0.5 && r.top >= 0 && r.bottom <= innerHeight + 0.5,
+        tall: acts.every(b => b.getBoundingClientRect().height >= 40), reading: document.querySelector('#notes').classList.contains('reading') }; })()""")
+    check('on a phone the note page has no sideways scroll and the ask bar is fully on screen', fit['wide'] and fit['inside'] and fit['tall'] and fit['reading'], json.dumps(fit))
+    pp.screenshot(path=os.path.join(OUT, 'phone-note-answer.png'))
+    phone.close()
+
+
 def run(p):
     browser = p.chromium.launch(channel='chrome', headless=True, args=[
         '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream',
@@ -649,6 +816,8 @@ def run(p):
     ep.wait_for_timeout(500)
     check('“Record it” opens the Record box for that meeting', 'Record this meeting' in ep.locator('#dlg').inner_text())
     ep.close()
+
+    note_page_checks(browser)
 
     # ---- a feature that needs an AI key, pressed before there is one: one clear box, one way forward
     nokey = browser.new_context(viewport={'width': 1440, 'height': 860})  # a browser that has never had a key

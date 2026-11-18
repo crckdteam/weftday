@@ -994,8 +994,6 @@ body.innotes #prev, body.innotes #next, body.innotes #todayBtn, body.innotes #zo
 .ndoc .meta { margin-bottom: 8px; }
 .ndoc .ed { flex: 1; min-height: 0; max-height: none; border: 0; border-radius: 0; background: transparent; padding: 4px 0 30px; font-size: 15.5px; line-height: 1.65; max-width: 760px; }
 .ndoc .ed.blank::before { left: 0; top: 4px; }
-.ndocfoot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--line2); padding-top: 10px; min-height: 46px; }
-.ndocfoot .saved { font-size: 12px; color: var(--muted); }
 .nempty { margin: auto; display: grid; justify-items: center; gap: 6px; text-align: center; color: var(--muted); max-width: 340px; }
 .nempty svg { width: 30px; height: 30px; }
 .nempty b { color: var(--text); font-size: 16px; }
@@ -1362,6 +1360,56 @@ body.innotes #sideBody > .card, body.innotes #upnext { display: none; }
 .movein p { color: var(--muted); margin: 0; }
 .movein p + p { margin-top: 18px; }
 
+/* ---- asking on the note itself: the note page's actions row, "Notes | What was said", the ask bar
+   at the bottom of the note, the follow-up email box, and "What should I raise?" in the brief */
+.nhead { flex-wrap: wrap; }
+.nhead input { flex: 1 1 100%; }
+.nhead .btn { flex: 1 1 0; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; }
+.nhead .btn svg, .braise .btn svg { width: 16px; height: 16px; flex: none; color: var(--h-task); }
+.ndocbar { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; margin-bottom: 4px; }
+.ndocbar .meta { flex: 1 1 220px; min-width: 0; margin: 0; }
+.ndocacts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.ndocacts .btn { padding: 5px 11px; font-size: 13px; }
+.ndocacts .saved { font-size: 12px; color: var(--muted); margin-right: 4px; }
+.nswitch { align-self: flex-start; margin: 2px 0 4px; }
+.nbody { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.nsaid { flex: 1; min-height: 0; overflow: auto; max-width: 760px; display: grid; gap: 2px; align-content: start; padding: 4px 0 18px; }
+.nsaid:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent); outline-offset: 2px; border-radius: 8px; }
+.nline { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 10px; padding: 5px 0; font-size: 14.5px; line-height: 1.55; }
+.nline em { font-style: normal; font-variant-numeric: tabular-nums; font-size: 12px; color: var(--muted); padding-top: 2px; }
+.nline b { font-weight: 600; }
+.nask { flex: none; display: grid; gap: 8px; width: 100%; max-width: 760px; padding-top: 10px; border-top: 1px solid var(--line2); }
+.naskrow { display: flex; align-items: center; gap: 8px; }
+.naskbar { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); box-shadow: var(--lift); transition: border-color .15s; }
+.naskbar:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+.naskbar input:focus-visible { outline: none; }
+.nspark { display: grid; place-items: center; color: var(--h-task); flex: none; }
+.nspark svg { width: 18px; height: 18px; }
+.naskbar input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text); outline: none; font-size: 14.5px; padding: 7px 0; }
+.naskbar input::placeholder { color: var(--muted); }
+.nsend { flex: none; width: 34px; height: 34px; border-radius: 50%; border: 0; display: grid; place-items: center; padding: 0; background: var(--accent); color: var(--accent-text); }
+.nsend:hover { filter: brightness(1.07); }
+.naskrow > .btn { flex: none; white-space: nowrap; }
+.nanswer { max-height: min(40vh, 320px); overflow: auto; padding: 12px 14px 10px; border-radius: var(--r); background: var(--bg); border: 1px solid var(--line); }
+.nq { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.na { margin-top: 4px; font-size: 14.5px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.nanswer.waiting .na { color: var(--muted); }
+.nsrc { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; color: var(--muted); }
+.nsrc span { flex: 1; min-width: 0; }
+.nsrc .icon { width: 28px; height: 28px; font-size: 13px; color: var(--muted); flex: none; }
+.fubox .fufield { display: grid; gap: 4px; font-size: 12px; color: var(--muted); min-width: 0; }
+.futo { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.futo .stag { font-size: 12.5px; color: var(--text); background: var(--bg); border: 1px solid var(--line); }
+.fubox textarea { min-height: 220px; line-height: 1.5; }
+.fubox textarea[readonly] { color: var(--muted); }
+.fubox #fuSay { min-height: 18px; }
+.fubox .linkbtn { font-size: 13px; font-weight: 500; text-align: left; color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
+.fubox .linkbtn:hover { color: var(--text); }
+.braise { display: grid; gap: 8px; justify-items: start; margin-top: 10px; }
+.braise .btn { display: inline-flex; align-items: center; gap: 7px; }
+.braise #raiseOut { width: 100%; }
+@media (prefers-reduced-motion: reduce) { .naskbar { transition: none; } }
+
 /* ================= phones, the last word =================
    The look above was written for a computer and, coming later in the file, had quietly undone some
    of the phone rules further up. Everything a phone needs to be different is gathered here, last,
@@ -1439,6 +1487,18 @@ dialog:focus { outline: none; }
   dialog .actions:has(> .btn ~ .btn ~ .btn ~ .btn) .sp { flex-basis: 100%; height: 0; }
   dialog .actions:has(> .btn ~ .btn ~ .btn ~ .btn) .sp + .btn { margin-left: auto; }
 
+  /* the note page: the actions wrap under the date and people, the ask bar stays inside the screen */
+  .ndocbar { flex-direction: column; align-items: stretch; gap: 8px; }
+  .ndocbar .meta { flex: none; }
+  .ndocacts { justify-content: flex-start; }
+  .ndocacts .btn { min-height: 40px; padding-inline: 12px; }
+  .ndoc { padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+  .naskrow { flex-wrap: wrap; }
+  .naskrow > .btn { flex: 1 1 100%; min-height: 40px; }
+  .nsend { width: 40px; height: 40px; }
+  .nanswer { max-height: 34vh; }
+  .nswitch button { min-height: 36px; }
+
   .tour-card { max-width: calc(min(336px, 90vw) - 24px); }
   .palfoot { display: none; }
   dialog[open] #toast { top: calc(12px + env(safe-area-inset-top)); bottom: auto; }
@@ -1461,7 +1521,6 @@ dialog:focus { outline: none; }
 dialog.panel .plist3.tall { max-height: none; flex: 1; min-height: 0; overflow: auto; }  /* the list fills the panel instead of stopping half-way */
 .blk .t { overflow-wrap: normal; hyphens: auto; }  /* a word is never split in the middle without a hyphen */
 .ndoc .ed:focus-visible, .ndoc [contenteditable]:focus-visible, .ntitle:focus-visible { outline: none; }  /* a whole page of writing needs no box round it */
-.ndocfoot { flex-wrap: wrap; justify-content: flex-end; row-gap: 8px; }
 .ttitle { border-radius: 6px; }
 dialog.panel #toast { bottom: 84px; }  /* clear of the panel's own buttons */
 .spane > .lead { text-wrap: pretty; }
