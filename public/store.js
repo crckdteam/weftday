@@ -62,6 +62,9 @@ let stale = false;
 export const isStale = () => stale;
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   window.addEventListener('storage', e => { if (e.key === KEY && document.hidden) stale = true; });
+  // Things have just been moved in from the old address by another tab (movein.js): this copy holds
+  // what was here before, so it stops saving at once and loads afresh.
+  window.addEventListener('storage', e => { if (!DEMO && e.key === 'weftday.movedin') { stale = true; if (!document.hidden) location.reload(); } });
   document.addEventListener('visibilitychange', () => { if (stale && !document.hidden) location.reload(); });
 }
 

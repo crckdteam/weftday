@@ -54,6 +54,15 @@ const putRec = rec => store(RECS, 'readwrite', s => wait(s.put(rec)));
 
 // A recording, or one stored part of one, handed over from the address Weftday used to live at (movein.js).
 export const takeIn = (kind, value) => store(kind === 'rec' ? RECS : PARTS, 'readwrite', s => wait(s.put(value)));
+// Parts that belong to no recording: left behind when a move from the old address stopped midway.
+// A recording made here always has its entry before its first part, so this never touches a live one.
+export async function dropOrphans() {
+  const known = new Set((await store(RECS, 'readonly', s => wait(s.getAllKeys()))));
+  const keys = await store(PARTS, 'readonly', s => wait(s.getAllKeys()));
+  const lost = [...new Set(keys.map(k => k[0]))].filter(id => !known.has(id));
+  if (lost.length) await store(PARTS, 'readwrite', async s => { for (const id of lost) for (const kind of ['m', 'p', 'q']) await wait(s.delete(range(id, kind))); });
+  return lost.length;
+}
 export const all = async () => (await store(RECS, 'readonly', s => wait(s.getAll()))).sort((a, b) => b.at - a.at);
 export const forMeeting = async key => (await all()).filter(r => r.key === key);
 export const get = id => store(RECS, 'readonly', s => wait(s.get(id)));
@@ -536,6 +545,8 @@ export async function start(streams, opts = {}) {
 export async function recover() {
   let held = null;
   try { held = new Set((await navigator.locks.query()).held.map(l => l.name)); } catch { /* older browser: go by the clock */ }
+  // (not while another tab is in the middle of taking a move in: its parts arrive before their entries)
+  if (held && !held.has('weftday-movein')) await dropOrphans().catch(() => {});
   let fixed = 0;
   for (const r of await all()) {
     if (r.done || r.id === live?.id) continue;

@@ -4497,7 +4497,7 @@ async function openRecordings(ev) {
   const list = every.filter(r => recShow === 'all' || r.kind === recShow);
   dropRecUrls();
   const card = r => `<button type="button" class="rcard" data-x="open" data-id="${esc(r.id)}">
-    <span class="rthumb ${r.kind}">${r.thumb ? `<img alt="" loading="lazy" src="${recUrl(r.thumb)}">` : (r.kind === 'audio' ? REC_ICON.sound : '')}${r.kind === 'shot' ? '' : `<em>${clock(r.secs)}</em>`}</span>
+    <span class="rthumb ${esc(r.kind)}">${r.thumb ? `<img alt="" loading="lazy" src="${recUrl(r.thumb)}">` : (r.kind === 'audio' ? REC_ICON.sound : '')}${r.kind === 'shot' ? '' : `<em>${clock(r.secs)}</em>`}</span>
     <b>${esc(r.title)}</b><i>${esc(dayLabel(new Date(r.at)))} · ${fmtSize(r.size)}${r.notes ? ' · notes made' : ''}${r.cut ? ' · cut short' : ''}</i></button>`;
   dialog(`<div class="dbody">
     <h3>${ev ? 'Recordings of this meeting' : 'Recordings'}</h3>
@@ -4946,11 +4946,14 @@ async function moveIn() {
   panel.innerHTML = '<div><img src="icon.svg" width="48" height="48" alt=""><h2>Bringing your things over</h2><p role="status">One moment.</p><p hidden><a class="btn primary" href="./">Open Weftday</a></p></div>';
   document.body.append(panel);
   const line = panel.querySelector('[role=status]'), say = text => { line.textContent = text; };
-  const stay = text => { say(text); panel.querySelector('h2').textContent = 'Nothing was moved'; panel.querySelector('p[hidden]').hidden = false; };
+  const stop = title => { panel.querySelector('h2').textContent = title; panel.querySelector('p[hidden]').hidden = false; };
   history.replaceState(null, '', location.pathname);
-  if (Move.hasThings() && !confirm('Weftday at this address already has things saved in this browser.\n\nReplace them with the ones from the old address?')) return stay('Your things here were left as they are. You can close the other tab.');
-  if (await Move.receive(say, R.takeIn)) location.replace(location.pathname); // start again, now with everything in place
-  else stay(line.textContent);
+  const take = () => Move.receive({ say, put: R.takeIn, tidy: R.dropOrphans,
+    ask: () => confirm('Weftday at this address already has things saved in this browser.\n\nReplace them with the ones from the old address? The copy there may be older: anything added or changed here since would be lost.') });
+  // (the lock tells other open copies of the app that a move is under way, so they leave its half-arrived recordings alone)
+  const result = await (navigator.locks ? navigator.locks.request('weftday-movein', take) : take());
+  if (result === 'all') location.replace(location.pathname); // start again, now with everything in place
+  else stop(result === 'some' ? 'Almost everything is here' : 'Nothing was moved');
 }
 
 async function boot() {

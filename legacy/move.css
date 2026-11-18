@@ -22,6 +22,7 @@ p b { color: var(--text); font-weight: 650; }
 .btn:active { transform: scale(.98); }
 .btn[disabled] { opacity: .6; cursor: default; }
 .btn[hidden] { display: none; }
+.btn.quiet { width: 100%; margin-top: 12px; min-height: 40px; border-color: transparent; color: var(--muted); font-weight: 550; font-size: 14.5px; text-decoration: underline; text-underline-offset: 3px; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 ::selection { background: color-mix(in srgb, var(--accent) 28%, transparent); }
 .small { font-size: 13.5px; }

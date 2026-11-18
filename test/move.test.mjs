@@ -2,7 +2,7 @@
 // Run:  node --test test/
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { trusted, mayReceive, checkItems, checkRecording, KEYS } from '../public/movein.js';
+import { trusted, mayReceive, checkItems, checkRecording, hasThings, KEYS } from '../public/movein.js';
 
 const published = { hostname: 'app.weftday.crckd.live', origin: 'https://app.weftday.crckd.live' };
 const onThisComputer = { hostname: 'localhost', origin: 'http://localhost:4399' };
@@ -39,11 +39,28 @@ test('saved things are taken only under the names the app uses, and only as text
   assert.deepEqual(checkItems({}), {});
 });
 test('a recording must look like one', () => {
-  assert.ok(checkRecording('rec', { id: 'abc', at: 1 }));
+  assert.ok(checkRecording('rec', { id: 'abc', at: 1, kind: 'video' }));
+  assert.throws(() => checkRecording('rec', { id: 'abc', at: 1 }), 'no kind');
+  assert.throws(() => checkRecording('rec', { id: 'abc', kind: 'x"><img src=x onerror=alert(1)>' }), 'a kind this app does not make');
+  assert.equal('thumb' in checkRecording('rec', { id: 'abc', kind: 'audio', thumb: 'javascript:alert(1)' }), false, 'a picture that is not a picture is left out');
+  assert.ok(checkRecording('rec', { id: 'abc', kind: 'shot', thumb: new Blob(['x']) }).thumb instanceof Blob);
   assert.ok(checkRecording('part', { id: 'abc', kind: 'm', n: 0, blob: new Blob(['x']) }));
   assert.throws(() => checkRecording('rec', { id: '' }));
   assert.throws(() => checkRecording('rec', { id: 5 }));
   assert.throws(() => checkRecording('part', { id: 'abc', kind: 'z', n: 0, blob: new Blob(['x']) }));
   assert.throws(() => checkRecording('part', { id: 'abc', kind: 'm', n: 0, blob: 'text' }));
   assert.throws(() => checkRecording('part', { id: 'abc', kind: 'm', n: -1, blob: new Blob(['x']) }));
+});
+test('a saved state counts as the person’s own once it holds an account, a task, a note or a key', () => {
+  const has = o => hasThings(JSON.stringify(o));
+  assert.equal(has({ settings: {}, tasks: [], notes: {}, accounts: [] }), false);
+  assert.equal(hasThings(null), false);
+  assert.equal(hasThings('not json'), false);
+  assert.equal(has({ tasks: [{ id: 1 }] }), true);
+  assert.equal(has({ notes: { a: {} } }), true);
+  assert.equal(has({ accounts: [{ id: 'a' }] }), true);
+  assert.equal(has({ settings: { aiKey: 'k' } }), true);
+  assert.equal(has({ settings: { clientId: 'c' } }), true);
+  assert.equal(has({ settings: { aiKeys: { groq: 'k' } } }), true);
+  assert.equal(has({ settings: { aiKeys: { groq: '' }, theme: 'dark' } }), false);
 });
