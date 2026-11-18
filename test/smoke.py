@@ -691,11 +691,12 @@ def run(p):
     pp.close()
 
     # ---- the other pages
-    guide = open_app(context, 'guide', '/guide.html#8')
+    guide = open_app(context, 'guide', '/guide.html#2')
     check('the guide shows the Record step and moves on', 'write its own notes' in guide.locator('body').inner_text())
     guide.locator('#next').click()
     guide.wait_for_timeout(400)
-    check('the guide’s buttons work', 'Share when you are free' in guide.locator('body').inner_text())
+    check('the guide’s buttons work', 'Notes that turn into action' in guide.locator('body').inner_text())
+    check('the guide is five steps, not more', guide.locator('#rail button').count() == 5)
     guide.screenshot(path=os.path.join(OUT, 'guide-record.png'))
     guide.close()
     for path in ['/home.html', '/guide.html', '/about.html', '/privacy.html', '/terms.html']:

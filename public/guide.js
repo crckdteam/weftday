@@ -89,6 +89,10 @@ const STEPS = [
       <div class="row" style="justify-content:center;flex-wrap:wrap;gap:6px"><span class="chip ok">Your own keys</span><span class="chip ok">Self-hostable</span><span class="chip ok">No tracking</span></div></div>` },
 ];
 
+// Five things are enough to start. The rest explains itself in the app, where you meet it.
+const FIRST_FIVE = ['Connect', 'Record', 'Notes', 'Add a task', 'Private'];
+STEPS.splice(0, STEPS.length, ...FIRST_FIVE.map(name => STEPS.find(s => s.name === name)).filter(Boolean));
+
 const $ = id => document.getElementById(id);
 let at = Math.min(Math.max((parseInt(location.hash.slice(1), 10) || 1) - 1, 0), STEPS.length - 1);
 $('rail').innerHTML = STEPS.map((s, i) => `<button type="button" data-i="${i}"><i>${i + 1}</i><span>${s.name}</span></button>`).join('');
