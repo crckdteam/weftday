@@ -1,0 +1,72 @@
+<!doctype html>
+<!-- Packs the frames of the clip into video, using the encoders that are built into Chrome.
+     tools/site-clip.py opens this page and calls pack() once for each try at a file; nothing is installed. -->
+<html lang="en">
+<meta charset="utf-8">
+<title>Weftday clip packer</title>
+<script>
+const text = bytes => new Promise(done => { const r = new FileReader(); r.onload = () => done(r.result.split(',')[1]); r.readAsDataURL(new Blob([bytes])); });
+const codec = kind => kind === 'mp4' ? 'avc1.640028' : 'vp09.00.40.08';   // H.264 (High) for .mp4, VP9 for .webm
+const settings = (kind, width, height, fps, exact) => {
+  const config = { codec: codec(kind), width, height, framerate: fps, latencyMode: 'quality', bitrateMode: exact ? 'quantizer' : 'variable' };
+  if (kind === 'mp4') config.avc = { format: 'avc' };
+  return config;
+};
+
+// Whether this Chrome lets the caller say how much detail each single frame of H.264 keeps (it does on a
+// Mac). Where it does not, the encoder is given a number of bits a second and shares them out itself.
+async function exact({ width, height, fps }) {
+  try { return (await VideoEncoder.isConfigSupported(settings('mp4', width, height, fps, true))).supported; } catch (e) { return false; }
+}
+
+// kind is 'mp4' or 'webm'. names holds the picture to show for each frame, in order; a picture that stays
+// on screen is named again and again. Either detail holds one number for each frame (the quantizer: a low
+// number keeps fine detail and costs more bytes), or rate says how many bits a second of clip may use.
+// Only the first frame is stored as a whole picture; every other frame holds what changed since the last.
+// An encoder that shares the bits out by itself gives the first picture too few and takes a second to
+// sharpen it, which would show every time the clip starts again. So for that one frame it is told it has
+// plenty (FIRST), and only then the real number.
+// Answers with every encoded frame, joined end to end, and what a player needs to know to read them.
+const FIRST = 20e6;
+async function pack({ kind, names, width, height, fps, detail, rate }) {
+  const config = settings(kind, width, height, fps, !!detail);
+  if (!detail) { config.bitrate = rate; config.contentHint = 'text'; }   // 'text': the picture is a screen of words, to be kept crisp
+  if (!(await VideoEncoder.isConfigSupported(config)).supported) throw new Error('This Chrome cannot make ' + kind + ' video.');
+  const parts = [], sizes = [], keys = []; let setup = null, failed = null, last = -1;
+  const encoder = new VideoEncoder({
+    output(chunk, about) {
+      if (chunk.timestamp < last) failed = new Error('The encoder returned the frames out of order.'); last = chunk.timestamp;
+      const b = new Uint8Array(chunk.byteLength); chunk.copyTo(b); parts.push(b); sizes.push(b.length);
+      if (chunk.type === 'key') keys.push(sizes.length - 1);
+      if (about && about.decoderConfig && !setup) setup = about.decoderConfig;
+    },
+    error(e) { failed = e; },
+  });
+  encoder.configure(detail ? config : { ...config, bitrate: FIRST });
+  let picture = null, shown = null;
+  for (let i = 0; i < names.length; i++) {
+    if (names[i] !== shown) { if (picture) picture.close(); picture = await createImageBitmap(await (await fetch('frames/' + names[i])).blob()); shown = names[i]; }
+    if (picture.width !== width || picture.height !== height) throw new Error('Frame ' + names[i] + ' is ' + picture.width + ' x ' + picture.height + ', not ' + width + ' x ' + height + '.');
+    const frame = new VideoFrame(picture, { timestamp: Math.round(i * 1e6 / fps), duration: Math.round(1e6 / fps) });
+    const how = { keyFrame: i === 0 };
+    if (detail) how.avc = { quantizer: detail[i] };
+    encoder.encode(frame, how); frame.close();
+    if (i === 0 && !detail) encoder.configure(config);
+    while (encoder.encodeQueueSize > 3 && !failed) await new Promise(r => setTimeout(r, 1));   // do not run ahead of the encoder
+    if (failed) throw failed;
+  }
+  await encoder.flush(); encoder.close(); if (picture) picture.close();
+  if (failed) throw failed;
+  if (sizes.length !== names.length) throw new Error('The encoder returned ' + sizes.length + ' frames for ' + names.length + '.');
+  const colour = setup && setup.colorSpace ? { primaries: setup.colorSpace.primaries, transfer: setup.colorSpace.transfer, matrix: setup.colorSpace.matrix, full: !!setup.colorSpace.fullRange } : null;
+  return { sizes, keys, colour, setup: setup && setup.description ? await text(setup.description) : '', data: await text(new Blob(parts)) };
+}
+
+// One frame as a JPEG picture, for the still that is shown before the clip plays.
+async function still(name, quality) {
+  const picture = await createImageBitmap(await (await fetch('frames/' + name)).blob());
+  const canvas = new OffscreenCanvas(picture.width, picture.height); canvas.getContext('2d').drawImage(picture, 0, 0);
+  return text(await canvas.convertToBlob({ type: 'image/jpeg', quality }));
+}
+</script>
+</html>

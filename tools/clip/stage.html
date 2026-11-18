@@ -1,0 +1,235 @@
+<!doctype html>
+<!-- The stage for the website's clip. tools/site-clip.py opens this page in Chrome beside the real app.
+     For every frame it asks the stage which part of the app the camera is looking at, takes a picture of
+     exactly that part of the app, hands the picture to the window below, and photographs the whole stage.
+     Nothing here moves by itself: every position is worked out from the time that site-clip.py passes to
+     stage.frame(t), so a frame always looks the same however long the computer took to draw it. -->
+<html lang="en">
+<meta charset="utf-8">
+<title>Weftday clip stage</title>
+<style>
+  /* The same two typefaces and the same green box as the website (site/site.css). */
+  @font-face { font-family: Figtree; src: url(fonts/figtree.woff2) format('woff2'); font-weight: 300 900; }
+  @font-face { font-family: 'Bricolage Grotesque'; src: url(fonts/bricolage.woff2) format('woff2'); font-weight: 200 800; font-stretch: 75% 100%; }
+  :root {
+    --box: #0f3d2e; --on-box: #f1f6ee; --on-box-soft: #b9cdbf;
+    --record: #f0624b; --notes: #1f8a67; --calendar: #3b6cf0; --people: #8361ea;
+    --ui: Figtree, sans-serif; --display: 'Bricolage Grotesque', Figtree, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  body, #card {
+    color: var(--on-box); font: 500 27px/1.4 var(--ui); -webkit-font-smoothing: antialiased;
+    background-color: var(--box);
+    /* the cloth lining of the box: two faint sets of threads crossing */
+    background-image: repeating-linear-gradient(0deg, rgba(255, 255, 255, .028) 0 1px, transparent 1px 5px), repeating-linear-gradient(90deg, rgba(0, 0, 0, .05) 0 1px, transparent 1px 5px);
+  }
+
+  /* ---- the words beside (wide) or above (phone) the window */
+  .mark { position: absolute; display: flex; align-items: center; gap: 13px; font: 700 30px/1 var(--display); letter-spacing: -.02em; }
+  .mark img { width: 44px; height: 44px; }
+  #cap { position: absolute; }
+  #cap h1 { font: 700 72px/.98 var(--display); letter-spacing: -.03em; text-wrap: balance; }
+  #cap p { margin-top: 24px; color: var(--on-box-soft); text-wrap: pretty; }
+
+  /* ---- the window: a card with the app inside, and the coloured tabs standing on its top edge */
+  #win { position: absolute; }
+  #tabs { position: absolute; left: 44px; bottom: 100%; display: flex; align-items: flex-end; gap: 8px; }
+  #tabs i { --tall: 36px; width: 84px; height: var(--tall); display: grid; place-items: center; overflow: hidden; border-radius: 14px 14px 0 0; background: var(--h); color: #fff; }
+  #tabs svg { width: 19px; height: 19px; }
+  [data-tab=record] { --h: var(--record); } [data-tab=notes] { --h: var(--notes); } [data-tab=calendar] { --h: var(--calendar); } [data-tab=people] { --h: var(--people); }
+  #lens { position: absolute; inset: 0; overflow: hidden; border-radius: 24px; background: #edf1ea; box-shadow: 0 0 0 1px rgba(255, 255, 255, .08), 0 46px 90px -36px rgba(0, 0, 0, .7), 0 18px 36px -18px rgba(0, 0, 0, .45); }
+  #live, #still { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #still { opacity: 0; }
+  /* What moves or fades in the window is drawn on a layer of its own from the first frame on, so that the
+     last frame comes out exactly like the first and the clip loops without a flicker. */
+  #live, #still, #ring, #cur { will-change: transform, opacity; }
+  #ring { position: absolute; left: 0; top: 0; width: 84px; height: 84px; margin: -42px 0 0 -42px; border-radius: 50%; background: rgba(22, 119, 90, .22); border: 2.5px solid rgba(22, 119, 90, .6); opacity: 0; pointer-events: none; }
+  #cur { position: absolute; left: 0; top: 0; width: 34px; height: 34px; opacity: 0; pointer-events: none; transform-origin: 6px 4px; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .32)); }
+
+  /* ---- the closing card */
+  #card { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; text-align: center; opacity: 0; pointer-events: none; }
+  #card .mark { position: static; font-size: 46px; gap: 18px; }
+  #card .mark img { width: 68px; height: 68px; }
+  #card h2 { margin-top: 46px; font: 700 128px/.96 var(--display); letter-spacing: -.03em; }
+  #card p { margin-top: 54px; padding: 14px 34px; border: 2px solid rgba(241, 246, 238, .42); border-radius: 999px; font: 600 34px/1.2 var(--ui); }
+
+  /* ---- wide cut, 1920 x 1080: the words on the left, the window on the right */
+  .wide .mark { left: 84px; top: 92px; }
+  .wide #cap { left: 84px; width: 420px; top: 50%; transform: translateY(-50%); }
+  .wide #win { left: 548px; top: 104px; width: 1300px; height: 900px; }
+
+  /* ---- phone cut, 1080 x 1350: the words above, the window below, everything larger */
+  .phone .mark { left: 52px; top: 50px; font-size: 34px; }
+  .phone .mark img { width: 50px; height: 50px; }
+  .phone #cap { left: 52px; right: 52px; top: 142px; }
+  .phone #cap h1 { font-size: 78px; }
+  .phone #cap p { margin-top: 20px; font-size: 34px; }
+  .phone #win { left: 40px; top: 452px; width: 1000px; height: 858px; }
+  .phone #tabs { left: 40px; }
+  .phone #tabs i { --tall: 42px; width: 100px; }
+  .phone #tabs svg { width: 23px; height: 23px; }
+  .phone #cur { width: 48px; height: 48px; transform-origin: 8px 6px; }
+  .phone #ring { width: 120px; height: 120px; margin: -60px 0 0 -60px; }
+  .phone #card h2 { font-size: 112px; }
+  .phone #card p { font-size: 40px; padding: 18px 40px; }
+</style>
+
+<div class="mark"><img src="icon.svg" alt="">Weftday</div>
+<div id="cap"><h1></h1><p></p></div>
+
+<div id="win">
+  <!-- the same four tabs, with the same pictures, as the cards on the website -->
+  <div id="tabs">
+    <i data-tab="record"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" fill="currentColor"/></svg></i>
+    <i data-tab="notes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 7h12M6 12h12M6 17h7"/></svg></i>
+    <i data-tab="calendar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5.5" width="16" height="14" rx="3"/><path d="M4 10.5h16M8.5 3.5v4M15.5 3.5v4"/></svg></i>
+    <i data-tab="people"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 19.5c.8-3.4 3.5-5.5 7-5.5s6.2 2.1 7 5.5"/></svg></i>
+  </div>
+  <div id="lens">
+    <img id="live" alt=""><img id="still" alt="">
+    <div id="ring"></div>
+    <svg id="cur" viewBox="0 0 28 28"><path d="M6 3.5v19.2l5.1-4.6 3.2 7.3 3.3-1.4-3.2-7.2 6.9-.5z" fill="#17201b" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"/></svg>
+  </div>
+</div>
+
+<div id="card">
+  <div class="mark"><img src="icon.svg" alt="">Weftday</div>
+  <h2>Your day,<br>woven together.</h2>
+  <p>weftday.crckd.live</p>
+</div>
+
+<script>
+// Everything the clip script can ask of the stage. Times are seconds from the start of the clip.
+const stage = (() => {
+  const $ = s => document.querySelector(s);
+  const q = new URLSearchParams(location.search);
+  document.body.className = q.get('cut') === 'phone' ? 'phone' : 'wide';
+  const win = $('#win'), live = $('#live'), still = $('#still'), cur = $('#cur'), ring = $('#ring'), card = $('#card'), cap = $('#cap');
+  const lensW = win.offsetWidth, lensH = win.offsetHeight;
+  let appW = 0, appH = 0;
+
+  // ---- moves. A "line" is one thing that changes over time (the camera, the cursor, a fade). It holds a
+  // list of moves; at any time its value is where the latest move that has started has got to.
+  const ease = {
+    line: u => u,
+    inout: u => u < .5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2,   // gentle start and stop: the camera
+    out: u => 1 - Math.pow(1 - u, 3),                                        // quick start, soft landing: fades
+    hand: u => u < .5 ? 8 * u * u * u * u : 1 - Math.pow(-2 * u + 2, 4) / 2, // a little snappier: the cursor
+  };
+  const lines = {};
+  const value = (name, t) => {
+    const l = lines[name]; let v = l.start;
+    for (const m of l.moves) {
+      if (t < m.t0) break;
+      const u = m.dur > 0 ? Math.min(1, (t - m.t0) / m.dur) : 1, e = ease[m.ease](u);
+      v = m.from.map((a, i) => a + (m.to[i] - a) * e);
+      if (m.arc && u < 1) { // the cursor travels in a slight curve, the way a hand moves it
+        const dx = m.to[0] - m.from[0], dy = m.to[1] - m.from[1], bow = Math.sin(Math.PI * e) * m.arc;
+        v[0] += -dy * bow; v[1] += dx * bow;
+      }
+    }
+    return v;
+  };
+  const set = (name, v) => { lines[name] = { start: v, moves: [] }; };
+  const move = (name, t0, dur, to, how = 'inout', arc = 0) => {
+    lines[name].moves.push({ t0, dur, from: value(name, t0), to, ease: how, arc });
+  };
+  set('cam', [0, 0, 0]);    // the middle of what the window shows, in the app's own pixels, and log(zoom)
+  set('cur', [0, 0]);       // where the cursor's tip is, in the app's own pixels
+  set('curOn', [0]);        // 1 while the cursor shows
+  set('still', [0]);        // 1 while a still picture of the last scene covers the window
+  set('card', [0]);         // 1 while the closing card covers everything
+  set('capOn', [1]);        // the words fade out and in around a change
+  for (const k of ['record', 'notes', 'calendar', 'people']) set('tab-' + k, [0]);
+  let clicks = [], words = [];
+  const shown = img => src => new Promise(done => { img.onload = done; img.src = src; });
+
+  // The camera never shows past the edge of the app, and never zooms out further than filling the window.
+  const fit = ([cx, cy, lz]) => {
+    const z = Math.max(Math.exp(lz), lensW / appW, lensH / appH), vw = lensW / z, vh = lensH / z;
+    return [Math.min(appW - vw / 2, Math.max(vw / 2, cx)), Math.min(appH - vh / 2, Math.max(vh / 2, cy)), z];
+  };
+
+  return {
+    // Told the size of the app; waits for the typefaces; answers with the size of the window.
+    async setup(w, h) {
+      appW = w; appH = h;
+      await document.fonts.load('700 72px "Bricolage Grotesque"'); await document.fonts.load('500 27px Figtree'); await document.fonts.load('600 34px Figtree');
+      await document.fonts.ready;
+      return { w: lensW, h: lensH };
+    },
+    // Where things are at the very start (no move, no fade).
+    start(t0, cam, head, sub) {
+      move('cam', t0, 0, [cam[0], cam[1], Math.log(cam[2])]); move('capOn', t0, 0, [1]); words.push({ t: t0, head, sub });
+      for (const k of ['record', 'notes', 'calendar', 'people']) move('tab-' + k, t0, 0, [0]);
+    },
+    cam(t0, dur, cx, cy, zoom) { move('cam', t0, dur, [cx, cy, Math.log(zoom)]); },
+    jump(t0, cx, cy, zoom) { move('cam', t0, 0, [cx, cy, Math.log(zoom)]); },
+    cursor(t0, dur, x, y) { move('cur', t0, dur, [x, y], 'hand', dur ? .07 : 0); },
+    cursorShow(t0, on) { move('curOn', t0, .25, [on ? 1 : 0], 'out'); },
+    click(t0) { clicks.push(t0); },
+    // New words: the old ones fade out, the new ones rise in. "tab" names the tab that stands up, if any.
+    say(t0, head, sub, tab) {
+      move('capOn', t0, .28, [0], 'out'); words.push({ t: t0 + .28, head, sub }); move('capOn', t0 + .28, .5, [1], 'out');
+      for (const k of ['record', 'notes', 'calendar', 'people']) move('tab-' + k, t0 + .1, .5, [k === tab ? 1 : 0], 'out');
+    },
+    // The newest picture of the app goes into the window.
+    put: shown(live),
+    // A copy of the picture in the window is laid over it, so the app can change underneath, unseen.
+    async hold(t0) { await shown(still)(live.src); move('still', t0, 0, [1]); },
+    release(t0, dur) { move('still', t0, dur, [0], 'inout'); },
+    card(t0, dur, on) { move('card', t0, dur, [on ? 1 : 0], 'inout'); },
+    // How far apart two finished frames are: the largest difference in any colour of any dot, from 0 to 255.
+    async alike(a, b) {
+      const dots = await Promise.all([a, b].map(async name => {
+        const picture = await createImageBitmap(await (await fetch('frames/' + name)).blob());
+        const canvas = new OffscreenCanvas(picture.width, picture.height), pen = canvas.getContext('2d');
+        pen.drawImage(picture, 0, 0); return pen.getImageData(0, 0, picture.width, picture.height).data;
+      }));
+      let most = dots[0].length === dots[1].length ? 0 : 255;
+      for (let i = 0; i < dots[0].length && most < 255; i++) most = Math.max(most, Math.abs(dots[0][i] - dots[1][i]));
+      return most;
+    },
+
+    // Draws everything as it is at time t. Answers with the part of the app the camera is looking at (to be
+    // photographed and put in the window), where the cursor's tip is in the app (for the real mouse), and
+    // whether most of the picture is changing at this moment (the camera is moving, or one scene is fading
+    // into the next): the packing gives such frames less detail, since nobody can read them anyway.
+    frame(t) {
+      const [cx, cy, z] = fit(value('cam', t));
+      // The picture is moved by whole pixels only: every frame stays sharp, and a frame that is the last one
+      // moved a little sideways takes almost no room in the video file.
+      const ox = Math.round(lensW / 2 - cx * z), oy = Math.round(lensH / 2 - cy * z);
+
+      const [ax, ay] = value('cur', t), mx = ox + ax * z, my = oy + ay * z, on = value('curOn', t)[0];
+      let press = 1;
+      ring.style.opacity = 0;
+      for (const c of clicks) {
+        const u = (t - c) / .55; if (u < 0 || u >= 1) continue;
+        ring.style.opacity = (1 - u) * (1 - u);
+        ring.style.transform = `translate(${mx}px, ${my}px) scale(${.25 + .75 * ease.out(u)})`;
+        if (u < .28) press = .86;
+      }
+      cur.style.opacity = on; cur.style.transform = `translate(${mx - 6}px, ${my - 4}px) scale(${press})`;
+
+      const w = words.filter(x => x.t <= t).pop(), capOn = value('capOn', t)[0];
+      if (cap.dataset.head !== w.head) { cap.dataset.head = w.head; cap.querySelector('h1').textContent = w.head; cap.querySelector('p').textContent = w.sub; }
+      cap.style.opacity = capOn; cap.style.translate = `0 ${(1 - capOn) * 16}px`;
+      for (const el of document.querySelectorAll('#tabs i')) {
+        const up = value('tab-' + el.dataset.tab, t)[0];
+        el.style.height = `calc(var(--tall) * ${.58 + .42 * up})`; el.style.opacity = .5 + .5 * up; el.firstElementChild.style.opacity = up;
+      }
+      still.style.opacity = value('still', t)[0];
+      const c = value('card', t)[0];
+      card.style.opacity = c;
+      // The three lines of the closing card rise in one after the other.
+      [...card.children].forEach((el, i) => { const u = ease.out(Math.min(1, Math.max(0, c * 1.9 - i * .3))); el.style.opacity = u; el.style.translate = `0 ${(1 - u) * 22}px`; });
+
+      const before = t - 1 / 30, busy = ['cam', 'still', 'card'].some(name => value(name, t).some((v, i) => Math.abs(v - value(name, before)[i]) > 1e-6));
+      return { view: { x: -ox / z, y: -oy / z, width: lensW / z, height: lensH / z, scale: z }, x: ax, y: ay, on: on > .5, busy };
+    },
+  };
+})();
+</script>
+</html>
