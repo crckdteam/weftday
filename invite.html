@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-src 'none'">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#edf1ea" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111613" media="(prefers-color-scheme: dark)">
+<title>You are invited to Weftday</title>
+<meta name="description" content="One calm place for your calendar, your meetings and your notes. Free and open source. Open the invite to get started.">
+<!-- what a chat app shows when this link is pasted into it -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Weftday">
+<meta property="og:title" content="You are invited to Weftday">
+<meta property="og:description" content="One calm place for your calendar, your meetings and your notes. Press Record, and the notes write themselves. Free and open source.">
+<meta property="og:url" content="https://app.weftday.crckd.live/invite">
+<meta property="og:image" content="https://weftday.crckd.live/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="site.css">
+<style>
+  body { min-height: 100dvh; display: grid; grid-template-rows: auto 1fr auto; }
+  main { display: grid; place-items: center; padding: 12px 16px 40px; }
+  .invite { width: min(34rem, 100%); }
+  .invite > img { border-radius: 14px; display: block; }
+  .invite h1 { margin-top: 18px; }
+  .invite .lead { color: var(--muted); font-size: 17px; margin-bottom: 0; }
+  .steps3 { list-style: none; margin: 24px 0 0; padding: 0; display: grid; gap: 10px; counter-reset: s; }
+  .steps3 li { counter-increment: s; display: grid; grid-template-columns: 28px 1fr; gap: 12px; align-items: start; margin: 0; max-width: none; }
+  .steps3 li::before { content: counter(s); width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700;
+    background: color-mix(in srgb, var(--accent) 14%, transparent); color: color-mix(in srgb, var(--accent) 80%, var(--text)); }
+  .steps3 b { display: block; }
+  .steps3 span { color: var(--muted); font-size: 14.5px; }
+  .invite .go { display: grid; gap: 10px; margin-top: 26px; }
+  .invite .go .btn { height: 50px; font-size: 16px; }
+  .invite .yours { margin-top: 22px; }
+  .invite .go + .yours { margin-top: 16px; }
+  .invite [hidden] { display: none; }
+  @media (max-width: 620px) { .topbar .btn.small { height: 44px; } }
+</style>
+<script type="module" src="invite.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="https://weftday.crckd.live/"><img src="icon.svg" alt="" width="28" height="28">Weftday</a>
+  <span class="sp"></span>
+  <a class="btn small quiet" href="https://weftday.crckd.live/">What is Weftday?</a>
+</header>
+<main><div class="sheet invite">
+  <img src="icon.svg" width="52" height="52" alt="">
+  <h1 id="title">You are invited to Weftday</h1>
+  <p class="lead" id="lead">One calm place for your calendar, your meetings and your notes. Press Record, and the notes write themselves.</p>
+  <ol class="steps3" id="steps">
+    <li><div><b>Accept the invite</b><span>Weftday opens in this browser, ready to use.</span></div></li>
+    <li><div><b>Connect your Google account</b><span>Your own calendar shows up. Google shows a “not verified” notice the first time: choose Advanced, then Go to Weftday.</span></div></li>
+    <li><div><b>Add your free AI key</b><span>About a minute. It is what writes your notes.</span></div></li>
+  </ol>
+  <div class="yours" data-yours="general"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg><p><b>Yours stays yours.</b> Your calendar, notes and recordings are kept in this browser and in your own Google account. Weftday has no server that can see them.</p></div>
+  <div class="go">
+    <button type="button" class="btn primary" id="accept">Accept and open Weftday</button>
+    <a class="btn" id="open" href="./" hidden>Open Weftday</a>
+  </div>
+  <div class="yours" data-yours="invite" id="small"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg><p><b>An invite only saves you the setup.</b> Whoever invited you cannot see your calendar, your notes or your recordings.</p></div>
+</div></main>
+<footer class="foot">
+  <p class="fmark"><img src="icon.svg" alt="" width="22" height="22">Weftday <span>A <a href="https://www.crckd.live" rel="noopener">CRCKD</a> product.</span></p>
+  <nav aria-label="More"><a href="https://weftday.crckd.live/">Website</a><a href="guide.html">Guide</a><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a><a href="https://github.com/crckdteam/weftday" rel="noopener">GitHub</a></nav>
+</footer>
+</body>
+</html>

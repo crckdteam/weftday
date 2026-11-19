@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-src 'none'">
+<title>Weftday privacy policy</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#edf1ea" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111613" media="(prefers-color-scheme: dark)">
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="https://weftday.crckd.live/"><img src="icon.svg" alt="" width="28" height="28">Weftday</a>
+  <span class="sp"></span>
+  <a class="btn small quiet hide-s" href="https://weftday.crckd.live/">Website</a>
+  <a class="btn small quiet hide-s" href="guide.html">Guide</a>
+  <a class="btn small primary" href="./">Open Weftday</a>
+</header>
+<main class="doc"><article class="sheet">
+<h1>Weftday privacy policy</h1>
+<p class="muted">Last updated: 16 November 2026</p>
+
+<p class="lead">Weftday is one calm place for your calendar, your meetings and your notes. It runs entirely in your web browser. This page explains what happens to your information when you use it.</p>
+
+<h2>The short version</h2>
+<p>Weftday has no server of its own. Your calendar events, tasks and sign-in details stay in your browser and in your own Google account. The people who made Weftday cannot see them, and they are not sold, shared or used for advertising.</p>
+
+<h2>What Weftday accesses</h2>
+<ul>
+<li><b>Google Calendar.</b> When you connect a Google account, Weftday asks for access to your calendars. It uses this to show your events, to create, change or delete events when you ask it to, to send your replies to invitations, and to keep a calendar called “Weftday” that holds your tasks.</li>
+<li><b>Your email address.</b> Weftday reads the address of each account you connect so it can label that account on screen.</li>
+</ul>
+
+<h2>Where your information is kept</h2>
+<ul>
+<li><b>In your browser.</b> Your tasks, settings, a short-lived copy of this week’s events, and the keys that let Weftday reach your Google account are stored in your browser’s local storage on your own device.</li>
+<li><b>In your Google account.</b> If you choose it, your tasks are also saved as events in the “Weftday” calendar in your own Google account.</li>
+<li><b>Your meeting notes.</b> Notes you write on a meeting, and what you write about a person, are kept in your browser. If your tasks are saved to Google, each note is also kept as a hidden entry in that same “Weftday” calendar so your other devices can show it. Notes are never written to the meeting itself, so other guests cannot see them.</li>
+<li><b>Your account list, if you switch it on.</b> The setting “Keep my accounts the same on all my devices” is off unless you turn it on. When it is on, the list of Google accounts you have connected, together with the keys that let Weftday reach them and any AI or search keys you added in Settings, is encrypted and kept in a hidden entry of that same “Weftday” calendar, so your other devices can read it. It never leaves your own Google account. Turning the setting off deletes that entry.</li>
+</ul>
+<p>Your browser sends requests straight to Google. Nothing passes through, or is stored on, any server run by Weftday.</p>
+
+<h2>Looking people up</h2>
+<p>When you open a meeting, Weftday asks Google Calendar for your own past meetings with the people in it, to show how often you have met. The “LinkedIn”, “Google” and “Website” links next to a person do nothing until you press one. Pressing one opens that site in a new tab and searches for the person’s name and company there. Apart from the pictures described under “Photos and logos” and the AI features below, Weftday itself sends nothing about the people you meet to anyone.</p>
+
+<h2>AI features</h2>
+<p><b>Tidy my notes</b> works only when you press it. If you have added an AI key in Settings, the note is then sent to that AI service, which answers with the tidied version. Without a key, it uses the AI model built into your browser where the browser has one; that runs on your own device and nothing is sent.</p>
+<p><b>Asking about a note</b>, in the bar at the foot of a note, sends that note, what was said in its recording if it has one, and your question to the AI service of your key, for that one answer. <b>Write follow-up email</b> sends the meeting’s note, what was said in its recording if it has one, and the names of the people it is for to that AI service, which writes the email; you read and change it before it opens as a draft in your own Gmail, and nothing is sent to anyone until you press Send there. Without a key, the email is put together from your note on your device. <b>What should I raise?</b>, in a meeting’s brief, sends your notes with the people in that meeting, what is still open with them and the facts saved about them. Each of these happens only when you press its button.</p>
+<p><b>Ask AI</b>, next to a person in a meeting, does nothing until you press it. Pressing it opens the AI app you chose in Settings (Claude, ChatGPT or Perplexity) with a question that contains the person’s name, their company and the meeting’s title. From then on that app’s own privacy terms apply.</p>
+
+<p><b>Get facts</b>, on a person’s page, works only if you have added your own Google AI key in Settings, and runs when you press it (or by itself for today’s guests, as described below). Your browser then sends the person’s name, their company and the meeting’s title straight to Google’s Gemini API, which returns a short brief. With a free key, Google’s AI reads the company’s own website, and your browser asks Wikipedia for its summary of the company. If you also add your own free search key, your browser sends search questions about the person and the company to that search service (Tavily) and passes the results to Google’s AI. With a Google key that has billing switched on, Google Search is used instead. Google says it may use what is sent with a free key to improve its products. The key is kept in your browser. Google’s terms for that key apply to what is sent.</p>
+
+<p>In Settings you can choose another AI service for Get facts, with your own key for it: Claude (Anthropic), OpenAI, Perplexity, Groq, OpenRouter, Mistral, DeepSeek or xAI, or Ollama, which runs on your own computer so nothing leaves it. The same details then go to that service instead of Google, and its terms apply. Claude, OpenAI and Perplexity search the web for them by themselves; the others write from the results of the search service you chose (Tavily, Serper, Linkup, Firecrawl or Jina), which receives the search questions. Every key is kept only in your browser. Nothing goes to an AI until you add your own key. Once you have, the setting “Look up today’s guests by itself” is on unless you switch it off in Settings → AI: Weftday then sends those details for the guests in today’s meetings without you pressing anything, so their pages are ready, and people at your own company are skipped. Everything else on this page waits for a press.</p>
+
+<h2>Photos and logos</h2>
+<p>When you open a person’s profile or a meeting brief, Weftday shows the company’s logo and, if there is one, the person’s photo. The logo is the company website’s icon, loaded from Google’s site-icon service, which is told the company’s web address. The photo is loaded from Gravatar, which is sent a scrambled form (a hash) of the person’s email address. If you use Get facts with a Tavily search key, Weftday also asks Tavily for pictures of that name and, when one clearly belongs to the person, shows it; the picture is then loaded from the website it is on, without telling that website which page asked. You can change or remove a photo on the person’s profile. Photos are never taken from LinkedIn. You can switch both off in Settings → Look.</p>
+
+<h2>Adding tasks in your own words</h2>
+<p>The ✨ button in “Add a task” sends what you typed in that box, with today’s date and your working hours, to the AI service you chose in Settings, which answers with a list of tasks. Nothing else is sent: not your calendar, not your other tasks. With no AI key, Chrome’s built-in AI is used where the browser has one, and then nothing leaves your device. You see the tasks before they are added.</p>
+
+<h2>Recordings and screenshots</h2>
+<p>Weftday can record a browser tab, a window or your screen with its sound, your microphone and your camera, and it can keep single screenshots. You choose what is recorded in the box your browser shows, and you start and stop it yourself. The camera is on only while the Record box shows its picture or a recording that uses it is running. Recordings and screenshots are kept in this browser’s own storage on this device. They are not uploaded and not copied to your other devices. Only when you press “Write the notes”, or have switched on “Write my notes when it ends” for that recording, is its sound sent, in short pieces, to Google’s AI with your own key, which writes down what was said. To write notes that fit the meeting, the names and roles of the people in it, your own notes of it, and the summary and open action points of your last meeting with the same people are sent along. Asking a question about a recording sends its written text and your question the same way. If Google’s AI is busy or has reached its free limit, the written text (never the sound) goes instead to another AI service you have saved a key for in Settings. You are responsible for telling the other people in a meeting that you are recording.</p>
+<p>“Share link” is the one thing that puts a recording somewhere else: it uploads a copy to your own Google Drive, into a folder called “Weftday recordings”, and asks Google to let anyone who has the link open it. That happens only when you press it. For this, Google asks you once to let Weftday add files to your Drive; Weftday can see only the files it put there itself, nothing else in your Drive. “Stop sharing” removes the copy from Drive, and the link stops working.</p>
+
+<h2>Follow-up emails and free times</h2>
+<p>“Follow-up email” on a meeting opens a draft in your own Gmail, written from your notes and addressed to the guests. Weftday does not send anything: you read the draft and send it yourself. “Share my free times” only writes a short text for you to copy; nothing is sent anywhere.</p>
+
+<h2>What Weftday does not do</h2>
+<ul>
+<li>It does not send your calendar data or tasks to anyone other than Google.</li>
+<li>It does not use analytics, advertising or tracking.</li>
+<li>It does not use your Google data to train AI models.</li>
+</ul>
+<p>Weftday’s use of information received from Google APIs follows the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
+
+<h2>Invites</h2>
+<p>Weftday is invite-only for now. If you ask for an invite by WhatsApp or email, we see only what you send us there, and use it only to send your invite. An invite link carries the sign-in setup of whoever made it, so you can skip that setup. It gives them no way to see your calendar, your notes or your recordings. A browser that took an invite does not show that setup on screen; it is kept in the browser, because signing in needs it. To use Weftday on your own phone too, Settings → Accounts → “Use Weftday on my phone too” shows a square and a one-time code that work only for 15 minutes.</p>
+
+<h2>Hosting</h2>
+<p>The app’s files are delivered by GitHub Pages. Like any web host, GitHub may record technical details such as your IP address when your browser downloads those files. See <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub’s privacy statement</a>.</p>
+
+<h2>Removing your information</h2>
+<ul>
+<li>To disconnect an account, use “Remove” next to it in Weftday, or remove Weftday at <a href="https://myaccount.google.com/connections">myaccount.google.com/connections</a>.</li>
+<li>To erase what is stored on a device, clear this site’s data in your browser settings.</li>
+<li>To remove your saved tasks from Google, delete the “Weftday” calendar in Google Calendar.</li>
+</ul>
+
+<h2>Questions and support</h2>
+<p>Open an issue at <a href="https://github.com/crckdteam/weftday/issues">github.com/crckdteam/weftday</a>.</p>
+</article></main>
+<footer class="foot">
+  <p class="fmark"><img src="icon.svg" alt="" width="22" height="22">Weftday <span>A <a href="https://www.crckd.live" rel="noopener">CRCKD</a> product.</span></p>
+  <nav aria-label="More"><a href="https://weftday.crckd.live/">Website</a><a href="guide.html">Guide</a><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a><a href="https://github.com/crckdteam/weftday" rel="noopener">GitHub</a><a href="https://github.com/crckdteam/weftday/issues" rel="noopener">Help</a></nav>
+</footer>
+</body>
+</html>
