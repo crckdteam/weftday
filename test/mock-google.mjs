@@ -118,8 +118,8 @@ http.createServer(async (req, res) => {
       return json(res, 200, { ok: true });
     }
     if (p === '/mock/grant') { const b = await readBody(req); user(b.acct || 'me@test.dev').drive = b.drive !== false; return json(res, 200, { ok: true }); }
-    // somebody else's calendar, named like the app's own and shared with full rights
-    if (p === '/mock/lookalike') { const b = await readBody(req), u = user(b.acct || 'me@test.dev'); u.calendars.push({ id: 'lookalike', summary: b.name || 'Weftday', primary: false, accessRole: 'owner', dataOwner: 'someone@else.dev' }); u.events.lookalike = []; return json(res, 200, { ok: true }); }
+    // somebody else's calendar, named like the app's own and shared with full rights (own: true makes it the person's own)
+    if (p === '/mock/lookalike') { const b = await readBody(req), u = user(b.acct || 'me@test.dev'); const id = b.id || 'lookalike'; u.calendars.push({ id, summary: b.name || 'Weftday', primary: false, accessRole: 'owner', dataOwner: b.own ? (b.acct || 'me@test.dev') : 'someone@else.dev' }); u.events[id] = []; return json(res, 200, { ok: true }); }
     if (p === '/mock/driveoff') { db.driveOff = (await readBody(req)).off !== false; return json(res, 200, { ok: true }); }
     if (p.startsWith('/mock/drive/v3/') || p.startsWith('/mock/upload/drive/v3/')) return await drive(req, res, url, p);
     if (p.startsWith('/mock/calendar/v3/')) return await api(req, res, url);

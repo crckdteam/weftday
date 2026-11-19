@@ -496,6 +496,105 @@ def invite_only_checks(browser):
     nk.close()
 
 
+def teams_checks(browser):
+    """The Teams calendar button: with no Google account, with one, and once the helper is in place."""
+    CID, SEC = '123456789012-abcdefghijklmnopqrstuvwxyz012345.apps.googleusercontent.com', 'PRETEND-abc_DEF-123456789'
+    gate = "localStorage.setItem('weftday.gate','1');"
+    # nobody connected, and no invite yet
+    ctx = browser.new_context(viewport={'width': 1440, 'height': 860})
+    ctx.add_init_script(SEEN + QUIET + gate)
+    pg = open_real(ctx, 'teams, no invite')
+    check('the Teams button is marked Beta', pg.locator('#teamsBtn .beta').inner_text().lower() == 'beta'
+          and 'Add Teams calendar' in pg.locator('#teamsBtn').inner_text())
+    pg.click('#teamsBtn')
+    pg.wait_for_timeout(400)
+    first = pg.locator('#dlg .teamsfirst')
+    check('with no Google account, the Teams button says Google comes first, and asks for access',
+          first.count() == 1 and 'connect your Google account first' in first.inner_text() and 'invite-only for now' in first.inner_text()
+          and first.locator('[data-x=go]').inner_text() == 'Request access' and first.locator('.beta').count() == 1,
+          pg.locator('#dlg').inner_text()[:200])
+    pg.screenshot(path=os.path.join(OUT, 'teams-first.png'))
+    first.locator('[data-x=go]').click()
+    pg.wait_for_timeout(400)
+    check('its button opens the Request access box', dialog_open(pg) and pg.locator('#dlg .access').count() == 1)
+    ctx.close()
+
+    # nobody connected, on a copy that is not invite-only
+    plain = browser.new_context(viewport={'width': 1440, 'height': 860})
+    plain.add_init_script(SEEN + QUIET)
+    lp = open_real(plain, 'teams, own copy')
+    lp.click('#teamsBtn')
+    lp.wait_for_timeout(400)
+    go = lp.locator('#dlg .teamsfirst [data-x=go]')
+    said = go.inner_text() if go.count() else ''
+    if go.count():
+        go.click()
+        lp.wait_for_timeout(400)
+    check('on a copy of your own it offers to connect Google, and goes to the setup', said == 'Connect Google account'
+          and lp.locator('#dlg #clientIdBox').is_visible(), said)
+    plain.close()
+
+    # a Google account connected, the helper not set up yet
+    acct = {'id': 'me@test.dev', 'email': 'me@test.dev', 'color': '#2f6fed', 'calendars': [], 'refreshToken': 'rt:me@test.dev', 'accessToken': '', 'expiresAt': 0}
+    start = {'settings': {'clientId': CID, 'clientSecret': SEC}, 'accounts': [acct]}
+    mine = browser.new_context(viewport={'width': 1440, 'height': 860})
+    mine.add_init_script(SEEN + QUIET + 'delete self.LanguageModel;'
+                         + f"if (!localStorage.getItem('planner.v1')) localStorage.setItem('planner.v1', {json.dumps(json.dumps(start))});")
+    mp = mine.new_page()
+    watch(mp, 'teams, connected')
+    mp.request.post(BASE + '/mock/reset')
+    mp.goto(BASE + '/')
+    mp.wait_for_load_state('networkidle')
+    mp.wait_for_timeout(1200)
+    close_dialog(mp)
+    mp.click('#teamsBtn')
+    mp.wait_for_timeout(400)
+    intro = mp.locator('#dlg').inner_text()
+    mp.click('#dlg [data-x=next]')
+    mp.wait_for_timeout(250)
+    mp.click('#dlg [data-x=next]')
+    mp.wait_for_timeout(250)
+    step2 = mp.locator('#dlg').inner_text()
+    check('with a Google account and no helper yet, it walks through the setup and names the account to use',
+          'See your Teams meetings here' in intro and 'step 2 of 4' in step2.lower() and 'me@test.dev' in step2, step2[:200])
+    close_dialog(mp)
+
+    # the helper has made its "Teams" calendar
+    mp.request.post(BASE + '/mock/lookalike', data={'acct': 'me@test.dev', 'name': 'Teams', 'id': 'teams1', 'own': True})
+    mp.reload()
+    mp.wait_for_load_state('networkidle')
+    wait_until(mp, "document.querySelector('#teamsBtn span')?.textContent === 'Teams calendar'", 8000)
+    close_dialog(mp)
+    mp.click('#teamsBtn')
+    mp.wait_for_selector('#dlg [name=ics]', timeout=5000)
+    box = mp.locator('#dlg').inner_text()
+    check('once the helper is in place, the button asks only for the calendar link, and says where it is kept',
+          'Teams calendar' in box and 'me@test.dev' in box and 'Keep this link private' in box, box[:200])
+    mp.fill('#dlg [name=ics]', 'https://outlook.office365.com/owa/calendar/abc/def/calendar.html')
+    mp.click('#dlg button.primary')
+    mp.wait_for_timeout(300)
+    wrong = mp.evaluate("document.querySelector('#toast.show')?.innerText || ''")
+    link = 'https://outlook.office365.com/owa/calendar/abc/def/calendar.ics'
+    mp.fill('#dlg [name=ics]', link)
+    mp.click('#dlg button.primary')
+    wait_until(mp, "!document.querySelector('#dlg').open || document.querySelector('#dlg').classList.contains('closing')", 6000)
+    cal = next((c for c in mp.request.get(BASE + '/mock/dump').json()['users']['me@test.dev']['calendars'] if c['id'] == 'teams1'), {})
+    check('the web page link is refused with what to copy instead, and the .ics link is saved where the helper reads it',
+          'ends in .ics' in wrong and cal.get('description') == link, f"{wrong} | {cal.get('description')}")
+    mine.close()
+
+    # a phone: the first box fits, with big enough buttons
+    ph = browser.new_context(viewport={'width': 390, 'height': 844}, is_mobile=True, has_touch=True)
+    ph.add_init_script(SEEN + QUIET + gate)
+    pp = open_real(ph, 'teams phone')
+    pp.evaluate("document.querySelector('#teamsBtn').click()")
+    pp.wait_for_timeout(400)
+    fit = fits_with_big_targets(pp, '#dlg')
+    pp.screenshot(path=os.path.join(OUT, 'teams-first-phone.png'))
+    check('on a phone the Teams box fits, every button 44px or more', fit['wide'] and not fit['small'], json.dumps(fit))
+    ph.close()
+
+
 def nudge_checks(browser):
     """Switching AI on: the nudges while there is no key, the search key after it, the Settings split."""
     today = datetime.date.today().isoformat()
@@ -1258,6 +1357,7 @@ def run(p):
     note_page_checks(browser)
     nudge_checks(browser)
     invite_only_checks(browser)
+    teams_checks(browser)
 
     # ---- a feature that needs an AI key, pressed before there is one: one clear box, one way forward
     nokey = browser.new_context(viewport={'width': 1440, 'height': 860})  # a browser that has never had a key

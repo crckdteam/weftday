@@ -1528,6 +1528,11 @@ dialog.accessbox { width: min(440px, calc(100vw - 24px)); }
 .phalt span { flex: 1 1 200px; color: var(--muted); font-size: 13px; }
 .phalt .btn { flex: none; }
 
+/* ---- "Beta": a small quiet mark next to something still being proven */
+.beta { display: inline-block; margin-left: 7px; padding: 1px 7px 2px; border: 1px solid var(--line); border-radius: 999px; background: var(--shade);
+  color: var(--muted); font: 650 10.5px/1.4 var(--ui); font-style: normal; letter-spacing: .04em; text-transform: uppercase; vertical-align: middle; white-space: nowrap; }
+h3 .beta { position: relative; top: -2px; }
+
 /* ================= phones, the last word =================
    The look above was written for a computer and, coming later in the file, had quietly undone some
    of the phone rules further up. Everything a phone needs to be different is gathered here, last,
@@ -1681,3 +1686,4 @@ p kbd, .note kbd { display: inline-block; min-width: 0; height: auto; padding: 1
 .needkey .aimark { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 13px; margin-bottom: 12px; color: var(--h-task); background: color-mix(in srgb, var(--h-task) 15%, transparent); }
 .needkey h3 { font-family: var(--display); font-size: 22px; letter-spacing: -.02em; margin-bottom: 8px; }
 .needkey p { max-width: 44ch; text-wrap: pretty; }
+@media (max-width: 640px) { .teamsfirst .actions .btn { min-height: 44px; } }

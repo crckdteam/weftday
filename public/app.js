@@ -586,6 +586,7 @@ function renderSide() {
   }
   h += '</div>';
   document.body.classList.toggle('has-accts', state.accounts.length > 0);
+  $('#teamsBtn span').textContent = !DEMO && teamsCalendar() ? 'Teams calendar' : '+ Add Teams calendar';
   el.side.innerHTML = h;
 }
 
@@ -2809,15 +2810,33 @@ function teamsCalendar() { // the "Teams" calendar the helper made, looking in t
   }
   return null;
 }
+const BETA = '<span class="beta">Beta</span>';
+// The Google accounts the helper can be found in (connected, and not waiting to be reconnected).
+const teamsHomes = () => state.accounts.filter(a => !a.needsReconnect);
 function openTeams() {
-  const found = DEMO ? null : teamsCalendar();
+  if (DEMO) return openTeamsSetup();
+  if (!teamsHomes().length) return openTeamsFirst();
+  const found = teamsCalendar();
   if (found) openTeamsLink(found); else openTeamsSetup();
+}
+// Teams meetings arrive through a calendar in the person's own Google account, so with no Google
+// account connected there is nothing to set up yet: say so, and offer the one step that comes first.
+function openTeamsFirst() {
+  const ask = needsInvite(), again = state.accounts.length > 0;
+  dialog(`<div class="dbody teamsfirst"><h3>Teams calendar ${BETA}</h3>
+    <p>Weftday shows your company’s Teams meetings through a calendar in your own Google account. ${again
+      ? 'Your Google account needs to be connected again first.' : 'So connect your Google account first, then come back here.'}</p>
+    ${ask ? '<p class="note">Weftday is invite-only for now. Connecting your calendar needs an invite.</p>' : ''}
+    <div class="actions"><span class="sp"></span><button type="button" class="btn ghost" data-x="close">Not now</button>
+      <button type="button" class="btn primary" data-x="go">${ask ? 'Request access' : again ? 'Open my accounts' : 'Connect Google account'}</button></div></div>`, {
+    go: () => (again && !ask ? openSettings('Connect your Google account again, then add your Teams calendar.', 'accounts') : connect()),
+  });
 }
 
 // The helper is in place: all that is needed is the calendar link.
 function openTeamsLink({ a, c }) {
   const path = `/calendars/${G.enc(c.id)}`;
-  dialog(`<form class="dbody"><h3>Teams calendar</h3>
+  dialog(`<form class="dbody"><h3>Teams calendar ${BETA}</h3>
     <p class="note">Paste the link to your Teams calendar. Your meetings then show here, to look at only, and update every 15 minutes.</p>
     <label>Outlook calendar link<input name="ics" placeholder="https://outlook.office365.com/…/calendar.ics" autocomplete="off" spellcheck="false"></label>
     <details><summary>Where do I find this link?</summary><ol>
@@ -2826,11 +2845,12 @@ function openTeamsLink({ a, c }) {
       <li>Copy the link that ends in <b>.ics</b> and paste it above.</li>
       <li>If your company has rules about sharing calendars, check that publishing is allowed.</li>
     </ol></details>
-    <p class="note">Keep this link private. Anyone who has it can see your meetings.</p>
+    <p class="note">Keep this link private. Anyone who has it can see your meetings. It is saved in the “Teams” calendar of ${esc(a.email)}, your own Google account. To stop, clear the box and save.</p>
     <div class="actions"><span class="sp"></span><button type="button" class="btn ghost" data-x="close">Cancel</button><button class="btn primary">Save</button></div></form>`, {
     async submit(fd, form) {
       const link = fd.get('ics').trim();
       if (link && LINK_RE.exec(link)?.[0] !== link) return toast('That does not look like an Outlook calendar link.', true);
+      if (/\.html?([?#]|$)/i.test(link)) return toast('That is the link to the web page. Outlook shows two links: copy the one that ends in .ics.', true);
       const btn = $('button.primary', form);
       btn.disabled = true;
       try {
@@ -2853,19 +2873,24 @@ const TEAMS_STEPS = [
     body: 'Weftday uses a small helper that lives in your own Google account. Press the button to copy it.',
     action: '<button type="button" class="btn" data-x="copy">Copy the helper</button>' },
   { title: 'Paste it into Google',
-    body: 'Open Google Apps Script with the Google account you use here. Delete what is in the new project, then paste.',
+    body: 'Open Google Apps Script. Check the round picture at the top right: it must be {account}. Delete what is in the new project, then paste.',
     action: '<a class="btn" href="https://script.google.com/home/projects/create" target="_blank" rel="noopener">Open Google Apps Script</a>' },
   { title: 'Give it calendar access',
     body: 'On the left, press <b>+</b> next to <b>Services</b>. Choose <b>Google Calendar API</b> and press <b>Add</b>.' },
   { title: 'Start it',
-    body: 'At the top, choose <b>install</b> and press <b>Run</b>. Allow access when Google asks.' },
+    body: 'At the top, choose <b>install</b> and press <b>Run</b>. Google asks you to allow it: pick your account, then <b>Advanced</b>, then <b>Go to</b> your project, then <b>Allow</b>. Google shows a warning there because this is your own copy of the helper, which it has not looked at.' },
 ];
+// Which Google account the helper should go into, in words: the one tasks are kept in, else the first.
+function teamsAccount() {
+  const homes = teamsHomes(), a = homes.find(a => a.id === state.settings.plannerAccountId) || homes[0];
+  return a ? `<b>${esc(a.email)}</b>` : 'the Google account you use here';
+}
 function openTeamsSetup(i = -1) {
   if (!teamsCode) fetch('helpers/teams-to-google.gs').then(r => (r.ok ? r.text() : '')).then(t => { teamsCode = t; }).catch(() => {});
   const step = TEAMS_STEPS[i], last = i === TEAMS_STEPS.length - 1;
   const html = step
-    ? `<h4>Step ${i + 1} of ${TEAMS_STEPS.length}</h4><h3>${step.title}</h3><p>${step.body}</p>${step.action ? `<div>${step.action}</div>` : ''}`
-    : `<h3>See your Teams meetings here</h3>
+    ? `<h4>Step ${i + 1} of ${TEAMS_STEPS.length}</h4><h3>${step.title}</h3><p>${step.body.replace('{account}', teamsAccount())}</p>${step.action ? `<div>${step.action}</div>` : ''}`
+    : `<h3>See your Teams meetings here ${BETA}</h3>
        <p>Weftday can show your company’s Teams meetings next to everything else, to look at only.</p>
        <p class="note">Setup takes about 3 minutes and you only do it once. Your company’s IT does not need to approve anything.</p>`;
   dialog(`<div class="dbody">${html}
@@ -2889,7 +2914,7 @@ function openTeamsSetup(i = -1) {
       const found = teamsCalendar();
       if (found) { el.toast.className = ''; return openTeamsLink(found); }
       btn.disabled = false;
-      toast('No “Teams” calendar yet. Check that Run finished without an error, then press this again.', true);
+      toast('No “Teams” calendar yet. Check that Run finished without an error, and that Apps Script was open in a Google account you have connected here. Then press this again.', true);
     },
   });
 }
@@ -3098,7 +3123,7 @@ function openSettings(msg, pane, focus) {
           </div>
           <h4>Other calendars</h4>
           <div class="sgroup">
-            ${row('Teams or Outlook calendar', 'View-only, through a small helper in your Google account', '<button type="button" class="btn" data-x="teams">Add</button>')}
+            ${row(`Teams or Outlook calendar ${BETA}`, 'View-only, through a small helper in your Google account', `<button type="button" class="btn" data-x="teams">${!DEMO && teamsCalendar() ? 'Change link' : 'Add'}</button>`)}
           </div>`)}
 
         ${section('ai', 'AI', 'AI in Weftday runs on a key of your own. It is free, and nobody else sees what you send.', `
@@ -3138,7 +3163,7 @@ function openSettings(msg, pane, focus) {
               ${row('“Ask AI” opens', 'A chat app in a new tab, with a question about the person already typed', select('aiApp', Object.entries(AI_APPS).map(([k, v]) => [k, v[0]]), s.aiApp))}
             </div>
           </details>
-          <p class="note">Nothing goes to an AI until you add your own key. From then on, looking up today’s guests is on unless you switch it off; everything else waits for a press. Keys are kept only in this browser.</p>
+          <p class="note">Nothing goes to an AI until you add your own key. From then on, looking up today’s guests is on unless you switch it off; everything else waits for a press. ${s.shareAccounts ? 'Keys are kept in this browser and, locked, in your own Google account so your other devices have them.' : 'Keys are kept only in this browser.'}</p>
           </div>
           <div class="aiside" data-side="does"${aiFirst === 'does' ? '' : ' hidden'}>
           <div class="sgroup aido">

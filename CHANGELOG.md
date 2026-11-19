@@ -15,6 +15,17 @@ always the latest version, so changes are grouped by the day they were made. A n
 - **A Checks workflow on GitHub:** the secrets check and the quick checks run on every push to
   `main` and every pull request.
 - **A page in `docs/` on publishing,** including where the README's pictures come from.
+- **Invite links.** Settings, Accounts gives out one link. Whoever opens it skips the Google
+  setup and only connects their own Google account. The link carries the sign-in setup, so it is
+  sent to one person at a time, never posted in public.
+- **Invite-only for now, on the published copy.** The app opens for everyone, and connecting a
+  calendar there asks for an invite: "Request access" shows WhatsApp and email. A copy on any
+  other address is never asked (`INVITE_ONLY` and `CONTACT` in `public/config.js`).
+- **"Yours stays yours."** One short line on where things are kept, on every screen where that
+  matters: Home, the key boxes, Settings, the Record box and the invite page.
+- **Ask on every note, "Ask my notes", and a follow-up email written from the notes.** All of it
+  runs on the person's own AI key.
+- **Reminders to add the free AI key** until it is added, and the search key after it.
 
 ### Changed
 
@@ -22,6 +33,14 @@ always the latest version, so changes are grouped by the day they were made. A n
   limits, `docs/README.md` is an index, and the docs now word the privacy and security notes
   exactly as the app does.
 - Action points ticked off in a note are no longer listed as still open with a person.
+- **"Set up another device" is now "Weftday on your phone too":** two steps, the square and the
+  code. Inviting someone else is only the invite link.
+- Someone who came in by invite never sees the Google sign-in setup on screen.
+- The Teams calendar is marked Beta. With no Google account connected it now says that Google
+  comes first, instead of walking through steps that could not finish.
+- Dates in written notes carry their true weekday, in one format; a sentence said once is
+  written once; speakers are named only when the talk makes the name certain.
+- Settings, AI is split into "Keys" and "What it does", and the Google setup is four steps.
 
 ## 2026-11-18
 
